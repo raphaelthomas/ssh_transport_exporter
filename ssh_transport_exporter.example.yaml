@@ -1,0 +1,43 @@
+# Default known_hosts file for all modules
+known_hosts_file: /etc/ssh/ssh_known_hosts
+# Default port to probe targets on, if no port has been provided
+target_port: 22
+# Named modules containing a specific probe configuration
+modules:
+  # Module named "default". Used when no module is explicitly specified in a
+  # request to the exporters /probe endpoint
+  default:
+    # known_hosts file to verify a probe target's identity against. Overrides
+    # the globally set default known_hosts file.
+    known_hosts_file: /etc/ssh/other_ssh_known_hosts
+    # Port to probe a target on, if the port was not specified in the supplied
+    # target. Overrides the globally set default target_port.
+    target_port: 2222
+    # Specify the advertised ciphers and their order used in the key exchange
+    # phase.
+    ciphers:
+      - chacha20-poly1305@openssh.com
+      - aes128-ctr
+      - aes192-ctr
+      - aes256-ctr
+      - aes128-gcm@openssh.com
+      - aes256-gcm@openssh.com
+    # Specify the advertised host key algorithms and their order used to verify
+    # the target's identity.
+    host_key_algorithms:
+      - ssh-ed25519-cert-v01@openssh.com
+      - ecdsa-sha2-nistp256-cert-v01@openssh.com
+      - ecdsa-sha2-nistp384-cert-v01@openssh.com
+      - ecdsa-sha2-nistp521-cert-v01@openssh.com
+      - sk-ssh-ed25519-cert-v01@openssh.com
+      - sk-ecdsa-sha2-nistp256-cert-v01@openssh.com
+      - rsa-sha2-512-cert-v01@openssh.com
+      - rsa-sha2-256-cert-v01@openssh.com
+      - ssh-ed25519
+      - ecdsa-sha2-nistp256
+      - ecdsa-sha2-nistp384
+      - ecdsa-sha2-nistp521
+      - sk-ssh-ed25519@openssh.com
+      - sk-ecdsa-sha2-nistp256@openssh.com
+      - rsa-sha2-512
+      - rsa-sha2-256
