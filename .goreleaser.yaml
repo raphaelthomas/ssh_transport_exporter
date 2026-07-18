@@ -1,0 +1,57 @@
+version: 2
+project_name: ssh_transport_exporter
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - binary: ssh_transport_exporter
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/raphaelthomas/ssh_transport_exporter/pkg/buildinfo.Version={{.Version}}
+      - -X github.com/raphaelthomas/ssh_transport_exporter/pkg/buildinfo.Revision={{.FullCommit}}
+      - -X github.com/raphaelthomas/ssh_transport_exporter/pkg/buildinfo.Branch={{.Branch}}
+      - -X github.com/raphaelthomas/ssh_transport_exporter/pkg/buildinfo.BuildDate={{.Date}}
+
+dockers_v2:
+  - id: ssh_transport_exporter_docker
+    ids: [ssh_transport_exporter]
+    images:
+      - "ghcr.io/raphaelthomas/ssh_transport_exporter"
+    tags:
+      - "{{.Version}}"
+      - "latest"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: "{{.ProjectName}}"
+      org.opencontainers.image.revision: "{{.FullCommit}}"
+      org.opencontainers.image.version: "{{.Version}}"
+
+archives:
+  - formats: [ 'tar.gz' ]
+    name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+
+changelog:
+  use: git
+  sort: asc
+  groups:
+    - title: '🚀 Features'
+      regexp: '^.*feat[(\w)/]*!?:+.*'
+      order: 0
+    - title: '🐞 Bug Fixes'
+      regexp: '^.*fix[(\w)/]*:+.*'
+      order: 1
+    - title: '📝 Other Changes'
+      order: 999
