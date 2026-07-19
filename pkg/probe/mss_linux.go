@@ -26,7 +26,7 @@ func tcpNegotiatedMSS(conn *net.TCPConn) (int, error) {
 		mss, sockErr = unix.GetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_MAXSEG)
 	})
 	if controlErr != nil {
-		return 0, fmt.Errorf("syscall.RawConn.Control: %w", err)
+		return 0, fmt.Errorf("syscall.RawConn.Control: %w", controlErr)
 	}
 	if sockErr != nil {
 		return 0, fmt.Errorf("getsockopt(TCP_MAXSEG): %w", sockErr)
