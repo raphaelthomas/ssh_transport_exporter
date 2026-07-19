@@ -109,6 +109,11 @@ func Run(ctx context.Context, target string, opts Options) Result {
 		_ = rawConn.SetDeadline(deadline)
 	}
 
+	forceCloseOnCtxDone := context.AfterFunc(ctx, func() {
+		_ = rawConn.Close()
+	})
+	defer forceCloseOnCtxDone()
+
 	kexStart := time.Now()
 	var hostKeyErr error
 
