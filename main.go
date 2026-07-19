@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -225,7 +226,7 @@ func main() {
 	}()
 
 	logger.Info("HTTP server listening", "address", cfg.ListenAddress)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("HTTP server error", "error", err)
 		os.Exit(1)
 	}
