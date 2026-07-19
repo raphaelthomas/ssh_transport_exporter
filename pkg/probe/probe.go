@@ -32,13 +32,14 @@ const (
 
 // Result is the outcome of one probe against one target.
 type Result struct {
-	TCPConnectSuccess    bool
-	TCPConnectDuration   time.Duration
-	KEXSuccess           bool
-	KEXDuration          time.Duration
-	HostKeyVerifySuccess bool
-	ErrorStage           string
-	ErrorReason          string
+	TCPConnectSuccess       bool
+	TCPConnectDuration      time.Duration
+	TCPConnectNegotiatedMSS int
+	KEXSuccess              bool
+	KEXDuration             time.Duration
+	HostKeyVerifySuccess    bool
+	ErrorStage              string
+	ErrorReason             string
 }
 
 // Returned from HostKeyCallback to abort the handshake before auth.
@@ -97,6 +98,12 @@ func Run(ctx context.Context, target string, opts Options) Result {
 
 	result.TCPConnectSuccess = true
 	result.TCPConnectDuration = time.Since(dialStart)
+
+	if tcpConn, ok := rawConn.(*net.TCPConn); ok {
+		if mss, err := tcpNegotiatedMSS(tcpConn); err == nil {
+			result.TCPConnectNegotiatedMSS = mss
+		}
+	}
 
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = rawConn.SetDeadline(deadline)
