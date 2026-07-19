@@ -206,7 +206,11 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/probe", probeHandler(&live))
 
-	srv := &http.Server{Addr: cfg.ListenAddress, Handler: mux}
+	srv := &http.Server{
+		Addr:              cfg.ListenAddress,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	go func() {
 		sigCh := make(chan os.Signal, 1)
