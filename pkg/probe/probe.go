@@ -177,8 +177,7 @@ func classifyHostKeyVerifyError(err error) string {
 }
 
 func classifyDialError(err error) string {
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
+	if netErr, ok := errors.AsType[net.Error](err); ok && netErr.Timeout() {
 		return ErrReasonTimeout
 	}
 
@@ -199,8 +198,7 @@ func classifyDialError(err error) string {
 }
 
 func classifyKexError(err error) string {
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
+	if netErr, ok := errors.AsType[net.Error](err); ok && netErr.Timeout() {
 		return ErrReasonTimeout
 	}
 	if errors.Is(err, net.ErrClosed) {
