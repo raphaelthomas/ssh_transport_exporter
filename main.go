@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/alecthomas/kingpin"
 	"github.com/prometheus/client_golang/prometheus"
@@ -151,8 +152,17 @@ func probeHandler(live *atomic.Pointer[map[string]resolvedModule]) http.HandlerF
 
 		target = ensurePort(target, mod.targetPort)
 
+		ctx := r.Context()
+		if timeoutSecs := r.Header.Get("X-Prometheus-Scrape-Timeout-Seconds"); timeoutSecs != "" {
+			if s, err := strconv.ParseFloat(timeoutSecs, 64); err == nil && s > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, time.Duration(s*float64(time.Second)))
+				defer cancel()
+			}
+		}
+
 		registry := prometheus.NewRegistry()
-		registry.MustRegister(collector.New(r.Context(), target, mod.opts))
+		registry.MustRegister(collector.New(ctx, target, mod.opts))
 
 		promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
 	}
