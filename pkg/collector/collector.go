@@ -46,6 +46,15 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
+	tcpConnectNegotiatedMSSDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemTCP, "negotiated_mss_bytes"),
+			"Negotiated TCP maximum segment size (MSS) observed at TCP connect time. Omitted if unavailable.",
+			nil,
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
 	kexSuccessDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemKEX, "success"),
@@ -102,6 +111,7 @@ func New(ctx context.Context, target string, opts probe.Options) *SSHCollector {
 func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- tcpConnectSuccessDesc.desc
 	ch <- tcpConnectDurationDesc.desc
+	ch <- tcpConnectNegotiatedMSSDesc.desc
 	ch <- kexSuccessDesc.desc
 	ch <- kexDurationDesc.desc
 	ch <- hostKeyVerifySuccessDesc.desc
@@ -115,6 +125,9 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 	ch <- tcpConnectSuccessDesc.mustNewConstMetric(boolToFloat64(result.TCPConnectSuccess))
 	if result.TCPConnectSuccess {
 		ch <- tcpConnectDurationDesc.mustNewConstMetric(result.TCPConnectDuration.Seconds())
+		if result.TCPConnectNegotiatedMSS > 0 {
+			ch <- tcpConnectNegotiatedMSSDesc.mustNewConstMetric(float64(result.TCPConnectNegotiatedMSS))
+		}
 	}
 
 	ch <- kexSuccessDesc.mustNewConstMetric(boolToFloat64(result.KEXSuccess))
