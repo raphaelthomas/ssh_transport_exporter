@@ -11,7 +11,11 @@
 
 Prometheus exporter `ssh_transport_exporter` is credential-less by design and
 strictly limits its probing to the SSH transport layer ([RFC
-4253](https://datatracker.ietf.org/doc/html/rfc4253)).
+4253](https://datatracker.ietf.org/doc/html/rfc4253)). Specifically, it makes
+the underlying TCP connection, the initial key exchange, and the server host
+key verification observable. This can, for example, help to identify path
+MTU or TCP MSS issues, which are difficult to detect with the `blackbox_exporter`,
+without requiring any SSH credentials.
 
 Support for the SSH Authentication Protocol ([RFC
 4252](https://datatracker.ietf.org/doc/html/rfc4252)) is intentionally omitted
