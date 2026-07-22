@@ -30,6 +30,7 @@ import (
 	"github.com/alecthomas/kingpin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/pkg/buildinfo"
@@ -83,12 +84,41 @@ type resolvedModule struct {
 	targetPort int
 }
 
+// hostKeyCallbackFor builds a ssh.HostKeyCallback for a module
+func hostKeyCallbackFor(logger *slog.Logger, mod config.Module) (ssh.HostKeyCallback, error) {
+	if mod.KnownHosts == "" {
+		return knownhosts.New(mod.KnownHostsFile)
+	}
+
+	f, err := os.CreateTemp("", "ssh_transport_exporter-known_hosts-*")
+	if err != nil {
+		return nil, fmt.Errorf("creating temp known_hosts file: %w", err)
+	}
+	defer func() {
+		if err := os.Remove(f.Name()); err != nil {
+			logger.Warn("failed to remove temp known_hosts file", "path", f.Name(), "error", err)
+		}
+	}()
+
+	if _, err := f.WriteString(mod.KnownHosts); err != nil {
+		if closeErr := f.Close(); closeErr != nil {
+			logger.Warn("failed to close temp known_hosts file after write error", "path", f.Name(), "error", closeErr)
+		}
+		return nil, fmt.Errorf("writing temp known_hosts file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return nil, fmt.Errorf("closing temp known_hosts file: %w", err)
+	}
+
+	return knownhosts.New(f.Name())
+}
+
 func resolveModules(logger *slog.Logger, cfg *config.Config) (map[string]resolvedModule, error) {
 	resolved := make(map[string]resolvedModule, len(cfg.Modules))
 	for name, mod := range cfg.Modules {
-		hostKeyCallback, err := knownhosts.New(mod.KnownHostsFile)
+		hostKeyCallback, err := hostKeyCallbackFor(logger, mod)
 		if err != nil {
-			return nil, fmt.Errorf("module %q: loading known_hosts_file %q: %w", name, mod.KnownHostsFile, err)
+			return nil, fmt.Errorf("module %q: loading known_hosts: %w", name, err)
 		}
 		resolved[name] = resolvedModule{
 			opts: probe.Options{
@@ -112,7 +142,7 @@ func resolveModules(logger *slog.Logger, cfg *config.Config) (map[string]resolve
 // loadModules loads and resolves the config file in one step, for
 // reuse between initial startup and SIGHUP reload.
 func loadModules(logger *slog.Logger, configFile string) (map[string]resolvedModule, error) {
-	moduleConfig, err := config.Load(configFile)
+	moduleConfig, err := config.Load(configFile, logger)
 	if err != nil {
 		return nil, fmt.Errorf("loading config file: %w", err)
 	}
