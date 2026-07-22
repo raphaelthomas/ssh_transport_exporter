@@ -1,4 +1,4 @@
-NEXT_VERSION := $(shell svu next --v0)
+NEXT_VERSION := $(shell svu next --v0 --always)
 
 .PHONY: build release lint vet test clean
 
