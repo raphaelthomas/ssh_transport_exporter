@@ -142,7 +142,7 @@ func probeHandler(live *atomic.Pointer[map[string]resolvedModule]) http.HandlerF
 
 		moduleName := r.URL.Query().Get("module")
 		if moduleName == "" {
-			moduleName = "default"
+			moduleName = config.DefaultModuleName
 		}
 		modules := *live.Load()
 		mod, ok := modules[moduleName]

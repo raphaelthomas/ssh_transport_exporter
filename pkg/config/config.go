@@ -9,6 +9,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultModuleName is the module used when a config file defines none
+const DefaultModuleName = "default"
+
 // Module defines one named probe configuration.
 type Module struct {
 	KnownHostsFile    string   `yaml:"known_hosts_file,omitempty"`
@@ -21,7 +24,7 @@ type Module struct {
 type Config struct {
 	KnownHostsFile string            `yaml:"known_hosts_file,omitempty"`
 	TargetPort     int               `yaml:"target_port,omitempty"`
-	Modules        map[string]Module `yaml:"modules"`
+	Modules        map[string]Module `yaml:"modules,omitempty"`
 }
 
 // Load reads, resolves defaults, and validates the config file at path.
@@ -37,7 +40,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	if len(cfg.Modules) == 0 {
-		return nil, fmt.Errorf("config file defines no modules")
+		cfg.Modules = map[string]Module{DefaultModuleName: {}}
 	}
 	for name, mod := range cfg.Modules {
 		if mod.KnownHostsFile == "" {
