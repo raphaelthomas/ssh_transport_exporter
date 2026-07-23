@@ -21,3 +21,5 @@ require (
 	github.com/prometheus/procfs v0.21.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace golang.org/x/crypto => github.com/raphaelthomas/crypto v0.0.0-20260723204529-be6bf78aea9c
