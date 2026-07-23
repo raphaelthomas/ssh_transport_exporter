@@ -42,11 +42,9 @@ type Result struct {
 	ErrorReason             string
 }
 
-// Returned from HostKeyCallback to abort the handshake before auth.
-var (
-	errAbortVerified = errors.New("probe: host key verified, aborting before auth by design")
-	errAbortMismatch = errors.New("probe: host key did not match, aborting before auth by design")
-)
+// Returned from TransportReadyCallback to abort the connection after the
+// transport layer is ready, but before user authentication.
+var errAbort = errors.New("probe: aborting before auth by design")
 
 // Options controls how a probe's SSH client connection is configured.
 type Options struct {
@@ -115,7 +113,6 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	defer forceCloseOnCtxDone()
 
 	kexStart := time.Now()
-	var hostKeyErr error
 
 	hostKeyAlgorithms := opts.HostKeyAlgorithms
 	if len(hostKeyAlgorithms) == 0 {
@@ -131,24 +128,28 @@ func Run(ctx context.Context, target string, opts Options) Result {
 			result.KEXSuccess = true
 			result.KEXDuration = time.Since(kexStart)
 
-			hostKeyErr = opts.HostKeyCallback(hostname, remote, key)
-			if hostKeyErr == nil {
+			if err := opts.HostKeyCallback(hostname, remote, key); err != nil {
+				result.HostKeyVerifySuccess = false
+				result.ErrorStage = ErrStageHostKeyVerify
+				result.ErrorReason = classifyHostKeyVerifyError(err)
+			} else {
 				result.HostKeyVerifySuccess = true
-				return errAbortVerified
 			}
-			result.HostKeyVerifySuccess = false
-			return errAbortMismatch
+			// we deliberately continue here regardless of the host key verification
+			// result, so that we can record connection metadata and negotiated
+			// algorithms in TransportReadyCallback and abort therein.
+			return nil
+		},
+		TransportReadyCallback: func(connMetadata ssh.ConnMetadata, negotiatedAlgorithms ssh.NegotiatedAlgorithms) error {
+			return errAbort
 		},
 	}
 
 	_, _, _, handshakeErr := ssh.NewClientConn(rawConn, target, clientConfig)
 
 	switch {
-	case errors.Is(handshakeErr, errAbortVerified):
-		// Success is already recorded above.
-	case errors.Is(handshakeErr, errAbortMismatch):
-		result.ErrorStage = ErrStageHostKeyVerify
-		result.ErrorReason = classifyHostKeyVerifyError(hostKeyErr)
+	case errors.Is(handshakeErr, errAbort):
+		// "Successful" probe, since we got the sentinel error
 	case handshakeErr == nil:
 		// Unreachable in practice: our callback always aborts.
 		result.ErrorStage = ErrStageHostKeyVerify
