@@ -57,9 +57,26 @@ The following probe result metrics are exported by the
 `ssh_transport_exporter`s `/probe` endpoint for a successful probe:
 
 ```
+# HELP ssh_transport_cipher_info Negotiated cipher per direction. Constant 1. Absent if key exchange did not complete.
+# TYPE ssh_transport_cipher_info gauge
+ssh_transport_cipher_info{cipher="aes128-gcm@openssh.com",direction="read"} 1
+ssh_transport_cipher_info{cipher="aes128-gcm@openssh.com",direction="write"} 1
+
+# HELP ssh_transport_host_key_verify_algorithm_info Negotiated host key algorithm. Constant 1. Absent if key exchange did not complete.
+# TYPE ssh_transport_host_key_verify_algorithm_info gauge
+ssh_transport_host_key_verify_algorithm_info{algorithm="ssh-ed25519"} 1
+
 # HELP ssh_transport_host_key_verify_success Whether the server host key was successfully verified.
 # TYPE ssh_transport_host_key_verify_success gauge
 ssh_transport_host_key_verify_success 1
+
+# HELP ssh_transport_identification_server_version_info SSH version banner presented by the server (RFC 4253 4.2). Constant 1. Absent if the identification string exchange did not complete.
+# TYPE ssh_transport_identification_server_version_info gauge
+ssh_transport_identification_server_version_info{version="SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10"} 1
+
+# HELP ssh_transport_kex_algorithm_info Negotiated key exchange algorithm. Constant 1. Absent if key exchange did not complete.
+# TYPE ssh_transport_kex_algorithm_info gauge
+ssh_transport_kex_algorithm_info{algorithm="curve25519-sha256"} 1
 
 # HELP ssh_transport_kex_duration_seconds Time taken for the SSH transport layer handshake. Omitted on failure.
 # TYPE ssh_transport_kex_duration_seconds gauge
