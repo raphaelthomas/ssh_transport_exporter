@@ -162,7 +162,7 @@ func reload(logger *slog.Logger, configFile string, live *atomic.Pointer[map[str
 	logger.Info("config reloaded", "module_count", len(modules))
 }
 
-func probeHandler(live *atomic.Pointer[map[string]resolvedModule]) http.HandlerFunc {
+func probeHandler(logger *slog.Logger, live *atomic.Pointer[map[string]resolvedModule]) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		target := r.URL.Query().Get("target")
 		if target == "" {
@@ -193,7 +193,7 @@ func probeHandler(live *atomic.Pointer[map[string]resolvedModule]) http.HandlerF
 		}
 
 		registry := prometheus.NewRegistry()
-		registry.MustRegister(collector.New(ctx, target, mod.opts))
+		registry.MustRegister(collector.New(ctx, target, moduleName, mod.opts, logger))
 
 		promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
 	}
@@ -234,7 +234,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/probe", probeHandler(&live))
+	mux.HandleFunc("/probe", probeHandler(logger, &live))
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddress,

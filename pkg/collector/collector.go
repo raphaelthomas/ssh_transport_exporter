@@ -4,6 +4,7 @@ package collector
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -97,13 +98,19 @@ var (
 type SSHCollector struct {
 	ctx    context.Context
 	target string
+	module string
 	opts   probe.Options
+	logger *slog.Logger
 }
 
 // New builds a collector for one probe. Register it on a fresh,
-// request-scoped *prometheus.Registry per HTTP request.
-func New(ctx context.Context, target string, opts probe.Options) *SSHCollector {
-	return &SSHCollector{ctx: ctx, target: target, opts: opts}
+// request-scoped *prometheus.Registry per HTTP request. module is used
+// only for logging context, not for metric labels.
+func New(ctx context.Context, target, module string, opts probe.Options, logger *slog.Logger) *SSHCollector {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	return &SSHCollector{ctx: ctx, target: target, module: module, opts: opts, logger: logger}
 }
 
 // Describe sends every possible descriptor regardless of whether a
@@ -121,6 +128,21 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 // Collect runs the probe and translates the result into metrics.
 func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 	result := probe.Run(c.ctx, c.target, c.opts)
+
+	if c.logger.Enabled(c.ctx, slog.LevelDebug) {
+		c.logger.Debug("probe result",
+			"target", c.target,
+			"module", c.module,
+			"tcp_connect_success", result.TCPConnectSuccess,
+			"tcp_connect_duration", result.TCPConnectDuration,
+			"tcp_connect_negotiated_mss", result.TCPConnectNegotiatedMSS,
+			"kex_success", result.KEXSuccess,
+			"kex_duration", result.KEXDuration,
+			"host_key_verify_success", result.HostKeyVerifySuccess,
+			"error_stage", result.ErrorStage,
+			"error_reason", result.ErrorReason,
+		)
+	}
 
 	ch <- tcpConnectSuccessDesc.mustNewConstMetric(boolToFloat64(result.TCPConnectSuccess))
 	if result.TCPConnectSuccess {
