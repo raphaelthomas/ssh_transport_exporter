@@ -52,21 +52,35 @@ func main() {
 	result := probe.Run(ctx, target, probe.Options{HostKeyCallback: hostKeyCallback})
 	elapsed := time.Since(start)
 
-	fmt.Printf("target:              %s\n", target)
-	fmt.Printf("tcp_connect_success: %v\n", result.TCPConnectSuccess)
+	fmt.Printf("target:               %s\n", target)
+	fmt.Printf("tcp_connect_success:  %v\n", result.TCPConnectSuccess)
 	if result.TCPConnectSuccess {
 		fmt.Printf("tcp_connect_duration: %s\n", result.TCPConnectDuration)
+		if result.TCPConnectNegotiatedMSS > 0 {
+			fmt.Printf("tcp_negotiated_mss:   %d\n", result.TCPConnectNegotiatedMSS)
+		}
 	}
-	fmt.Printf("kex_success:         %v\n", result.KEXSuccess)
+	if result.ServerVersion != "" {
+		fmt.Printf("server_version:       %s\n", result.ServerVersion)
+	}
+	fmt.Printf("kex_success:          %v\n", result.KEXSuccess)
 	if result.KEXSuccess {
-		fmt.Printf("kex_duration:        %s\n", result.KEXDuration)
+		fmt.Printf("kex_duration:         %s\n", result.KEXDuration)
+		fmt.Printf("kex_algorithm:        %s\n", result.KEXAlgorithm)
 	}
-	fmt.Printf("host_key_success:    %v\n", result.HostKeyVerifySuccess)
+	fmt.Printf("host_key_success:     %v\n", result.HostKeyVerifySuccess)
+	if result.HostKeyAlgorithm != "" {
+		fmt.Printf("host_key_algorithm:   %s\n", result.HostKeyAlgorithm)
+	}
+	if result.CipherRead != "" || result.CipherWrite != "" {
+		fmt.Printf("cipher_read:          %s\n", result.CipherRead)
+		fmt.Printf("cipher_write:         %s\n", result.CipherWrite)
+	}
 	if result.ErrorStage != "" {
-		fmt.Printf("error_stage:         %s\n", result.ErrorStage)
-		fmt.Printf("error_reason:        %s\n", result.ErrorReason)
+		fmt.Printf("error_stage:          %s\n", result.ErrorStage)
+		fmt.Printf("error_reason:         %s\n", result.ErrorReason)
 	}
-	fmt.Printf("total_elapsed:       %s\n", elapsed)
+	fmt.Printf("total_elapsed:        %s\n", elapsed)
 
 	if result.ErrorStage != "" {
 		os.Exit(1)
