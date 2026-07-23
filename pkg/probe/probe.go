@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -32,14 +33,25 @@ const (
 
 // Result is the outcome of one probe against one target.
 type Result struct {
+	// TCP connection results
 	TCPConnectSuccess       bool
 	TCPConnectDuration      time.Duration
 	TCPConnectNegotiatedMSS int
-	KEXSuccess              bool
-	KEXDuration             time.Duration
-	HostKeyVerifySuccess    bool
-	ErrorStage              string
-	ErrorReason             string
+	// SSH identification string exchange results
+	ServerVersion string
+	// Key exchange results
+	KEXSuccess   bool
+	KEXDuration  time.Duration
+	KEXAlgorithm string
+	// Host key verification results
+	HostKeyVerifySuccess bool
+	HostKeyAlgorithm     string
+	// Negotiated ciphers
+	CipherRead  string
+	CipherWrite string
+	// Error classification results
+	ErrorStage  string
+	ErrorReason string
 }
 
 // Returned from TransportReadyCallback to abort the connection after the
@@ -141,6 +153,12 @@ func Run(ctx context.Context, target string, opts Options) Result {
 			return nil
 		},
 		TransportReadyCallback: func(connMetadata ssh.ConnMetadata, negotiatedAlgorithms ssh.NegotiatedAlgorithms) error {
+			result.ServerVersion = sanitizeServerVersion(connMetadata.ServerVersion())
+			result.KEXAlgorithm = negotiatedAlgorithms.KeyExchange
+			result.HostKeyAlgorithm = negotiatedAlgorithms.HostKey
+			result.CipherRead = negotiatedAlgorithms.Read.Cipher
+			result.CipherWrite = negotiatedAlgorithms.Write.Cipher
+
 			return errAbort
 		},
 	}
@@ -206,4 +224,23 @@ func classifyKexError(err error) string {
 		return ErrReasonConnectionReset
 	}
 	return ErrReasonOther
+}
+
+// sanitizeServerVersion returns a bounded, control-character-free copy of the
+// raw SSH version banner. The banner is attacker-controlled: nothing about it
+// is signed or verified, so this must not pass the raw bytes straight through
+// to a Prometheus label.
+func sanitizeServerVersion(raw []byte) string {
+	const maxLen = 255 // see RFC 4253, section 4.2
+	if len(raw) > maxLen {
+		raw = raw[:maxLen]
+	}
+	b := make([]byte, 0, len(raw))
+	for _, r := range string(raw) {
+		if r < 0x20 || r == 0x7f || r == utf8.RuneError {
+			continue // drop control characters and invalid encoding
+		}
+		b = utf8.AppendRune(b, r)
+	}
+	return string(b)
 }
