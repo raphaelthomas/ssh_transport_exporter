@@ -14,8 +14,10 @@ import (
 const (
 	namespace              = "ssh_transport"
 	subSystemTCP           = "tcp_connect"
+	subSystemIdent         = "identification"
 	subSystemKEX           = "kex"
 	subSystemHostKeyVerify = "host_key_verify"
+	subSystemCipher        = "cipher"
 	subSystemError         = "error"
 )
 
@@ -56,6 +58,15 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
+	serverVersionInfoDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemIdent, "server_version_info"),
+			"SSH version banner presented by the server (RFC 4253 4.2). Constant 1. Absent if the identification string exchange did not complete.",
+			[]string{"version"},
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
 	kexSuccessDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemKEX, "success"),
@@ -74,11 +85,38 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
+	kexAlgorithmInfoDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemKEX, "algorithm_info"),
+			"Negotiated key exchange algorithm. Constant 1. Absent if key exchange did not complete.",
+			[]string{"algorithm"},
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
 	hostKeyVerifySuccessDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemHostKeyVerify, "success"),
 			"Whether the server host key was successfully verified.",
 			nil,
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
+	hostKeyAlgorithmInfoDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemHostKeyVerify, "algorithm_info"),
+			"Negotiated host key algorithm. Constant 1. Absent if key exchange did not complete.",
+			[]string{"algorithm"},
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
+	cipherInfoDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemCipher, "info"),
+			"Negotiated cipher per direction. Constant 1. Absent if key exchange did not complete.",
+			[]string{"direction", "cipher"},
 			nil,
 		),
 		prometheus.GaugeValue,
@@ -119,9 +157,13 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- tcpConnectSuccessDesc.desc
 	ch <- tcpConnectDurationDesc.desc
 	ch <- tcpConnectNegotiatedMSSDesc.desc
+	ch <- serverVersionInfoDesc.desc
 	ch <- kexSuccessDesc.desc
 	ch <- kexDurationDesc.desc
+	ch <- kexAlgorithmInfoDesc.desc
 	ch <- hostKeyVerifySuccessDesc.desc
+	ch <- hostKeyAlgorithmInfoDesc.desc
+	ch <- cipherInfoDesc.desc
 	ch <- errorInfoDesc.desc
 }
 
@@ -136,9 +178,14 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"tcp_connect_success", result.TCPConnectSuccess,
 			"tcp_connect_duration", result.TCPConnectDuration,
 			"tcp_connect_negotiated_mss", result.TCPConnectNegotiatedMSS,
+			"server_version", result.ServerVersion,
 			"kex_success", result.KEXSuccess,
 			"kex_duration", result.KEXDuration,
+			"kex_algorithm", result.KEXAlgorithm,
 			"host_key_verify_success", result.HostKeyVerifySuccess,
+			"host_key_algorithm", result.HostKeyAlgorithm,
+			"cipher_read", result.CipherRead,
+			"cipher_write", result.CipherWrite,
 			"error_stage", result.ErrorStage,
 			"error_reason", result.ErrorReason,
 		)
@@ -152,12 +199,29 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 	}
 
+	if result.ServerVersion != "" {
+		ch <- serverVersionInfoDesc.mustNewConstMetric(1, result.ServerVersion)
+	}
+
 	ch <- kexSuccessDesc.mustNewConstMetric(boolToFloat64(result.KEXSuccess))
 	if result.KEXSuccess {
 		ch <- kexDurationDesc.mustNewConstMetric(result.KEXDuration.Seconds())
+		if result.KEXAlgorithm != "" {
+			ch <- kexAlgorithmInfoDesc.mustNewConstMetric(1, result.KEXAlgorithm)
+		}
 	}
 
 	ch <- hostKeyVerifySuccessDesc.mustNewConstMetric(boolToFloat64(result.HostKeyVerifySuccess))
+	if result.HostKeyAlgorithm != "" {
+		ch <- hostKeyAlgorithmInfoDesc.mustNewConstMetric(1, result.HostKeyAlgorithm)
+	}
+
+	if result.CipherRead != "" {
+		ch <- cipherInfoDesc.mustNewConstMetric(1, "read", result.CipherRead)
+	}
+	if result.CipherWrite != "" {
+		ch <- cipherInfoDesc.mustNewConstMetric(1, "write", result.CipherWrite)
+	}
 
 	if result.ErrorStage != "" {
 		ch <- errorInfoDesc.mustNewConstMetric(1, result.ErrorStage, result.ErrorReason)
