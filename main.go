@@ -30,13 +30,10 @@ import (
 	"github.com/alecthomas/kingpin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/pkg/buildinfo"
 	"github.com/raphaelthomas/ssh_transport_exporter/pkg/collector"
 	"github.com/raphaelthomas/ssh_transport_exporter/pkg/config"
-	"github.com/raphaelthomas/ssh_transport_exporter/pkg/probe"
 )
 
 // Cfg holds the exporter's runtime flags, distinct from config.Config
@@ -77,84 +74,11 @@ func parseFlags() *Cfg {
 	return cfg
 }
 
-// resolvedModule has its known_hosts file already parsed, so per-probe
-// requests never touch the filesystem.
-type resolvedModule struct {
-	opts       probe.Options
-	targetPort int
-}
-
-// hostKeyCallbackFor builds a ssh.HostKeyCallback for a module
-func hostKeyCallbackFor(logger *slog.Logger, mod config.Module) (ssh.HostKeyCallback, error) {
-	if mod.KnownHosts == "" {
-		return knownhosts.New(mod.KnownHostsFile)
-	}
-
-	f, err := os.CreateTemp("", "ssh_transport_exporter-known_hosts-*")
-	if err != nil {
-		return nil, fmt.Errorf("creating temp known_hosts file: %w", err)
-	}
-	defer func() {
-		if err := os.Remove(f.Name()); err != nil {
-			logger.Warn("failed to remove temp known_hosts file", "path", f.Name(), "error", err)
-		}
-	}()
-
-	if _, err := f.WriteString(mod.KnownHosts); err != nil {
-		if closeErr := f.Close(); closeErr != nil {
-			logger.Warn("failed to close temp known_hosts file after write error", "path", f.Name(), "error", closeErr)
-		}
-		return nil, fmt.Errorf("writing temp known_hosts file: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return nil, fmt.Errorf("closing temp known_hosts file: %w", err)
-	}
-
-	return knownhosts.New(f.Name())
-}
-
-func resolveModules(logger *slog.Logger, cfg *config.Config) (map[string]resolvedModule, error) {
-	resolved := make(map[string]resolvedModule, len(cfg.Modules))
-	for name, mod := range cfg.Modules {
-		hostKeyCallback, err := hostKeyCallbackFor(logger, mod)
-		if err != nil {
-			return nil, fmt.Errorf("module %q: loading known_hosts: %w", name, err)
-		}
-		resolved[name] = resolvedModule{
-			opts: probe.Options{
-				HostKeyCallback:   hostKeyCallback,
-				Ciphers:           mod.Ciphers,
-				HostKeyAlgorithms: mod.HostKeyAlgorithms,
-				Logger:            logger,
-			},
-			targetPort: mod.TargetPort,
-		}
-		logger.Info("loaded module",
-			"module", name,
-			"known_hosts_file", mod.KnownHostsFile,
-			"target_port", mod.TargetPort,
-			"ciphers", mod.Ciphers,
-			"host_key_algorithms", mod.HostKeyAlgorithms,
-		)
-	}
-	return resolved, nil
-}
-
-// loadModules loads and resolves the config file in one step, for
-// reuse between initial startup and SIGHUP reload.
-func loadModules(logger *slog.Logger, configFile string) (map[string]resolvedModule, error) {
-	moduleConfig, err := config.Load(configFile, logger)
-	if err != nil {
-		return nil, fmt.Errorf("loading config file: %w", err)
-	}
-	return resolveModules(logger, moduleConfig)
-}
-
 // reload re-reads the config file and atomically swaps the live module
 // set. On any error, it logs and leaves the previous (still valid)
 // module set in place.
-func reload(logger *slog.Logger, configFile string, live *atomic.Pointer[map[string]resolvedModule]) {
-	modules, err := loadModules(logger, configFile)
+func reload(logger *slog.Logger, configFile string, live *atomic.Pointer[map[string]config.Module]) {
+	modules, err := config.Load(configFile, logger)
 	if err != nil {
 		logger.Error("config reload failed, keeping previous config", "path", configFile, "error", err)
 		return
@@ -163,7 +87,7 @@ func reload(logger *slog.Logger, configFile string, live *atomic.Pointer[map[str
 	logger.Info("config reloaded", "module_count", len(modules))
 }
 
-func probeHandler(logger *slog.Logger, live *atomic.Pointer[map[string]resolvedModule]) http.HandlerFunc {
+func probeHandler(logger *slog.Logger, live *atomic.Pointer[map[string]config.Module]) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		target := r.URL.Query().Get("target")
 		if target == "" {
@@ -182,7 +106,7 @@ func probeHandler(logger *slog.Logger, live *atomic.Pointer[map[string]resolvedM
 			return
 		}
 
-		target = ensurePort(target, mod.targetPort)
+		target = ensurePort(target, mod.TargetPort)
 
 		ctx := r.Context()
 		if timeoutSecs := r.Header.Get("X-Prometheus-Scrape-Timeout-Seconds"); timeoutSecs != "" {
@@ -194,7 +118,7 @@ func probeHandler(logger *slog.Logger, live *atomic.Pointer[map[string]resolvedM
 		}
 
 		registry := prometheus.NewRegistry()
-		registry.MustRegister(collector.New(ctx, target, moduleName, mod.opts, logger))
+		registry.MustRegister(collector.New(ctx, target, moduleName, mod.Options, logger))
 
 		promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
 	}
@@ -217,13 +141,13 @@ func main() {
 	logLevel.Set(cfg.LogLevel)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 
-	modules, err := loadModules(logger, cfg.ConfigFile)
+	modules, err := config.Load(cfg.ConfigFile, logger)
 	if err != nil {
 		logger.Error("failed to load config", "path", cfg.ConfigFile, "error", err)
 		os.Exit(1)
 	}
 
-	var live atomic.Pointer[map[string]resolvedModule]
+	var live atomic.Pointer[map[string]config.Module]
 	live.Store(&modules)
 
 	logger.Info("Starting SSH Transport Exporter",
