@@ -14,9 +14,10 @@ import (
 // Module is a ready-to-probe configuration. Its known_hosts is parsed into a
 // callback, so per-probe requests never touch the filesystem.
 type Module struct {
-	Options      probe.Options
-	TargetPort   int
-	AllowedPorts map[int]struct{}
+	Options        probe.Options
+	AllowedTargets []TargetMatcher
+	AllowedPorts   map[int]struct{}
+	TargetPort     int
 }
 
 // Load reads, resolves, and validates the config file at path, then builds
@@ -40,10 +41,21 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 		if err != nil {
 			return nil, fmt.Errorf("module %q: loading known_hosts: %w", name, err)
 		}
+
+		allowedTargets := make([]TargetMatcher, 0, len(mod.AllowedTargets))
+		for _, pat := range mod.AllowedTargets {
+			m, err := buildTarget(pat)
+			if err != nil {
+				return nil, fmt.Errorf("module %q: allowed_targets: %w", name, err)
+			}
+			allowedTargets = append(allowedTargets, m)
+		}
+
 		allowedPorts := make(map[int]struct{}, len(mod.AllowedPorts))
 		for _, p := range mod.AllowedPorts {
 			allowedPorts[p] = struct{}{}
 		}
+
 		modules[name] = Module{
 			Options: probe.Options{
 				HostKeyCallback:   hostKeyCallback,
@@ -51,12 +63,15 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 				HostKeyAlgorithms: mod.HostKeyAlgorithms,
 				Logger:            logger,
 			},
-			TargetPort:   mod.TargetPort,
-			AllowedPorts: allowedPorts,
+			AllowedTargets: allowedTargets,
+			AllowedPorts:   allowedPorts,
+			TargetPort:     mod.TargetPort,
 		}
 		logger.Info("loaded module",
 			"module", name,
 			"known_hosts_file", mod.KnownHostsFile,
+			"allowed_targets", mod.AllowedTargets,
+			"allowed_ports", mod.AllowedPorts,
 			"target_port", mod.TargetPort,
 			"ciphers", mod.Ciphers,
 			"host_key_algorithms", mod.HostKeyAlgorithms,
