@@ -42,6 +42,7 @@ type Cfg struct {
 	ListenAddress string
 	LogLevel      slog.Level
 	ConfigFile    string
+	ProbeTimeout  time.Duration
 }
 
 func parseFlags() *Cfg {
@@ -66,6 +67,11 @@ func parseFlags() *Cfg {
 		Envar(envPrefix + "CONFIG_FILE").
 		StringVar(&cfg.ConfigFile)
 
+	app.Flag("probe.timeout", "Hard upper bound for a single probe; Prometheus scrape timeout may shorten it.").
+		Default("5s").
+		Envar(envPrefix + "PROBE_TIMEOUT").
+		DurationVar(&cfg.ProbeTimeout)
+
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
 	if err := cfg.LogLevel.UnmarshalText([]byte(*logLevelFlag)); err != nil {
@@ -87,7 +93,7 @@ func reload(logger *slog.Logger, configFile string, live *atomic.Pointer[map[str
 	logger.Info("config reloaded", "module_count", len(modules))
 }
 
-func probeHandler(logger *slog.Logger, live *atomic.Pointer[map[string]config.Module]) http.HandlerFunc {
+func probeHandler(logger *slog.Logger, timeout time.Duration, live *atomic.Pointer[map[string]config.Module]) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		target := r.URL.Query().Get("target")
 		if target == "" {
@@ -108,14 +114,15 @@ func probeHandler(logger *slog.Logger, live *atomic.Pointer[map[string]config.Mo
 
 		target = ensurePort(target, mod.TargetPort)
 
-		ctx := r.Context()
 		if timeoutSecs := r.Header.Get("X-Prometheus-Scrape-Timeout-Seconds"); timeoutSecs != "" {
 			if s, err := strconv.ParseFloat(timeoutSecs, 64); err == nil && s > 0 {
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithTimeout(ctx, time.Duration(s*float64(time.Second)))
-				defer cancel()
+				if scrapeTimeout := time.Duration(s * float64(time.Second)); scrapeTimeout < timeout {
+					timeout = scrapeTimeout
+				}
 			}
 		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
 
 		registry := prometheus.NewRegistry()
 		registry.MustRegister(collector.New(ctx, target, moduleName, mod.Options, logger))
@@ -159,7 +166,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/probe", probeHandler(logger, &live))
+	mux.HandleFunc("/probe", probeHandler(logger, cfg.ProbeTimeout, &live))
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddress,

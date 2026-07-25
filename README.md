@@ -35,13 +35,14 @@ The exporter itself is configured via the following parameters:
 usage: ssh_transport_exporter [<flags>]
 
 Flags:
-  -h, --help            Show context-sensitive help (also try --help-long and --help-man).
-      --version         Show application version.
+  -h, --help              Show context-sensitive help (also try --help-long and --help-man).
+      --version           Show application version.
       --web.listen-address=":10022"
-                        Address to listen on for web interface and telemetry
-      --log-level=info  Log level (debug, info, warn, error)
+                          Address to listen on for web interface and telemetry
+      --log-level=info    Log level (debug, info, warn, error)
       --config.file="ssh_transport_exporter.yaml"
-                        Path to the exporter's YAML config file with module definitions)
+                          Path to the exporter's YAML config file with module definitions)
+      --probe.timeout=5s  Maximum duration for a single probe, applied even if the scrape sends no timeout header
 ```
 
 Probes are defined in a YAML configuration file, which is specified via the
@@ -50,6 +51,19 @@ Probes are defined in a YAML configuration file, which is specified via the
 See
 [`ssh_transport_exporter.example.yaml`](./ssh_transport_exporter.example.yaml)
 for a fully annotated example configuration file.
+
+### Probe timeout
+
+`--probe.timeout` (default `5s`) is a hard upper bound on a single probe,
+applied even when a request carries no `X-Prometheus-Scrape-Timeout-Seconds`
+header. When Prometheus does send that header, the effective timeout is the
+**smaller** of the two - so a per-job `scrape_timeout` is the right place to
+tune timeouts per target set.
+
+Prefer the smallest value that comfortably covers a healthy handshake: an
+offline or filtered target (no connection refused) holds a probe open for the
+full timeout on every scrape, so a large value multiplies resource use across a
+big fleet.
 
 ## Exported Metrics
 
@@ -152,8 +166,8 @@ The reason narrows down the cause within a stage.
 | Reason | Typical Stage(s) | Description |
 | --- | --- | --- |
 | `connection_refused` | `tcp_connect` | The target actively refused the connection (`ECONNREFUSED`) — commonly nothing listening on the port, or a firewall sending a reset. |
-| `no_route_to_host` | `tcp_connect` | The destination *network* is reachable, but the specific *host* is not (`EHOSTUNREACH`) — often a down host or an ICMP host-unreachable from a router. |
-| `network_unreachable` | `tcp_connect` | There is no route to the destination *network* at all (`ENETUNREACH`) — typically a missing route, absent default gateway, or a down interface on the prober side. |
+| `no_route_to_host` | `tcp_connect` | The destination _network_ is reachable, but the specific _host_ is not (`EHOSTUNREACH`) — often a down host or an ICMP host-unreachable from a router. |
+| `network_unreachable` | `tcp_connect` | There is no route to the destination _network_ at all (`ENETUNREACH`) — typically a missing route, absent default gateway, or a down interface on the prober side. |
 | `dns_failure` | `tcp_connect` | The target hostname could not be resolved (DNS lookup error). |
 | `connection_reset` | `kex` | The connection was closed unexpectedly during key exchange (e.g. the peer reset it, or it was torn down mid-handshake). |
 | `timeout` | `tcp_connect`, `kex` | The operation exceeded its deadline (the scrape timeout or a network-level timeout). |
