@@ -21,23 +21,28 @@ import (
 // Handler returns the /probe HTTP handler. timeout is a hard upper bound
 // on a single probe; a shorter Prometheus scrape timeout (sent via the
 // X-Prometheus-Scrape-Timeout-Seconds header) takes precedence. live is
-// the current module set, swapped atomically on config reload.
-func Handler(logger *slog.Logger, timeout time.Duration, live *atomic.Pointer[map[string]config.Module]) http.HandlerFunc {
+// the current module set, swapped atomically on config reload. requests
+// counts every probe request by module and HTTP status code; it must be
+// registered by the caller.
+func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.CounterVec, live *atomic.Pointer[map[string]config.Module]) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		target := r.URL.Query().Get("target")
-		if target == "" {
-			http.Error(w, "target parameter is required", http.StatusBadRequest)
-			return
-		}
-
 		moduleName := r.URL.Query().Get("module")
 		if moduleName == "" {
 			moduleName = config.DefaultModuleName
 		}
+
+		target := r.URL.Query().Get("target")
+		if target == "" {
+			http.Error(w, "target parameter is required", http.StatusBadRequest)
+			requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusBadRequest)).Inc()
+			return
+		}
+
 		modules := *live.Load()
 		mod, ok := modules[moduleName]
 		if !ok {
 			http.Error(w, fmt.Sprintf("unknown module %q", moduleName), http.StatusBadRequest)
+			requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusBadRequest)).Inc()
 			return
 		}
 
@@ -57,6 +62,7 @@ func Handler(logger *slog.Logger, timeout time.Duration, live *atomic.Pointer[ma
 		registry.MustRegister(collector.New(ctx, target, moduleName, mod.Options, logger))
 
 		promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
+		requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusOK)).Inc()
 	}
 }
 

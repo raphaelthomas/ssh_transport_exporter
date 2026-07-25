@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/alecthomas/kingpin"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/pkg/buildinfo"
@@ -112,9 +113,19 @@ func main() {
 		"module_count", len(modules),
 	)
 
+	probeRequests := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ssh_transport_exporter",
+			Name:      "probe_requests_total",
+			Help:      "Total probe requests served by module and HTTP status code. 200 means the probe was executed and metrics were served (regardless of probe success); 400 means the request was rejected.",
+		},
+		[]string{"module", "code"},
+	)
+	prometheus.MustRegister(probeRequests)
+
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/probe", probehttp.Handler(logger, cfg.ProbeTimeout, &live))
+	mux.HandleFunc("/probe", probehttp.Handler(logger, cfg.ProbeTimeout, probeRequests, &live))
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddress,
