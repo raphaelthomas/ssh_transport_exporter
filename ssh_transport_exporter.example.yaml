@@ -64,3 +64,20 @@ modules:
       - sk-ecdsa-sha2-nistp256@openssh.com
       - rsa-sha2-512
       - rsa-sha2-256
+  # Module named "weak_audit". Advertises ONLY the insecure ciphers and host key
+  # algorithms x/crypto/ssh still supports. Because these are never negotiated
+  # by default, a successful probe with this module means the target agreed to a
+  # weak algorithm: probe SUCCESS flags a problematic host, and probe FAILURE
+  # (no mutual algorithm) means the target correctly refused all weak options (or is offline).
+  weak_audit:
+    ciphers:
+      - arcfour        # RC4, no keystream discard (weakest)
+      - arcfour128     # RC4
+      - arcfour256     # RC4
+      - 3des-cbc       # 64-bit block cipher, CBC
+      - aes128-cbc     # CBC mode (vulnerable to padding-oracle attacks)
+    host_key_algorithms:
+      - ssh-dss-cert-v01@openssh.com   # DSA, insecure key sizes
+      - ssh-dss                        # DSA, insecure key sizes
+      - ssh-rsa-cert-v01@openssh.com   # SHA-1 signature
+      - ssh-rsa                        # SHA-1 signature
