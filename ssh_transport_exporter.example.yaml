@@ -1,12 +1,22 @@
 # Default known_hosts file for all modules
 known_hosts_file: /etc/ssh/ssh_known_hosts
-# Default port to probe targets on, if no port has been provided
-target_port: 22
+# Default allow-list of probe targets, inherited by modules that set none.
+# Forms: exact hostname, "*.sub.example.com" (exactly one left label),
+# IPv4/IPv6 literal, or CIDR. A nil or empty list denies all targets. Matching
+# is literal on the caller-sent target with no DNS resolution: hostname
+# patterns match only hostname targets, IP/CIDR only IP targets.
+allowed_targets:
+  - "*.example.com"
+  - bastion.example.com
+  - 10.0.0.0/8
+  - 2001:db8::/32
 # Default set of ports a module is permitted to probe. Defaults to target_port.
 # Must contain target_port.
 allowed_ports:
   - 22
   - 2222
+# Default port to probe targets on, if no port has been provided
+target_port: 22
 # Named modules containing a specific probe configuration
 modules:
   # Module named "default". Used when no module is explicitly specified in a
@@ -15,14 +25,17 @@ modules:
     # known_hosts file to verify a probe target's identity against. Overrides
     # the globally set default known_hosts file.
     known_hosts_file: /etc/ssh/other_ssh_known_hosts
-    # Port to probe a target on, if the port was not specified in the supplied
-    # target. Overrides the globally set default target_port.
-    target_port: 2222
+    # This module overrides the inherited list with its own.
+    allowed_targets:
+      - "*.prod.example.com"
     # Ports this module is permitted to probe. Overrides the globally set
     # default allowed_ports. Must contain target_port (2222 below).
     allowed_ports:
       - 2222
       - 8022
+    # Port to probe a target on, if the port was not specified in the supplied
+    # target. Overrides the globally set default target_port.
+    target_port: 2222
     # Specify the advertised ciphers and their order used in the key exchange
     # phase.
     ciphers:

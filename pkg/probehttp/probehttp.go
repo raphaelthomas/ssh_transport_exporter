@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/raphaelthomas/ssh_transport_exporter/pkg/collector"
 	"github.com/raphaelthomas/ssh_transport_exporter/pkg/config"
+	"github.com/raphaelthomas/ssh_transport_exporter/pkg/normalize"
 )
 
 // Handler returns the /probe HTTP handler. timeout is a hard upper bound
@@ -46,9 +48,9 @@ func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.Co
 			return
 		}
 
-		target, port, err := ensurePort(target, mod.TargetPort)
+		target, host, port, err := ensurePort(target, mod.TargetPort)
 		if err != nil {
-			logger.Warn("probe rejected: malformed target port", "module", moduleName, "target", r.URL.Query().Get("target"), "error", err)
+			logger.Warn("probe rejected: malformed target", "module", moduleName, "target", r.URL.Query().Get("target"), "error", err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusBadRequest)).Inc()
 			return
@@ -56,6 +58,12 @@ func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.Co
 		if _, allowed := mod.AllowedPorts[port]; !allowed {
 			logger.Warn("probe rejected: port not allowed", "module", moduleName, "target", target, "port", port)
 			http.Error(w, fmt.Sprintf("port %d not allowed for module %q", port, moduleName), http.StatusForbidden)
+			requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusForbidden)).Inc()
+			return
+		}
+		if !targetAllowed(host, mod.AllowedTargets) {
+			logger.Warn("probe rejected: target not allowed", "module", moduleName, "target", target, "host", host)
+			http.Error(w, fmt.Sprintf("target %q not allowed for module %q", host, moduleName), http.StatusForbidden)
 			requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusForbidden)).Inc()
 			return
 		}
@@ -78,17 +86,41 @@ func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.Co
 	}
 }
 
-// ensurePort returns target guaranteed to carry a port (appending
-// defaultPort if it had none) along with that port as an int. It errors
-// only if target carries a malformed port (client error).
-func ensurePort(target string, defaultPort int) (string, int, error) {
-	host, portStr, err := net.SplitHostPort(target)
+// ensurePort parses target (a bare "host" or "host:port", where host may be a
+// bracketed IPv6 literal) and returns the canonical "host:port" target, the
+// bracket-free host, and the port. When target carries no port, defaultPort is
+// used. It errors on a malformed target or port.
+func ensurePort(target string, defaultPort int) (normalizedTarget, host string, port int, err error) {
+	u, err := url.Parse("//" + target)
 	if err != nil {
-		return net.JoinHostPort(target, strconv.Itoa(defaultPort)), defaultPort, nil
+		return "", "", 0, fmt.Errorf("invalid target %q: %w", target, err)
 	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return "", 0, fmt.Errorf("invalid port %q in target", portStr)
+	// A target must be a bare host[:port]; reject any URL structure that
+	// url.Parse would otherwise silently drop (userinfo, path, query, fragment).
+	if u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+		return "", "", 0, fmt.Errorf("invalid target %q: must be host or host:port", target)
 	}
-	return net.JoinHostPort(host, portStr), port, nil
+	host = normalize.Hostname(u.Hostname())
+	if host == "" {
+		return "", "", 0, fmt.Errorf("invalid target %q: no host", target)
+	}
+	port = defaultPort
+	if p := u.Port(); p != "" {
+		port, err = strconv.Atoi(p)
+		if err != nil {
+			return "", "", 0, fmt.Errorf("invalid port %q in target %q", p, target)
+		}
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port)), host, port, nil
+}
+
+// targetAllowed reports whether host matches any matcher. No matchers means
+// deny-all.
+func targetAllowed(host string, matchers []config.TargetMatcher) bool {
+	for _, m := range matchers {
+		if m.Match(host) {
+			return true
+		}
+	}
+	return false
 }

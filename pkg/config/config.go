@@ -19,8 +19,9 @@ const DefaultModuleName = "default"
 type rawConfigModule struct {
 	KnownHosts        string   `yaml:"known_hosts,omitempty"`
 	KnownHostsFile    string   `yaml:"known_hosts_file,omitempty"`
-	TargetPort        int      `yaml:"target_port,omitempty"`
+	AllowedTargets    []string `yaml:"allowed_targets,omitempty"`
 	AllowedPorts      []int    `yaml:"allowed_ports,omitempty"`
+	TargetPort        int      `yaml:"target_port,omitempty"`
 	Ciphers           []string `yaml:"ciphers,omitempty"`
 	HostKeyAlgorithms []string `yaml:"host_key_algorithms,omitempty"`
 }
@@ -29,8 +30,9 @@ type rawConfigModule struct {
 type rawConfig struct {
 	KnownHosts     string                     `yaml:"known_hosts,omitempty"`
 	KnownHostsFile string                     `yaml:"known_hosts_file,omitempty"`
-	TargetPort     int                        `yaml:"target_port,omitempty"`
+	AllowedTargets []string                   `yaml:"allowed_targets,omitempty"`
 	AllowedPorts   []int                      `yaml:"allowed_ports,omitempty"`
+	TargetPort     int                        `yaml:"target_port,omitempty"`
 	Modules        map[string]rawConfigModule `yaml:"modules,omitempty"`
 }
 
@@ -74,6 +76,12 @@ func loadRawConfig(path string, logger *slog.Logger) (*rawConfig, error) {
 		}
 		if mod.KnownHosts == "" && mod.KnownHostsFile == "" {
 			return nil, fmt.Errorf("module %q: known_hosts or known_hosts_file is required (neither set at module level nor in defaults)", name)
+		}
+
+		// allowed_targets: inherit default when the module sets none. A nil or
+		// empty list means deny-all.
+		if mod.AllowedTargets == nil {
+			mod.AllowedTargets = cfg.AllowedTargets
 		}
 
 		if mod.TargetPort == 0 {
