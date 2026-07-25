@@ -1,5 +1,5 @@
-// Package config loads the exporter's YAML config file, which defines named
-// modules.
+// Package config loads the exporter's YAML configuration and compiles it into
+// ready-to-probe Modules, including building host key callbacks.
 package config
 
 import (
@@ -10,11 +10,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultModuleName is the module used when a config file defines none
+// DefaultModuleName is the module used when a config file defines none,
+// and the module selected when a /probe request omits the module parameter.
 const DefaultModuleName = "default"
 
-// Module defines one named probe configuration.
-type Module struct {
+// rawConfigModule defines one named probe configuration as written in YAML.
+type rawConfigModule struct {
 	KnownHosts        string   `yaml:"known_hosts,omitempty"`
 	KnownHostsFile    string   `yaml:"known_hosts_file,omitempty"`
 	TargetPort        int      `yaml:"target_port,omitempty"`
@@ -22,28 +23,30 @@ type Module struct {
 	HostKeyAlgorithms []string `yaml:"host_key_algorithms,omitempty"`
 }
 
-// Config is the top-level YAML structure.
-type Config struct {
-	KnownHosts     string            `yaml:"known_hosts,omitempty"`
-	KnownHostsFile string            `yaml:"known_hosts_file,omitempty"`
-	TargetPort     int               `yaml:"target_port,omitempty"`
-	Modules        map[string]Module `yaml:"modules,omitempty"`
+// rawConfig is the top-level YAML structure.
+type rawConfig struct {
+	KnownHosts     string                     `yaml:"known_hosts,omitempty"`
+	KnownHostsFile string                     `yaml:"known_hosts_file,omitempty"`
+	TargetPort     int                        `yaml:"target_port,omitempty"`
+	Modules        map[string]rawConfigModule `yaml:"modules,omitempty"`
 }
 
-// Load reads, resolves defaults, and validates the config file at path.
-func Load(path string, logger *slog.Logger) (*Config, error) {
+// loadRawConfig reads, resolves defaults/inheritance, and validates the
+// config file at path. It is pure aside from reading the file itself: it
+// performs no known_hosts I/O and builds no callbacks.
+func loadRawConfig(path string, logger *slog.Logger) (*rawConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
 
-	var cfg Config
+	var cfg rawConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing config file: %w", err)
 	}
 
 	if len(cfg.Modules) == 0 {
-		cfg.Modules = map[string]Module{DefaultModuleName: {}}
+		cfg.Modules = map[string]rawConfigModule{DefaultModuleName: {}}
 	}
 
 	for name, mod := range cfg.Modules {
