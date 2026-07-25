@@ -46,7 +46,19 @@ func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.Co
 			return
 		}
 
-		target = ensurePort(target, mod.TargetPort)
+		target, port, err := ensurePort(target, mod.TargetPort)
+		if err != nil {
+			logger.Warn("probe rejected: malformed target port", "module", moduleName, "target", r.URL.Query().Get("target"), "error", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusBadRequest)).Inc()
+			return
+		}
+		if _, allowed := mod.AllowedPorts[port]; !allowed {
+			logger.Warn("probe rejected: port not allowed", "module", moduleName, "target", target, "port", port)
+			http.Error(w, fmt.Sprintf("port %d not allowed for module %q", port, moduleName), http.StatusForbidden)
+			requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusForbidden)).Inc()
+			return
+		}
 
 		if timeoutSecs := r.Header.Get("X-Prometheus-Scrape-Timeout-Seconds"); timeoutSecs != "" {
 			if s, err := strconv.ParseFloat(timeoutSecs, 64); err == nil && s > 0 {
@@ -66,12 +78,17 @@ func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.Co
 	}
 }
 
-// ensurePort appends defaultPort to target if target has none. Uses
-// net.SplitHostPort rather than a naive colon check, since that breaks
-// on bare IPv6 addresses (which contain colons but no port).
-func ensurePort(target string, defaultPort int) string {
-	if _, _, err := net.SplitHostPort(target); err == nil {
-		return target
+// ensurePort returns target guaranteed to carry a port (appending
+// defaultPort if it had none) along with that port as an int. It errors
+// only if target carries a malformed port (client error).
+func ensurePort(target string, defaultPort int) (string, int, error) {
+	host, portStr, err := net.SplitHostPort(target)
+	if err != nil {
+		return net.JoinHostPort(target, strconv.Itoa(defaultPort)), defaultPort, nil
 	}
-	return net.JoinHostPort(target, strconv.Itoa(defaultPort))
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid port %q in target", portStr)
+	}
+	return net.JoinHostPort(host, portStr), port, nil
 }

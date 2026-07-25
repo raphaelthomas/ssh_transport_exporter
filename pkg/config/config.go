@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -19,6 +20,7 @@ type rawConfigModule struct {
 	KnownHosts        string   `yaml:"known_hosts,omitempty"`
 	KnownHostsFile    string   `yaml:"known_hosts_file,omitempty"`
 	TargetPort        int      `yaml:"target_port,omitempty"`
+	AllowedPorts      []int    `yaml:"allowed_ports,omitempty"`
 	Ciphers           []string `yaml:"ciphers,omitempty"`
 	HostKeyAlgorithms []string `yaml:"host_key_algorithms,omitempty"`
 }
@@ -28,6 +30,7 @@ type rawConfig struct {
 	KnownHosts     string                     `yaml:"known_hosts,omitempty"`
 	KnownHostsFile string                     `yaml:"known_hosts_file,omitempty"`
 	TargetPort     int                        `yaml:"target_port,omitempty"`
+	AllowedPorts   []int                      `yaml:"allowed_ports,omitempty"`
 	Modules        map[string]rawConfigModule `yaml:"modules,omitempty"`
 }
 
@@ -79,6 +82,23 @@ func loadRawConfig(path string, logger *slog.Logger) (*rawConfig, error) {
 		if mod.TargetPort == 0 {
 			mod.TargetPort = 22
 		}
+
+		// allowed_ports resolution: module, else default, else [target_port].
+		if mod.AllowedPorts == nil {
+			mod.AllowedPorts = cfg.AllowedPorts
+		}
+		if len(mod.AllowedPorts) == 0 {
+			mod.AllowedPorts = []int{mod.TargetPort}
+		}
+		for _, p := range mod.AllowedPorts {
+			if p < 1 || p > 65535 {
+				return nil, fmt.Errorf("module %q: allowed_ports contains invalid port %d (must be 1-65535)", name, p)
+			}
+		}
+		if !slices.Contains(mod.AllowedPorts, mod.TargetPort) {
+			return nil, fmt.Errorf("module %q: target_port %d is not in allowed_ports %v", name, mod.TargetPort, mod.AllowedPorts)
+		}
+
 		cfg.Modules[name] = mod
 	}
 

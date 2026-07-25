@@ -14,8 +14,9 @@ import (
 // Module is a ready-to-probe configuration. Its known_hosts is parsed into a
 // callback, so per-probe requests never touch the filesystem.
 type Module struct {
-	Options    probe.Options
-	TargetPort int
+	Options      probe.Options
+	TargetPort   int
+	AllowedPorts map[int]struct{}
 }
 
 // Load reads, resolves, and validates the config file at path, then builds
@@ -39,6 +40,10 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 		if err != nil {
 			return nil, fmt.Errorf("module %q: loading known_hosts: %w", name, err)
 		}
+		allowedPorts := make(map[int]struct{}, len(mod.AllowedPorts))
+		for _, p := range mod.AllowedPorts {
+			allowedPorts[p] = struct{}{}
+		}
 		modules[name] = Module{
 			Options: probe.Options{
 				HostKeyCallback:   hostKeyCallback,
@@ -46,7 +51,8 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 				HostKeyAlgorithms: mod.HostKeyAlgorithms,
 				Logger:            logger,
 			},
-			TargetPort: mod.TargetPort,
+			TargetPort:   mod.TargetPort,
+			AllowedPorts: allowedPorts,
 		}
 		logger.Info("loaded module",
 			"module", name,
