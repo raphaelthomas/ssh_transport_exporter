@@ -35,14 +35,15 @@ The exporter itself is configured via the following parameters:
 usage: ssh_transport_exporter [<flags>]
 
 Flags:
-  -h, --help              Show context-sensitive help (also try --help-long and --help-man).
-      --version           Show application version.
+  -h, --help               Show context-sensitive help (also try --help-long and --help-man).
+      --version            Show application version.
       --web.listen-address=":10022"
-                          Address to listen on for web interface and telemetry
-      --log-level=info    Log level (debug, info, warn, error)
+                           Address to listen on for web interface and telemetry
+      --log-level=info     Log level (debug, info, warn, error)
       --config.file="ssh_transport_exporter.yaml"
-                          Path to the exporter's YAML config file with module definitions)
-      --probe.timeout=5s  Maximum duration for a single probe, applied even if the scrape sends no timeout header
+                           Path to the exporter's YAML config file with module definitions)
+      --probe.timeout=5s   Hard upper bound for a single probe; Prometheus scrape timeout may shorten it.
+      --allow-all-targets  Probe any target when no allowed_targets is set; for fleets too diverse to enumerate. An explicit list always wins.
 ```
 
 Probes are defined in a YAML configuration file, which is specified via the

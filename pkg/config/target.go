@@ -8,6 +8,12 @@ import (
 	"github.com/raphaelthomas/ssh_transport_exporter/pkg/normalize"
 )
 
+// allowAllPattern is an internal sentinel, injected by config resolution when
+// --allow-all-targets is set with no configured default. It is deliberately not
+// a valid YAML pattern space: buildTarget maps it to allowAllMatcher, while a
+// user-supplied "*" is still rejected.
+const allowAllPattern = "\x00allow-all"
+
 // TargetMatcher reports whether a probe target host is permitted. host is the
 // target's hostname or IP literal, already normalized via normalize.Hostname
 // for name matchers.
@@ -20,6 +26,8 @@ type TargetMatcher interface {
 // YAML), "**" wildcards, apex-only wildcards, and IP literals with a zone.
 func buildTarget(pattern string) (TargetMatcher, error) {
 	switch {
+	case pattern == allowAllPattern:
+		return allowAllMatcher{}, nil
 	case pattern == "":
 		return nil, fmt.Errorf("empty target pattern")
 	case pattern == "*":
@@ -39,6 +47,13 @@ func buildTarget(pattern string) (TargetMatcher, error) {
 		return newHostMatcher(pattern)
 	}
 }
+
+// allowAllMatcher permits any host. It is never produced from YAML (buildTarget
+// rejects "*"); it is injected in code only when --allow-all-targets is set and
+// no allowed_targets default is configured.
+type allowAllMatcher struct{}
+
+func (allowAllMatcher) Match(string) bool { return true }
 
 // hostMatcher matches one exact hostname.
 type hostMatcher struct{ host string }

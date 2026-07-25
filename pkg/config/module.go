@@ -24,8 +24,8 @@ type Module struct {
 // all runtime resources (host key callbacks), returning ready-to-probe
 // modules keyed by name. It is the single entry point for both initial
 // startup and SIGHUP reload.
-func Load(configFilePath string, logger *slog.Logger) (map[string]Module, error) {
-	raw, err := loadRawConfig(configFilePath, logger)
+func Load(configFilePath string, allowAllTargets bool, logger *slog.Logger) (map[string]Module, error) {
+	raw, err := loadRawConfig(configFilePath, allowAllTargets, logger)
 	if err != nil {
 		return nil, fmt.Errorf("loading config file: %w", err)
 	}

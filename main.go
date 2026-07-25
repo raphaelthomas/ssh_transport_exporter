@@ -36,10 +36,11 @@ import (
 // Cfg holds the exporter's runtime flags, distinct from config.Config
 // (module definitions loaded from --config.file).
 type Cfg struct {
-	ListenAddress string
-	LogLevel      slog.Level
-	ConfigFile    string
-	ProbeTimeout  time.Duration
+	ListenAddress   string
+	LogLevel        slog.Level
+	ConfigFile      string
+	ProbeTimeout    time.Duration
+	AllowAllTargets bool
 }
 
 func parseFlags() *Cfg {
@@ -69,6 +70,11 @@ func parseFlags() *Cfg {
 		Envar(envPrefix + "PROBE_TIMEOUT").
 		DurationVar(&cfg.ProbeTimeout)
 
+	app.Flag("allow-all-targets", "Probe any target when no allowed_targets is set; for fleets too diverse to enumerate. An explicit list always wins.").
+		Default("false").
+		Envar(envPrefix + "ALLOW_ALL_TARGETS").
+		BoolVar(&cfg.AllowAllTargets)
+
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
 	if err := cfg.LogLevel.UnmarshalText([]byte(*logLevelFlag)); err != nil {
@@ -80,10 +86,10 @@ func parseFlags() *Cfg {
 // reload re-reads the config file and atomically swaps the live module
 // set. On any error, it logs and leaves the previous (still valid)
 // module set in place.
-func reload(logger *slog.Logger, configFile string, live *atomic.Pointer[map[string]config.Module]) {
-	modules, err := config.Load(configFile, logger)
+func reload(logger *slog.Logger, cfg *Cfg, live *atomic.Pointer[map[string]config.Module]) {
+	modules, err := config.Load(cfg.ConfigFile, cfg.AllowAllTargets, logger)
 	if err != nil {
-		logger.Error("config reload failed, keeping previous config", "path", configFile, "error", err)
+		logger.Error("config reload failed, keeping previous config", "path", cfg.ConfigFile, "error", err)
 		return
 	}
 	live.Store(&modules)
@@ -97,7 +103,7 @@ func main() {
 	logLevel.Set(cfg.LogLevel)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 
-	modules, err := config.Load(cfg.ConfigFile, logger)
+	modules, err := config.Load(cfg.ConfigFile, cfg.AllowAllTargets, logger)
 	if err != nil {
 		logger.Error("failed to load config", "path", cfg.ConfigFile, "error", err)
 		os.Exit(1)
@@ -139,7 +145,7 @@ func main() {
 		for sig := range sigCh {
 			if sig == syscall.SIGHUP {
 				logger.Info("received SIGHUP, reloading config")
-				reload(logger, cfg.ConfigFile, &live)
+				reload(logger, cfg, &live)
 				continue
 			}
 			logger.Info("received signal, shutting down HTTP server", "signal", sig)

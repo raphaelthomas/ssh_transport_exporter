@@ -39,7 +39,7 @@ type rawConfig struct {
 // loadRawConfig reads, resolves defaults/inheritance, and validates the
 // config file at path. It is pure aside from reading the file itself: it
 // performs no known_hosts I/O and builds no callbacks.
-func loadRawConfig(path string, logger *slog.Logger) (*rawConfig, error) {
+func loadRawConfig(path string, allowAllTargets bool, logger *slog.Logger) (*rawConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)
@@ -52,6 +52,13 @@ func loadRawConfig(path string, logger *slog.Logger) (*rawConfig, error) {
 
 	if len(cfg.Modules) == 0 {
 		cfg.Modules = map[string]rawConfigModule{DefaultModuleName: {}}
+	}
+
+	// Seed the top-level allowed_targets default with allow-all when the flag
+	// is set and the operator configured no default. An explicit top-level list
+	// always wins, so the flag is inert whenever one is present.
+	if allowAllTargets && len(cfg.AllowedTargets) == 0 {
+		cfg.AllowedTargets = []string{allowAllPattern}
 	}
 
 	for name, mod := range cfg.Modules {
@@ -78,9 +85,9 @@ func loadRawConfig(path string, logger *slog.Logger) (*rawConfig, error) {
 			return nil, fmt.Errorf("module %q: known_hosts or known_hosts_file is required (neither set at module level nor in defaults)", name)
 		}
 
-		// allowed_targets: inherit default when the module sets none. A nil or
-		// empty list means deny-all.
-		if mod.AllowedTargets == nil {
+		// allowed_targets: inherit default when the module sets none (nil and
+		// empty are treated identically).
+		if len(mod.AllowedTargets) == 0 {
 			mod.AllowedTargets = cfg.AllowedTargets
 		}
 
