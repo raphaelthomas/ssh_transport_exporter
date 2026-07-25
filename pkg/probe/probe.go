@@ -121,6 +121,8 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	if tcpConn, ok := rawConn.(*net.TCPConn); ok {
 		if mss, err := tcpNegotiatedMSS(tcpConn); err == nil {
 			result.TCPConnectNegotiatedMSS = mss
+		} else if logger.Enabled(ctx, slog.LevelDebug) {
+			logger.Debug("failed to read negotiated TCP MSS", "target", target, "error", err)
 		}
 	}
 
