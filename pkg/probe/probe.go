@@ -180,9 +180,10 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	case errors.Is(handshakeErr, errAbort):
 		// "Successful" probe, since we got the sentinel error
 	case handshakeErr == nil:
-		// Unreachable in practice: our callback always aborts.
-		result.ErrorStage = ErrStageHostKeyVerify
-		result.ErrorReason = ErrReasonOther
+		// Should be unreachable, since TransportReadyCallback always returns
+		// errAbort, so we log this explicitly. Probe itself was successful, so
+		// neither ErrorStage nor ErrorReason are set here.
+		logger.Warn("SSH handshake completed without hitting abort sentinel; x/crypto/ssh behavior may have changed", "target", target)
 	default:
 		result.ErrorStage = ErrStageKeyExchange
 		result.ErrorReason = classifyKexError(handshakeErr)
