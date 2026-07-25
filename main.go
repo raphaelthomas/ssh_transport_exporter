@@ -16,24 +16,20 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/pkg/buildinfo"
-	"github.com/raphaelthomas/ssh_transport_exporter/pkg/collector"
 	"github.com/raphaelthomas/ssh_transport_exporter/pkg/config"
+	"github.com/raphaelthomas/ssh_transport_exporter/pkg/probehttp"
 )
 
 // Cfg holds the exporter's runtime flags, distinct from config.Config
@@ -93,54 +89,6 @@ func reload(logger *slog.Logger, configFile string, live *atomic.Pointer[map[str
 	logger.Info("config reloaded", "module_count", len(modules))
 }
 
-func probeHandler(logger *slog.Logger, timeout time.Duration, live *atomic.Pointer[map[string]config.Module]) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		target := r.URL.Query().Get("target")
-		if target == "" {
-			http.Error(w, "target parameter is required", http.StatusBadRequest)
-			return
-		}
-
-		moduleName := r.URL.Query().Get("module")
-		if moduleName == "" {
-			moduleName = config.DefaultModuleName
-		}
-		modules := *live.Load()
-		mod, ok := modules[moduleName]
-		if !ok {
-			http.Error(w, fmt.Sprintf("unknown module %q", moduleName), http.StatusBadRequest)
-			return
-		}
-
-		target = ensurePort(target, mod.TargetPort)
-
-		if timeoutSecs := r.Header.Get("X-Prometheus-Scrape-Timeout-Seconds"); timeoutSecs != "" {
-			if s, err := strconv.ParseFloat(timeoutSecs, 64); err == nil && s > 0 {
-				if scrapeTimeout := time.Duration(s * float64(time.Second)); scrapeTimeout < timeout {
-					timeout = scrapeTimeout
-				}
-			}
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), timeout)
-		defer cancel()
-
-		registry := prometheus.NewRegistry()
-		registry.MustRegister(collector.New(ctx, target, moduleName, mod.Options, logger))
-
-		promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
-	}
-}
-
-// ensurePort appends defaultPort to target if target has none. Uses
-// net.SplitHostPort rather than a naive colon check, since that breaks
-// on bare IPv6 addresses (which contain colons but no port).
-func ensurePort(target string, defaultPort int) string {
-	if _, _, err := net.SplitHostPort(target); err == nil {
-		return target
-	}
-	return net.JoinHostPort(target, strconv.Itoa(defaultPort))
-}
-
 func main() {
 	cfg := parseFlags()
 
@@ -166,7 +114,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/probe", probeHandler(logger, cfg.ProbeTimeout, &live))
+	mux.HandleFunc("/probe", probehttp.Handler(logger, cfg.ProbeTimeout, &live))
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddress,
