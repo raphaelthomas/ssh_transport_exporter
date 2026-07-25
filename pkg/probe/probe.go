@@ -4,6 +4,7 @@ package probe
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"strings"
 	"time"
@@ -70,6 +71,9 @@ type Options struct {
 	// HostKeyAlgorithms to accept, in preference order. Empty uses
 	// defaultHostKeyAlgorithms below, not the library's own default.
 	HostKeyAlgorithms []string
+
+	// Optional Logger for diagnostics (not for target health).
+	Logger *slog.Logger
 }
 
 // defaultHostKeyAlgorithms mirrors OpenSSH's client default order:
@@ -93,6 +97,11 @@ var defaultHostKeyAlgorithms = []string{
 // error.
 func Run(ctx context.Context, target string, opts Options) Result {
 	var result Result
+
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
 
 	dialer := net.Dialer{}
 	dialStart := time.Now()

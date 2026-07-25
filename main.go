@@ -125,6 +125,7 @@ func resolveModules(logger *slog.Logger, cfg *config.Config) (map[string]resolve
 				HostKeyCallback:   hostKeyCallback,
 				Ciphers:           mod.Ciphers,
 				HostKeyAlgorithms: mod.HostKeyAlgorithms,
+				Logger:            logger,
 			},
 			targetPort: mod.TargetPort,
 		}
