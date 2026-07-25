@@ -35,36 +35,31 @@ func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.Co
 
 		target := r.URL.Query().Get("target")
 		if target == "" {
-			http.Error(w, "target parameter is required", http.StatusBadRequest)
-			requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusBadRequest)).Inc()
+			writeError(w, requests, moduleName, http.StatusBadRequest, "target parameter is required")
 			return
 		}
 
 		modules := *live.Load()
 		mod, ok := modules[moduleName]
 		if !ok {
-			http.Error(w, fmt.Sprintf("unknown module %q", moduleName), http.StatusBadRequest)
-			requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusBadRequest)).Inc()
+			writeError(w, requests, moduleName, http.StatusBadRequest, fmt.Sprintf("unknown module %q", moduleName))
 			return
 		}
 
 		target, host, port, err := ensurePort(target, mod.TargetPort)
 		if err != nil {
 			logger.Warn("probe rejected: malformed target", "module", moduleName, "target", r.URL.Query().Get("target"), "error", err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusBadRequest)).Inc()
+			writeError(w, requests, moduleName, http.StatusBadRequest, err.Error())
 			return
 		}
 		if _, allowed := mod.AllowedPorts[port]; !allowed {
 			logger.Warn("probe rejected: port not allowed", "module", moduleName, "target", target, "port", port)
-			http.Error(w, fmt.Sprintf("port %d not allowed for module %q", port, moduleName), http.StatusForbidden)
-			requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusForbidden)).Inc()
+			writeError(w, requests, moduleName, http.StatusForbidden, fmt.Sprintf("port %d not allowed for module %q", port, moduleName))
 			return
 		}
 		if !targetAllowed(host, mod.AllowedTargets) {
 			logger.Warn("probe rejected: target not allowed", "module", moduleName, "target", target, "host", host)
-			http.Error(w, fmt.Sprintf("target %q not allowed for module %q", host, moduleName), http.StatusForbidden)
-			requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusForbidden)).Inc()
+			writeError(w, requests, moduleName, http.StatusForbidden, fmt.Sprintf("target %q not allowed for module %q", host, moduleName))
 			return
 		}
 
@@ -84,6 +79,15 @@ func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.Co
 		promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
 		requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusOK)).Inc()
 	}
+}
+
+// writeError responds with "CODE WORD: msg" (e.g. "403 Forbidden: ...") so a
+// direct browser hit shows the status inline, and counts the request by module
+// and code. It centralizes the response + metric increment for all /probe
+// error paths.
+func writeError(w http.ResponseWriter, requests *prometheus.CounterVec, moduleName string, code int, msg string) {
+	http.Error(w, fmt.Sprintf("%d %s: %s", code, http.StatusText(code), msg), code)
+	requests.WithLabelValues(moduleName, strconv.Itoa(code)).Inc()
 }
 
 // ensurePort parses target (a bare "host" or "host:port", where host may be a
