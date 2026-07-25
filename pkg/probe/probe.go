@@ -6,7 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
-	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -21,15 +21,16 @@ const (
 )
 
 const (
-	ErrReasonConnectionRefused = "connection_refused"
-	ErrReasonNoRouteToHost     = "no_route_to_host"
-	ErrReasonDNSFailure        = "dns_failure"
-	ErrReasonConnectionReset   = "connection_reset"
-	ErrReasonUnknownHost       = "unknown_host"
-	ErrReasonMismatch          = "mismatch"
-	ErrReasonRevoked           = "revoked"
-	ErrReasonTimeout           = "timeout"
-	ErrReasonOther             = "other"
+	ErrReasonConnectionRefused  = "connection_refused"
+	ErrReasonNoRouteToHost      = "no_route_to_host"
+	ErrReasonNetworkUnreachable = "network_unreachable"
+	ErrReasonDNSFailure         = "dns_failure"
+	ErrReasonConnectionReset    = "connection_reset"
+	ErrReasonUnknownHost        = "unknown_host"
+	ErrReasonMismatch           = "mismatch"
+	ErrReasonRevoked            = "revoked"
+	ErrReasonTimeout            = "timeout"
+	ErrReasonOther              = "other"
 )
 
 // Result is the outcome of one probe against one target.
@@ -212,13 +213,13 @@ func classifyDialError(err error) string {
 		return ErrReasonTimeout
 	}
 
-	if opErr, ok := errors.AsType[*net.OpError](err); ok {
-		switch {
-		case opErr.Op == "dial" && strings.Contains(opErr.Err.Error(), "refused"):
-			return ErrReasonConnectionRefused
-		case strings.Contains(opErr.Err.Error(), "no route to host"):
-			return ErrReasonNoRouteToHost
-		}
+	switch {
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return ErrReasonConnectionRefused
+	case errors.Is(err, syscall.EHOSTUNREACH):
+		return ErrReasonNoRouteToHost
+	case errors.Is(err, syscall.ENETUNREACH):
+		return ErrReasonNetworkUnreachable
 	}
 
 	if _, ok := errors.AsType[*net.DNSError](err); ok {
