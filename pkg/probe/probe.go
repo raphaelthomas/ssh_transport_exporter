@@ -56,8 +56,8 @@ type Result struct {
 	ErrorReason string
 }
 
-// Returned from TransportReadyCallback to abort the connection after the
-// transport layer is ready, but before user authentication.
+// errAbort is returned from TransportReadyCallback to abort the connection
+// after the transport layer is ready, but before user authentication.
 var errAbort = errors.New("probe: aborting before auth by design")
 
 // Options controls how a probe's SSH client connection is configured.
