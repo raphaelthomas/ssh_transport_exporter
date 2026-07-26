@@ -33,9 +33,8 @@ import (
 	"github.com/raphaelthomas/ssh_transport_exporter/pkg/probehttp"
 )
 
-// Cfg holds the exporter's runtime flags, distinct from config.Config
-// (module definitions loaded from --config.file).
-type Cfg struct {
+// flags holds the exporter's runtime configuration parsed from CLI flags.
+type flags struct {
 	ListenAddress   string
 	LogLevel        slog.Level
 	ConfigFile      string
@@ -43,18 +42,18 @@ type Cfg struct {
 	AllowAllTargets bool
 }
 
-func parseFlags() *Cfg {
+func parseFlags() *flags {
 	app := kingpin.New("ssh_transport_exporter", "")
 	app.Version(buildinfo.Version)
 	app.HelpFlag.Short('h')
 
-	cfg := &Cfg{}
+	f := &flags{}
 	const envPrefix = "SSH_TRANSPORT_EXPORTER_"
 
 	app.Flag("web.listen-address", "Address to listen on for web interface and telemetry").
 		Default(":10022").
 		Envar(envPrefix + "LISTEN_ADDRESS").
-		StringVar(&cfg.ListenAddress)
+		StringVar(&f.ListenAddress)
 
 	logLevelFlag := app.Flag("log-level", "Log level (debug, info, warn, error)").
 		Default("info").
@@ -63,30 +62,30 @@ func parseFlags() *Cfg {
 	app.Flag("config.file", "Path to the exporter's YAML config file with module definitions)").
 		Default("ssh_transport_exporter.yaml").
 		Envar(envPrefix + "CONFIG_FILE").
-		StringVar(&cfg.ConfigFile)
+		StringVar(&f.ConfigFile)
 
 	app.Flag("probe.timeout", "Hard upper bound for a single probe; Prometheus scrape timeout may shorten it.").
 		Default("5s").
 		Envar(envPrefix + "PROBE_TIMEOUT").
-		DurationVar(&cfg.ProbeTimeout)
+		DurationVar(&f.ProbeTimeout)
 
 	app.Flag("allow-all-targets", "Probe any target when no allowed_targets is set; for fleets too diverse to enumerate. An explicit list always wins.").
 		Default("false").
 		Envar(envPrefix + "ALLOW_ALL_TARGETS").
-		BoolVar(&cfg.AllowAllTargets)
+		BoolVar(&f.AllowAllTargets)
 
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
-	if err := cfg.LogLevel.UnmarshalText([]byte(*logLevelFlag)); err != nil {
-		cfg.LogLevel = slog.LevelInfo
+	if err := f.LogLevel.UnmarshalText([]byte(*logLevelFlag)); err != nil {
+		f.LogLevel = slog.LevelInfo
 	}
-	return cfg
+	return f
 }
 
 // reload re-reads the config file and atomically swaps the live module
 // set. On any error, it logs and leaves the previous (still valid)
 // module set in place.
-func reload(logger *slog.Logger, cfg *Cfg, live *atomic.Pointer[map[string]config.Module]) {
+func reload(logger *slog.Logger, cfg *flags, live *atomic.Pointer[map[string]config.Module]) {
 	modules, err := config.Load(cfg.ConfigFile, cfg.AllowAllTargets, logger)
 	if err != nil {
 		logger.Error("config reload failed, keeping previous config", "path", cfg.ConfigFile, "error", err)
