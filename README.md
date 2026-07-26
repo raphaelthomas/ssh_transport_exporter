@@ -5,10 +5,6 @@
 [![License](https://img.shields.io/github/license/raphaelthomas/ssh_transport_exporter)](https://github.com/raphaelthomas/ssh_transport_exporter/blob/main/LICENSE)
 [![CI](https://github.com/raphaelthomas/ssh_transport_exporter/actions/workflows/ci.yml/badge.svg)](https://github.com/raphaelthomas/ssh_transport_exporter/actions/workflows/ci.yml)
 
-> [!CAUTION]
-> **Experimental exporter for probing the SSH transport layer. Not suitable for
-> production use yet.**
-
 Prometheus exporter `ssh_transport_exporter` is credential-less by design and
 strictly limits its probing to the SSH transport layer ([RFC
 4253](https://datatracker.ietf.org/doc/html/rfc4253)). Specifically, it makes
@@ -26,6 +22,14 @@ Consequently, also the SSH Connection Protocol ([RFC
 If probing for the full SSH protocol stack is required, the suitable
 alternative that provides these capabilities is the
 [`ssh_exporter`](https://github.com/treydock/ssh_exporter).
+
+> [!NOTE]
+> This exporter depends on a fork of `golang.org/x/crypto` (see the `replace`
+> directive in [`go.mod`](./go.mod)), which adds a `TransportReadyCallback`
+> hook to `ssh.ClientConfig` used to surface the negotiated algorithms and the
+> server identification string before aborting the connection. The intent is to
+> upstream this hook; until then the fork is pinned by commit. As the exporter
+> is credential-less by design, it never holds keys or secrets.
 
 ## Configuration
 
