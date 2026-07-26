@@ -26,6 +26,7 @@ import (
 
 	"github.com/alecthomas/kingpin"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/pkg/buildinfo"
@@ -127,6 +128,8 @@ func main() {
 		[]string{"module", "code"},
 	)
 	prometheus.MustRegister(probeRequests)
+
+	prometheus.MustRegister(version.NewCollector("ssh_transport_exporter"))
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
