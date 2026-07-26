@@ -42,13 +42,9 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			return nil, fmt.Errorf("module %q: loading known_hosts: %w", name, err)
 		}
 
-		allowedTargets := make([]TargetMatcher, 0, len(mod.AllowedTargets))
-		for _, pat := range mod.AllowedTargets {
-			m, err := buildTarget(pat)
-			if err != nil {
-				return nil, fmt.Errorf("module %q: allowed_targets: %w", name, err)
-			}
-			allowedTargets = append(allowedTargets, m)
+		allowedTargets, err := resolveAllowedTargets(mod.AllowedTargets, raw.allowAllTargets)
+		if err != nil {
+			return nil, fmt.Errorf("module %q: %w", name, err)
 		}
 
 		allowedPorts := make(map[int]struct{}, len(mod.AllowedPorts))

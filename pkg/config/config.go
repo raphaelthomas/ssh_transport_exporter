@@ -34,12 +34,17 @@ type rawConfig struct {
 	AllowedPorts   []int                      `yaml:"allowed_ports,omitempty"`
 	TargetPort     int                        `yaml:"target_port,omitempty"`
 	Modules        map[string]rawConfigModule `yaml:"modules,omitempty"`
+
+	// allowAll is set (never from YAML) when --allow-all-targets is passed and
+	// no top-level allowed_targets default is configured. It makes modules that
+	// inherit the empty default permit any target.
+	allowAllTargets bool
 }
 
 // loadRawConfig reads, resolves defaults/inheritance, and validates the
 // config file at path. It is pure aside from reading the file itself: it
 // performs no known_hosts I/O and builds no callbacks.
-func loadRawConfig(path string, allowAllTargets bool, logger *slog.Logger) (*rawConfig, error) {
+func loadRawConfig(path string, allowAllTargetsFlag bool, logger *slog.Logger) (*rawConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)
@@ -54,12 +59,10 @@ func loadRawConfig(path string, allowAllTargets bool, logger *slog.Logger) (*raw
 		cfg.Modules = map[string]rawConfigModule{DefaultModuleName: {}}
 	}
 
-	// Seed the top-level allowed_targets default with allow-all when the flag
-	// is set and the operator configured no default. An explicit top-level list
-	// always wins, so the flag is inert whenever one is present.
-	if allowAllTargets && len(cfg.AllowedTargets) == 0 {
-		cfg.AllowedTargets = []string{allowAllPattern}
-	}
+	// Enable allow-all only when the flag is set and the operator configured no
+	// top-level default. An explicit top-level list always wins, so the flag is
+	// inert whenever one is present.
+	cfg.allowAllTargets = allowAllTargetsFlag && len(cfg.AllowedTargets) == 0
 
 	for name, mod := range cfg.Modules {
 		// known_hosts resolution, most to least specific:

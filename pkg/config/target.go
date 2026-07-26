@@ -8,12 +8,6 @@ import (
 	"github.com/raphaelthomas/ssh_transport_exporter/pkg/normalize"
 )
 
-// allowAllPattern is an internal sentinel, injected by config resolution when
-// --allow-all-targets is set with no configured default. It is deliberately not
-// a valid YAML pattern space: buildTarget maps it to allowAllMatcher, while a
-// user-supplied "*" is still rejected.
-const allowAllPattern = "\x00allow-all"
-
 // TargetMatcher reports whether a probe target host is permitted. host is the
 // target's hostname or IP literal, already normalized via normalize.Hostname
 // for name matchers.
@@ -21,13 +15,37 @@ type TargetMatcher interface {
 	Match(host string) bool
 }
 
+// resolveAllowedTargets compiles a module's allowed_targets into matchers.
+//   - explicit patterns (already inherited from the default in loadRawConfig)
+//     compile to their matchers;
+//   - an empty list with allowAll set permits any target (--allow-all-targets
+//     with no configured default);
+//   - an empty list without allowAll denies all targets.
+func resolveAllowedTargets(patterns []string, allowAll bool) ([]TargetMatcher, error) {
+	if len(patterns) == 0 {
+		if allowAll {
+			return []TargetMatcher{allowAllMatcher{}}, nil
+		}
+		return nil, fmt.Errorf("no allowed_targets configured (set allowed_targets, or pass --allow-all-targets to probe any target)")
+	}
+
+	matchers := make([]TargetMatcher, 0, len(patterns))
+	for _, pat := range patterns {
+		m, err := buildTarget(pat)
+		if err != nil {
+			return nil, err
+		}
+		matchers = append(matchers, m)
+	}
+	return matchers, nil
+}
+
 // buildTarget classifies and compiles one allowed_targets pattern into a
 // TargetMatcher. It rejects a bare "*" (allow-all is not configurable via
-// YAML), "**" wildcards, apex-only wildcards, and IP literals with a zone.
+// YAML; use --allow-all-targets), "**" wildcards, apex-only wildcards, and IP
+// literals with a zone.
 func buildTarget(pattern string) (TargetMatcher, error) {
 	switch {
-	case pattern == allowAllPattern:
-		return allowAllMatcher{}, nil
 	case pattern == "":
 		return nil, fmt.Errorf("empty target pattern")
 	case pattern == "*":
@@ -48,9 +66,9 @@ func buildTarget(pattern string) (TargetMatcher, error) {
 	}
 }
 
-// allowAllMatcher permits any host. It is never produced from YAML (buildTarget
-// rejects "*"); it is injected in code only when --allow-all-targets is set and
-// no allowed_targets default is configured.
+// allowAllMatcher permits any host. It is never produced from a pattern; it is
+// injected in code only when --allow-all-targets is set and no allowed_targets
+// default is explicitly configured.
 type allowAllMatcher struct{}
 
 func (allowAllMatcher) Match(string) bool { return true }
