@@ -149,9 +149,11 @@ func main() {
 				continue
 			}
 			logger.Info("received signal, shutting down HTTP server", "signal", sig)
-			if err := srv.Shutdown(context.Background()); err != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := srv.Shutdown(shutdownCtx); err != nil {
 				logger.Error("HTTP server shutdown error", "error", err)
 			}
+			cancel()
 			return
 		}
 	}()
