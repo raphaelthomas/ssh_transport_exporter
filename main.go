@@ -122,7 +122,7 @@ func main() {
 		prometheus.CounterOpts{
 			Namespace: "ssh_transport_exporter",
 			Name:      "probe_requests_total",
-			Help:      "Total probe requests served by module and HTTP status code. 200 means the probe was executed and metrics were served (regardless of probe success); 400 means the request was rejected.",
+			Help:      "Total probe requests served by module and HTTP status code.",
 		},
 		[]string{"module", "code"},
 	)
