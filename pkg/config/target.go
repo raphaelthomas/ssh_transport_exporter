@@ -112,7 +112,7 @@ type ipMatcher struct{ addr netip.Addr }
 
 func newIPMatcher(addr netip.Addr) (TargetMatcher, error) {
 	if addr.Zone() != "" {
-		return nil, fmt.Errorf("%s: IP address with zone is not allowed", addr)
+		return nil, fmt.Errorf("%q: IP address with zone is not allowed", addr)
 	}
 	return ipMatcher{addr: addr}, nil
 }
