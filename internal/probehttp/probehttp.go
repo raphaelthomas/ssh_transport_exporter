@@ -15,9 +15,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/raphaelthomas/ssh_transport_exporter/pkg/collector"
-	"github.com/raphaelthomas/ssh_transport_exporter/pkg/config"
-	"github.com/raphaelthomas/ssh_transport_exporter/pkg/normalize"
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/collector"
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/config"
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/normalize"
 )
 
 // Handler returns the /probe HTTP handler. timeout is a hard upper bound

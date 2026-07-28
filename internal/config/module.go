@@ -8,7 +8,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
-	"github.com/raphaelthomas/ssh_transport_exporter/pkg/probe"
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
 )
 
 // Module is a ready-to-probe configuration. Its known_hosts is parsed into a

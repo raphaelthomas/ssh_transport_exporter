@@ -8,7 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/raphaelthomas/ssh_transport_exporter/pkg/probe"
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
 )
 
 const (

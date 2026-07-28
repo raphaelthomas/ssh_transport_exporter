@@ -5,7 +5,7 @@ import (
 	"net/netip"
 	"strings"
 
-	"github.com/raphaelthomas/ssh_transport_exporter/pkg/normalize"
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/normalize"
 )
 
 // TargetMatcher reports whether a probe target host is permitted. host is the

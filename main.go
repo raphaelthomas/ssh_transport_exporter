@@ -29,9 +29,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/raphaelthomas/ssh_transport_exporter/pkg/buildinfo"
-	"github.com/raphaelthomas/ssh_transport_exporter/pkg/config"
-	"github.com/raphaelthomas/ssh_transport_exporter/pkg/probehttp"
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/buildinfo"
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/config"
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/probehttp"
 )
 
 // flags holds the exporter's runtime configuration parsed from CLI flags.
