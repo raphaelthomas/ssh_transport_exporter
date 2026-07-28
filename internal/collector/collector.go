@@ -139,6 +139,8 @@ type SSHCollector struct {
 	module string
 	opts   probe.Options
 	logger *slog.Logger
+	// run performs the probe. Set by New to probe.Run; overridden in tests.
+	run func(context.Context, string, probe.Options) probe.Result
 }
 
 // New builds a collector for one probe. Register it on a fresh,
@@ -148,7 +150,7 @@ func New(ctx context.Context, target, module string, opts probe.Options, logger 
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return &SSHCollector{ctx: ctx, target: target, module: module, opts: opts, logger: logger}
+	return &SSHCollector{ctx: ctx, target: target, module: module, opts: opts, logger: logger, run: probe.Run}
 }
 
 // Describe sends every possible descriptor regardless of whether a
@@ -169,7 +171,7 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 
 // Collect runs the probe and translates the result into metrics.
 func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
-	result := probe.Run(c.ctx, c.target, c.opts)
+	result := c.run(c.ctx, c.target, c.opts)
 
 	if c.logger.Enabled(c.ctx, slog.LevelDebug) {
 		c.logger.Debug("probe result",
