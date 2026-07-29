@@ -63,14 +63,7 @@ func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.Co
 			return
 		}
 
-		if timeoutSecs := r.Header.Get("X-Prometheus-Scrape-Timeout-Seconds"); timeoutSecs != "" {
-			if s, err := strconv.ParseFloat(timeoutSecs, 64); err == nil && s > 0 {
-				if scrapeTimeout := time.Duration(s * float64(time.Second)); scrapeTimeout < timeout {
-					timeout = scrapeTimeout
-				}
-			}
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		ctx, cancel := context.WithTimeout(r.Context(), effectiveTimeout(r, timeout))
 		defer cancel()
 
 		registry := prometheus.NewRegistry()
@@ -79,6 +72,25 @@ func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.Co
 		promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
 		requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusOK)).Inc()
 	}
+}
+
+// effectiveTimeout returns max, shortened to the Prometheus scrape timeout
+// when the request carries a valid, shorter one via the
+// X-Prometheus-Scrape-Timeout-Seconds header. Malformed, zero, and negative
+// header values are ignored.
+func effectiveTimeout(r *http.Request, max time.Duration) time.Duration {
+	timeoutSecs := r.Header.Get("X-Prometheus-Scrape-Timeout-Seconds")
+	if timeoutSecs == "" {
+		return max
+	}
+	s, err := strconv.ParseFloat(timeoutSecs, 64)
+	if err != nil || s <= 0 {
+		return max
+	}
+	if scrapeTimeout := time.Duration(s * float64(time.Second)); scrapeTimeout < max {
+		return scrapeTimeout
+	}
+	return max
 }
 
 // writeError responds with "CODE WORD: msg" (e.g. "403 Forbidden: ...") so a

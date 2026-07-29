@@ -1,8 +1,11 @@
 package probehttp
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/config"
 )
@@ -87,5 +90,53 @@ func TestTargetAllowed(t *testing.T) {
 	// No matchers means deny-all.
 	if targetAllowed("anything", nil) {
 		t.Error("targetAllowed with no matchers = true, want false (deny-all)")
+	}
+}
+
+func TestEffectiveTimeout(t *testing.T) {
+	const max = 10 * time.Second
+
+	tests := []struct {
+		name   string
+		header string // empty means the header is not set at all
+		want   time.Duration
+	}{
+		{name: "no header keeps the hard bound", header: "", want: max},
+		{name: "shorter header wins", header: "2.5", want: 2500 * time.Millisecond},
+		{name: "longer header is capped by the hard bound", header: "30", want: max},
+		{name: "equal header keeps the hard bound", header: "10", want: max},
+		{name: "sub-second header wins", header: "0.25", want: 250 * time.Millisecond},
+		{name: "malformed header ignored", header: "not-a-number", want: max},
+		{name: "zero header ignored", header: "0", want: max},
+		{name: "negative header ignored", header: "-1", want: max},
+		{name: "empty header value ignored", header: `""`, want: max},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", nil)
+			if tt.header != "" {
+				req.Header.Set("X-Prometheus-Scrape-Timeout-Seconds", strings.Trim(tt.header, `"`))
+			}
+			if got := effectiveTimeout(req, max); got != tt.want {
+				t.Errorf("effectiveTimeout(header=%q) = %s, want %s", tt.header, got, tt.want)
+			}
+		})
+	}
+}
+
+// A header on one request must not shorten the next one.
+func TestEffectiveTimeoutDoesNotLeakAcrossRequests(t *testing.T) {
+	const max = 10 * time.Second
+
+	withHeader := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", nil)
+	withHeader.Header.Set("X-Prometheus-Scrape-Timeout-Seconds", "0.1")
+	if got := effectiveTimeout(withHeader, max); got != 100*time.Millisecond {
+		t.Fatalf("first request: got %s, want 100ms", got)
+	}
+
+	bare := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", nil)
+	if got := effectiveTimeout(bare, max); got != max {
+		t.Errorf("second request without header: got %s, want the full %s bound", got, max)
 	}
 }

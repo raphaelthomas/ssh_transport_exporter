@@ -1,12 +1,14 @@
 package probehttp
 
 import (
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -324,5 +326,45 @@ func TestHandlerReadsLiveModulesOnReload(t *testing.T) {
 	}
 	if rec := doProbe(t, h, "?target=192.0.2.9&module=other", nil); rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403 from the reloaded module", rec.Code)
+	}
+}
+
+// A scrape timeout header applies to its own request only, never to others
+// served by the same handler. Concurrency makes a shared, mutated bound fail
+// under -race.
+func TestHandlerScrapeTimeoutIsPerRequest(t *testing.T) {
+	t.Parallel()
+	addr := sshtest.SilentServer(t) // accepts TCP, never speaks SSH
+	port := atoiOrFatal(t, portOf(t, addr))
+
+	modules := map[string]config.Module{
+		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, nil),
+	}
+	// One handler serves every request, as in production.
+	h := Handler(slog.New(slog.DiscardHandler), 2*time.Second, newRequests(), modulePointer(modules))
+	query := "?target=127.0.0.1:" + portOf(t, addr)
+
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			doProbe(t, h, query, map[string]string{
+				"X-Prometheus-Scrape-Timeout-Seconds": fmt.Sprintf("0.%02d", 10+i),
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	// Without the header the full 2s bound applies.
+	start := time.Now()
+	rec := doProbe(t, h, query, nil)
+	elapsed := time.Since(start)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if elapsed < time.Second {
+		t.Errorf("probe without a scrape timeout header took %s; a shortened timeout leaked from an earlier request", elapsed)
 	}
 }
