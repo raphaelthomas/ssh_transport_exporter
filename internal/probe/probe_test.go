@@ -1,0 +1,289 @@
+package probe
+
+import (
+	"bytes"
+	"context"
+	"log/slog"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+
+	"golang.org/x/crypto/ssh"
+
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/sshtest"
+)
+
+// acceptKey returns a HostKeyCallback that accepts exactly want.
+func acceptKey(want ssh.PublicKey) ssh.HostKeyCallback {
+	return ssh.FixedHostKey(want)
+}
+
+func TestRunSuccess(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{ServerVersion: "SSH-2.0-TestServer_1.0"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
+
+	if !result.TCPConnectSuccess {
+		t.Fatalf("TCPConnectSuccess = false, want true (error %s/%s)", result.ErrorStage, result.ErrorReason)
+	}
+	if result.TCPConnectDuration <= 0 {
+		t.Error("TCPConnectDuration = 0, want > 0")
+	}
+	if !result.KEXSuccess {
+		t.Errorf("KEXSuccess = false, want true (error %s/%s)", result.ErrorStage, result.ErrorReason)
+	}
+	if result.KEXDuration <= 0 {
+		t.Error("KEXDuration = 0, want > 0")
+	}
+	if result.KEXAlgorithm == "" {
+		t.Error("KEXAlgorithm is empty")
+	}
+	if !result.HostKeyVerifySuccess {
+		t.Error("HostKeyVerifySuccess = false, want true")
+	}
+	if result.HostKeyAlgorithm != ssh.KeyAlgoED25519 {
+		t.Errorf("HostKeyAlgorithm = %q, want %q", result.HostKeyAlgorithm, ssh.KeyAlgoED25519)
+	}
+	if result.ServerVersion != "SSH-2.0-TestServer_1.0" {
+		t.Errorf("ServerVersion = %q, want SSH-2.0-TestServer_1.0", result.ServerVersion)
+	}
+	if result.CipherRead == "" || result.CipherWrite == "" {
+		t.Errorf("ciphers read=%q write=%q, want both set", result.CipherRead, result.CipherWrite)
+	}
+	if result.ErrorStage != "" || result.ErrorReason != "" {
+		t.Errorf("error = %s/%s, want none", result.ErrorStage, result.ErrorReason)
+	}
+}
+
+func TestRunNegotiatesRequestedCipher(t *testing.T) {
+	t.Parallel()
+	const cipher = "aes128-ctr"
+	srv := sshtest.NewServer(t, sshtest.Options{Ciphers: []string{cipher}})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{
+		HostKeyCallback: acceptKey(srv.HostKey),
+		Ciphers:         []string{cipher},
+	})
+
+	if !result.KEXSuccess {
+		t.Fatalf("KEXSuccess = false (error %s/%s)", result.ErrorStage, result.ErrorReason)
+	}
+	if result.CipherRead != cipher || result.CipherWrite != cipher {
+		t.Errorf("ciphers read=%q write=%q, want %q", result.CipherRead, result.CipherWrite, cipher)
+	}
+}
+
+func TestRunHostKeyAlgorithmsRespected(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// The server only has an ed25519 host key; demanding RSA must fail KEX.
+	result := Run(ctx, srv.Addr, Options{
+		HostKeyCallback:   acceptKey(srv.HostKey),
+		HostKeyAlgorithms: []string{ssh.KeyAlgoRSASHA256},
+	})
+
+	if !result.TCPConnectSuccess {
+		t.Fatal("TCPConnectSuccess = false, want true")
+	}
+	if result.KEXSuccess {
+		t.Error("KEXSuccess = true, want false when no common host key algorithm")
+	}
+	if result.ErrorStage != ErrStageKeyExchange {
+		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageKeyExchange)
+	}
+}
+
+func TestRunHostKeyVerificationFailure(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	// A callback for a different key: KEX still completes, verification fails.
+	otherSrv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(otherSrv.HostKey)})
+
+	if !result.TCPConnectSuccess {
+		t.Fatal("TCPConnectSuccess = false, want true")
+	}
+	if !result.KEXSuccess {
+		t.Error("KEXSuccess = false, want true (KEX completes before verification)")
+	}
+	if result.HostKeyVerifySuccess {
+		t.Error("HostKeyVerifySuccess = true, want false")
+	}
+	if result.ErrorStage != ErrStageHostKeyVerify {
+		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageHostKeyVerify)
+	}
+	// ssh.FixedHostKey returns a plain error, so it classifies as "other".
+	if result.ErrorReason != ErrReasonOther {
+		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonOther)
+	}
+	// Metadata is still recorded despite the verification failure.
+	if result.HostKeyAlgorithm == "" || result.KEXAlgorithm == "" {
+		t.Error("expected algorithm metadata to be recorded despite verify failure")
+	}
+}
+
+func TestRunConnectionRefused(t *testing.T) {
+	t.Parallel()
+	addr := sshtest.ClosedPort(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, addr, Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+
+	if result.TCPConnectSuccess {
+		t.Error("TCPConnectSuccess = true, want false")
+	}
+	if result.ErrorStage != ErrStageTCPConnect {
+		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageTCPConnect)
+	}
+	if result.ErrorReason != ErrReasonConnectionRefused {
+		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonConnectionRefused)
+	}
+	if result.KEXSuccess || result.HostKeyVerifySuccess {
+		t.Error("KEX/host key reported success on a refused connection")
+	}
+}
+
+func TestRunDNSFailure(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, "no-such-host.invalid:22", Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+
+	if result.TCPConnectSuccess {
+		t.Error("TCPConnectSuccess = true, want false")
+	}
+	if result.ErrorStage != ErrStageTCPConnect {
+		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageTCPConnect)
+	}
+	if result.ErrorReason != ErrReasonDNSFailure {
+		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonDNSFailure)
+	}
+}
+
+func TestRunContextAlreadyCanceled(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // canceled before the dial
+
+	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
+
+	if result.TCPConnectSuccess {
+		t.Error("TCPConnectSuccess = true, want false for a canceled context")
+	}
+	if result.ErrorStage != ErrStageTCPConnect {
+		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageTCPConnect)
+	}
+}
+
+func TestRunKexTimeout(t *testing.T) {
+	t.Parallel()
+	addr := sshtest.SilentServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	result := Run(ctx, addr, Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+
+	if !result.TCPConnectSuccess {
+		t.Fatal("TCPConnectSuccess = false, want true (TCP connect should succeed)")
+	}
+	if result.KEXSuccess {
+		t.Error("KEXSuccess = true, want false")
+	}
+	if result.ErrorStage != ErrStageKeyExchange {
+		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageKeyExchange)
+	}
+	// Either the deadline fires (timeout) or the forced close wins (reset).
+	if result.ErrorReason != ErrReasonTimeout && result.ErrorReason != ErrReasonConnectionReset {
+		t.Errorf("ErrorReason = %q, want timeout or connection_reset", result.ErrorReason)
+	}
+}
+
+func TestRunNegotiatedMSS(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
+
+	if runtime.GOOS == "linux" {
+		if result.TCPConnectNegotiatedMSS <= 0 {
+			t.Errorf("TCPConnectNegotiatedMSS = %d, want > 0 on linux", result.TCPConnectNegotiatedMSS)
+		}
+	} else if result.TCPConnectNegotiatedMSS != 0 {
+		t.Errorf("TCPConnectNegotiatedMSS = %d, want 0 on %s", result.TCPConnectNegotiatedMSS, runtime.GOOS)
+	}
+}
+
+func TestRunNilLoggerDoesNotPanic(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey), Logger: nil})
+	if !result.KEXSuccess {
+		t.Errorf("KEXSuccess = false with nil logger (error %s/%s)", result.ErrorStage, result.ErrorReason)
+	}
+}
+
+func TestRunDebugLoggingEnabled(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey), Logger: logger})
+	if !result.KEXSuccess {
+		t.Fatalf("KEXSuccess = false (error %s/%s)", result.ErrorStage, result.ErrorReason)
+	}
+	// On non-Linux the MSS read fails and logs at debug level; on Linux it
+	// succeeds and logs nothing. Either way the probe must not warn about the
+	// abort sentinel, which would signal an x/crypto behavior change.
+	if strings.Contains(buf.String(), "abort sentinel") {
+		t.Errorf("probe logged the abort-sentinel warning: %s", buf.String())
+	}
+}
+
+func TestRunSanitizesServerVersion(t *testing.T) {
+	t.Parallel()
+	// Banner containing a DEL byte, which must be stripped from the label.
+	srv := sshtest.NewServer(t, sshtest.Options{ServerVersion: "SSH-2.0-Test\x7fServer"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
+	if result.ServerVersion != "SSH-2.0-TestServer" {
+		t.Errorf("ServerVersion = %q, want sanitized SSH-2.0-TestServer", result.ServerVersion)
+	}
+}
