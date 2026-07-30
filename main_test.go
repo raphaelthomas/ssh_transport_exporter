@@ -3,11 +3,16 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/config"
 )
@@ -151,4 +156,115 @@ func keys(m map[string]config.Module) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// serveTestSetup starts serve on a random port and returns its address, the
+// signal channel, and a channel carrying serve's return value.
+func serveTestSetup(t *testing.T, handler http.Handler, cfg *flags, live *atomic.Pointer[map[string]config.Module]) (string, chan os.Signal, <-chan error) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv := &http.Server{Handler: handler, ReadHeaderTimeout: time.Second}
+	sigCh := make(chan os.Signal, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- serve(slog.New(slog.DiscardHandler), cfg, srv, live, ln, sigCh)
+	}()
+	return "http://" + ln.Addr().String(), sigCh, errCh
+}
+
+// A termination signal drains in-flight requests: serve returns only after
+// they finish, and the client still gets a complete response.
+func TestServeDrainsInFlightRequests(t *testing.T) {
+	var handlerFinished atomic.Bool
+	started := make(chan struct{})
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		time.Sleep(300 * time.Millisecond)
+		handlerFinished.Store(true)
+		_, _ = w.Write([]byte("drained"))
+	})
+
+	var live atomic.Pointer[map[string]config.Module]
+	addr, sigCh, errCh := serveTestSetup(t, handler, &flags{}, &live)
+
+	type result struct {
+		body string
+		err  error
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		resp, err := http.Get(addr + "/slow")
+		if err != nil {
+			resCh <- result{err: err}
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		resCh <- result{body: string(body), err: err}
+	}()
+
+	<-started // request is in flight
+	sigCh <- syscall.SIGTERM
+
+	if err := <-errCh; err != nil {
+		t.Fatalf("serve returned %v, want nil", err)
+	}
+	if !handlerFinished.Load() {
+		t.Error("serve returned before the in-flight request finished")
+	}
+
+	res := <-resCh
+	if res.err != nil {
+		t.Fatalf("in-flight request failed: %v", res.err)
+	}
+	if res.body != "drained" {
+		t.Errorf("body = %q, want %q", res.body, "drained")
+	}
+}
+
+// SIGHUP reloads config and leaves the server serving.
+func TestServeReloadsOnSIGHUPAndKeepsServing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, path, configWithModules("a"))
+
+	initial, err := config.Load(path, false, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("initial load: %v", err)
+	}
+	var live atomic.Pointer[map[string]config.Module]
+	live.Store(&initial)
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	})
+	addr, sigCh, errCh := serveTestSetup(t, handler, &flags{ConfigFile: path}, &live)
+
+	writeFile(t, path, configWithModules("a", "b"))
+	sigCh <- syscall.SIGHUP
+
+	// Poll until the reload lands; the signal is handled asynchronously.
+	deadline := time.Now().Add(5 * time.Second)
+	for len(*live.Load()) != 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("config not reloaded after SIGHUP; modules = %v", keys(*live.Load()))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	resp, err := http.Get(addr + "/probe")
+	if err != nil {
+		t.Fatalf("server stopped serving after SIGHUP: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatalf("closing body: %v", err)
+	}
+
+	sigCh <- syscall.SIGTERM
+	if err := <-errCh; err != nil {
+		t.Errorf("serve returned %v, want nil", err)
+	}
 }

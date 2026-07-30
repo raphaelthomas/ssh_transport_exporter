@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -96,6 +97,43 @@ func reload(logger *slog.Logger, cfg *flags, live *atomic.Pointer[map[string]con
 	logger.Info("config reloaded", "module_count", len(modules))
 }
 
+// shutdownTimeout bounds how long in-flight probes may drain on shutdown.
+const shutdownTimeout = 10 * time.Second
+
+// serve runs srv on ln until a termination signal arrives on sigCh, reloading
+// config on SIGHUP. It returns once in-flight requests have drained, so the
+// caller must not exit before it does.
+func serve(logger *slog.Logger, cfg *flags, srv *http.Server, live *atomic.Pointer[map[string]config.Module], ln net.Listener, sigCh <-chan os.Signal) error {
+	shutdownDone := make(chan struct{})
+
+	go func() {
+		defer close(shutdownDone)
+		for sig := range sigCh {
+			if sig == syscall.SIGHUP {
+				logger.Info("received SIGHUP, reloading config")
+				reload(logger, cfg, live)
+				continue
+			}
+			logger.Info("received signal, shutting down HTTP server", "signal", sig)
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			defer cancel()
+			if err := srv.Shutdown(shutdownCtx); err != nil {
+				logger.Error("HTTP server shutdown error", "error", err)
+			}
+			return
+		}
+	}()
+
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+
+	// Serve returns as soon as the listener closes; wait for the drain.
+	<-shutdownDone
+	logger.Info("shutdown complete")
+	return nil
+}
+
 func main() {
 	cfg := parseFlags()
 
@@ -141,27 +179,17 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-		for sig := range sigCh {
-			if sig == syscall.SIGHUP {
-				logger.Info("received SIGHUP, reloading config")
-				reload(logger, cfg, &live)
-				continue
-			}
-			logger.Info("received signal, shutting down HTTP server", "signal", sig)
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if err := srv.Shutdown(shutdownCtx); err != nil {
-				logger.Error("HTTP server shutdown error", "error", err)
-			}
-			cancel()
-			return
-		}
-	}()
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
-	logger.Info("HTTP server listening", "address", cfg.ListenAddress)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	ln, err := net.Listen("tcp", cfg.ListenAddress)
+	if err != nil {
+		logger.Error("failed to listen", "address", cfg.ListenAddress, "error", err)
+		os.Exit(1)
+	}
+	logger.Info("HTTP server listening", "address", ln.Addr().String())
+
+	if err := serve(logger, cfg, srv, &live, ln, sigCh); err != nil {
 		logger.Error("HTTP server error", "error", err)
 		os.Exit(1)
 	}
