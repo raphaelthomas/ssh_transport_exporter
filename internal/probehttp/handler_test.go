@@ -28,7 +28,7 @@ func newRequests() *prometheus.CounterVec {
 		prometheus.CounterOpts{
 			Namespace: "ssh_transport_exporter",
 			Name:      "probe_requests_total",
-			Help:      "Total probe requests served by module and HTTP status code.",
+			Help:      "Total probe requests served by module and HTTP status code. Module is empty when the request named no configured module.",
 		},
 		[]string{"module", "code"},
 	)
@@ -109,7 +109,8 @@ func TestHandlerRejects(t *testing.T) {
 		wantMod  string
 	}{
 		{"missing target", "", http.StatusBadRequest, "target parameter is required", config.DefaultModuleName},
-		{"unknown module", "?target=127.0.0.1&module=nope", http.StatusBadRequest, `unknown module "nope"`, "nope"},
+		{"unknown module", "?target=127.0.0.1&module=nope", http.StatusBadRequest, `unknown module "nope"`, moduleUnresolved},
+		{"unknown module without target", "?module=nope", http.StatusBadRequest, `unknown module "nope"`, moduleUnresolved},
 		{"malformed target", "?target=user@127.0.0.1", http.StatusBadRequest, "invalid target", config.DefaultModuleName},
 		{"port not allowed", "?target=127.0.0.1:2222", http.StatusForbidden, "not allowed for module", config.DefaultModuleName},
 		{"target not allowed", "?target=192.0.2.9", http.StatusForbidden, "not allowed for module", config.DefaultModuleName},
@@ -366,5 +367,31 @@ func TestHandlerScrapeTimeoutIsPerRequest(t *testing.T) {
 	}
 	if elapsed < time.Second {
 		t.Errorf("probe without a scrape timeout header took %s; a shortened timeout leaked from an earlier request", elapsed)
+	}
+}
+
+// The module label only ever holds a configured module name, so a caller
+// cannot grow probe_requests_total by inventing module names.
+func TestHandlerUnknownModulesShareOneSeries(t *testing.T) {
+	t.Parallel()
+	modules := map[string]config.Module{
+		config.DefaultModuleName: testModule("127.0.0.1", 22, []int{22}, nil),
+	}
+	requests := newRequests()
+	h := Handler(slog.New(slog.DiscardHandler), time.Second, requests, modulePointer(modules))
+
+	const bogus = 1000
+	for i := range bogus {
+		rec := doProbe(t, h, fmt.Sprintf("?target=127.0.0.1&module=nope%d", i), nil)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("module nope%d: status = %d, want 400", i, rec.Code)
+		}
+	}
+
+	if got := testutil.CollectAndCount(requests); got != 1 {
+		t.Errorf("probe_requests_total series = %d after %d unknown modules, want 1", got, bogus)
+	}
+	if got := testutil.ToFloat64(requests.WithLabelValues(moduleUnresolved, itoa(http.StatusBadRequest))); got != bogus {
+		t.Errorf("probe_requests_total{module=%q,code=400} = %v, want %d", moduleUnresolved, got, bogus)
 	}
 }

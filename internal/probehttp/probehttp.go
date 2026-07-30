@@ -20,12 +20,19 @@ import (
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/normalize"
 )
 
+// moduleUnresolved is the module label value for requests that named no
+// configured module. Empty is collision-free: a request omitting module is
+// rewritten to config.DefaultModuleName, so no served probe ever labels itself
+// with the empty string.
+const moduleUnresolved = ""
+
 // Handler returns the /probe HTTP handler. timeout is a hard upper bound
 // on a single probe; a shorter Prometheus scrape timeout (sent via the
 // X-Prometheus-Scrape-Timeout-Seconds header) takes precedence. live is
 // the current module set, swapped atomically on config reload. requests
-// counts every probe request by module and HTTP status code; it must be
-// registered by the caller.
+// counts every probe request by module and HTTP status code, with an empty
+// module for requests naming no configured one; it must be registered by the
+// caller.
 func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.CounterVec, live *atomic.Pointer[map[string]config.Module]) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		moduleName := r.URL.Query().Get("module")
@@ -33,16 +40,17 @@ func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.Co
 			moduleName = config.DefaultModuleName
 		}
 
-		target := r.URL.Query().Get("target")
-		if target == "" {
-			writeError(w, requests, moduleName, http.StatusBadRequest, "target parameter is required")
-			return
-		}
-
 		modules := *live.Load()
 		mod, ok := modules[moduleName]
 		if !ok {
-			writeError(w, requests, moduleName, http.StatusBadRequest, fmt.Sprintf("unknown module %q", moduleName))
+			logger.Warn("probe rejected: unknown module", "module", moduleName)
+			writeError(w, requests, moduleUnresolved, http.StatusBadRequest, fmt.Sprintf("unknown module %q", moduleName))
+			return
+		}
+
+		target := r.URL.Query().Get("target")
+		if target == "" {
+			writeError(w, requests, moduleName, http.StatusBadRequest, "target parameter is required")
 			return
 		}
 

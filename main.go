@@ -123,7 +123,7 @@ func main() {
 		prometheus.CounterOpts{
 			Namespace: "ssh_transport_exporter",
 			Name:      "probe_requests_total",
-			Help:      "Total probe requests served by module and HTTP status code.",
+			Help:      "Total probe requests served by module and HTTP status code. Module is empty when the request named no configured module.",
 		},
 		[]string{"module", "code"},
 	)
