@@ -26,21 +26,38 @@ import (
 // with the empty string.
 const moduleUnresolved = ""
 
-// Handler returns the /probe HTTP handler. timeout is a hard upper bound
-// on a single probe; a shorter Prometheus scrape timeout (sent via the
-// X-Prometheus-Scrape-Timeout-Seconds header) takes precedence. live is
-// the current module set, swapped atomically on config reload. requests
-// counts every probe request by module and HTTP status code, with an empty
-// module for requests naming no configured one; it must be registered by the
-// caller.
-func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.CounterVec, live *atomic.Pointer[map[string]config.Module]) http.HandlerFunc {
+// Options configures the /probe handler.
+type Options struct {
+	Logger *slog.Logger
+	// Timeout is a hard upper bound on a single probe; a shorter Prometheus
+	// scrape timeout (X-Prometheus-Scrape-Timeout-Seconds) takes precedence.
+	Timeout time.Duration
+	// Requests counts every probe request by module and HTTP status code, with
+	// an empty module for requests naming no configured one.
+	Requests *prometheus.CounterVec
+	// Live is the current module set, swapped atomically on config reload.
+	Live *atomic.Pointer[map[string]config.Module]
+}
+
+// Handler returns the /probe HTTP handler. Metrics in opts must be registered
+// by the caller; nil ones are replaced with unregistered stand-ins.
+func Handler(opts Options) http.HandlerFunc {
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	requests := opts.Requests
+	if requests == nil {
+		requests = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "probe_requests_total"}, []string{"module", "code"})
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		moduleName := r.URL.Query().Get("module")
 		if moduleName == "" {
 			moduleName = config.DefaultModuleName
 		}
 
-		modules := *live.Load()
+		modules := *opts.Live.Load()
 		mod, ok := modules[moduleName]
 		if !ok {
 			logger.Warn("probe rejected: unknown module", "module", moduleName)
@@ -71,7 +88,7 @@ func Handler(logger *slog.Logger, timeout time.Duration, requests *prometheus.Co
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(r.Context(), effectiveTimeout(r, timeout))
+		ctx, cancel := context.WithTimeout(r.Context(), effectiveTimeout(r, opts.Timeout))
 		defer cancel()
 
 		registry := prometheus.NewRegistry()

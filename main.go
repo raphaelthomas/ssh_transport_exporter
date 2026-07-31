@@ -171,7 +171,12 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/probe", probehttp.Handler(logger, cfg.ProbeTimeout, probeRequests, &live))
+	mux.HandleFunc("/probe", probehttp.Handler(probehttp.Options{
+		Logger:   logger,
+		Timeout:  cfg.ProbeTimeout,
+		Requests: probeRequests,
+		Live:     &live,
+	}))
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddress,

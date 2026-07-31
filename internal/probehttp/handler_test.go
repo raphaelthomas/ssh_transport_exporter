@@ -2,7 +2,6 @@ package probehttp
 
 import (
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +31,11 @@ func newRequests() *prometheus.CounterVec {
 		},
 		[]string{"module", "code"},
 	)
+}
+
+// testHandler builds a /probe handler for tests.
+func testHandler(timeout time.Duration, requests *prometheus.CounterVec, live *atomic.Pointer[map[string]config.Module]) http.HandlerFunc {
+	return Handler(Options{Timeout: timeout, Requests: requests, Live: live})
 }
 
 // modulePointer wraps modules in the atomic pointer the handler reads.
@@ -120,7 +124,7 @@ func TestHandlerRejects(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			requests := newRequests()
-			h := Handler(slog.New(slog.DiscardHandler), time.Second, requests, modulePointer(modules))
+			h := testHandler(time.Second, requests, modulePointer(modules))
 
 			rec := doProbe(t, h, tt.query, nil)
 
@@ -150,7 +154,7 @@ func TestHandlerSuccess(t *testing.T) {
 		config.DefaultModuleName: testModule("127.0.0.1", atoiOrFatal(t, port), []int{atoiOrFatal(t, port)}, srv.HostKey),
 	}
 	requests := newRequests()
-	h := Handler(slog.New(slog.DiscardHandler), 10*time.Second, requests, modulePointer(modules))
+	h := testHandler(10*time.Second, requests, modulePointer(modules))
 
 	rec := doProbe(t, h, "?target=127.0.0.1:"+port, nil)
 
@@ -190,7 +194,7 @@ func TestHandlerDefaultPortApplied(t *testing.T) {
 		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, srv.HostKey),
 	}
 	requests := newRequests()
-	h := Handler(slog.New(slog.DiscardHandler), 10*time.Second, requests, modulePointer(modules))
+	h := testHandler(10*time.Second, requests, modulePointer(modules))
 
 	rec := doProbe(t, h, "?target=127.0.0.1", nil)
 
@@ -211,7 +215,7 @@ func TestHandlerProbeFailureStillReturns200(t *testing.T) {
 		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, nil),
 	}
 	requests := newRequests()
-	h := Handler(slog.New(slog.DiscardHandler), 5*time.Second, requests, modulePointer(modules))
+	h := testHandler(5*time.Second, requests, modulePointer(modules))
 
 	rec := doProbe(t, h, "?target=127.0.0.1:"+portOf(t, addr), nil)
 
@@ -238,7 +242,7 @@ func TestHandlerNamedModuleSelected(t *testing.T) {
 		"custom":                 testModule("127.0.0.1", port, []int{port}, srv.HostKey),
 	}
 	requests := newRequests()
-	h := Handler(slog.New(slog.DiscardHandler), 10*time.Second, requests, modulePointer(modules))
+	h := testHandler(10*time.Second, requests, modulePointer(modules))
 
 	rec := doProbe(t, h, "?target=127.0.0.1&module=custom", nil)
 
@@ -260,7 +264,7 @@ func TestHandlerScrapeTimeoutHeaderShortensProbe(t *testing.T) {
 	}
 	requests := newRequests()
 	// Handler timeout is long; the header must shorten it.
-	h := Handler(slog.New(slog.DiscardHandler), 30*time.Second, requests, modulePointer(modules))
+	h := testHandler(30*time.Second, requests, modulePointer(modules))
 
 	start := time.Now()
 	rec := doProbe(t, h, "?target=127.0.0.1:"+portOf(t, addr), map[string]string{
@@ -288,7 +292,7 @@ func TestHandlerInvalidScrapeTimeoutHeaderIgnored(t *testing.T) {
 		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, srv.HostKey),
 	}
 	requests := newRequests()
-	h := Handler(slog.New(slog.DiscardHandler), 10*time.Second, requests, modulePointer(modules))
+	h := testHandler(10*time.Second, requests, modulePointer(modules))
 
 	for _, hdr := range []string{"not-a-number", "0", "-1"} {
 		rec := doProbe(t, h, "?target=127.0.0.1:"+srv.Port(t), map[string]string{
@@ -309,7 +313,7 @@ func TestHandlerReadsLiveModulesOnReload(t *testing.T) {
 	live := modulePointer(map[string]config.Module{
 		config.DefaultModuleName: testModule("127.0.0.1", 22, []int{22}, nil),
 	})
-	h := Handler(slog.New(slog.DiscardHandler), time.Second, requests, live)
+	h := testHandler(time.Second, requests, live)
 
 	// Initially 192.0.2.9 is not allowed.
 	if rec := doProbe(t, h, "?target=192.0.2.9", nil); rec.Code != http.StatusForbidden {
@@ -342,7 +346,7 @@ func TestHandlerScrapeTimeoutIsPerRequest(t *testing.T) {
 		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, nil),
 	}
 	// One handler serves every request, as in production.
-	h := Handler(slog.New(slog.DiscardHandler), 2*time.Second, newRequests(), modulePointer(modules))
+	h := testHandler(2*time.Second, newRequests(), modulePointer(modules))
 	query := "?target=127.0.0.1:" + portOf(t, addr)
 
 	var wg sync.WaitGroup
@@ -378,7 +382,7 @@ func TestHandlerUnknownModulesShareOneSeries(t *testing.T) {
 		config.DefaultModuleName: testModule("127.0.0.1", 22, []int{22}, nil),
 	}
 	requests := newRequests()
-	h := Handler(slog.New(slog.DiscardHandler), time.Second, requests, modulePointer(modules))
+	h := testHandler(time.Second, requests, modulePointer(modules))
 
 	const bogus = 1000
 	for i := range bogus {
