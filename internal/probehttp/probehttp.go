@@ -32,9 +32,14 @@ type Options struct {
 	// Timeout is a hard upper bound on a single probe; a shorter Prometheus
 	// scrape timeout (X-Prometheus-Scrape-Timeout-Seconds) takes precedence.
 	Timeout time.Duration
+	// MaxConcurrent bounds probes running at once. Requests beyond it are
+	// rejected with 503 rather than queued. Zero disables the limit.
+	MaxConcurrent int
 	// Requests counts every probe request by module and HTTP status code, with
 	// an empty module for requests naming no configured one.
 	Requests *prometheus.CounterVec
+	// InFlight tracks probes currently running.
+	InFlight prometheus.Gauge
 	// Live is the current module set, swapped atomically on config reload.
 	Live *atomic.Pointer[map[string]config.Module]
 }
@@ -49,6 +54,16 @@ func Handler(opts Options) http.HandlerFunc {
 	requests := opts.Requests
 	if requests == nil {
 		requests = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "probe_requests_total"}, []string{"module", "code"})
+	}
+	inFlight := opts.InFlight
+	if inFlight == nil {
+		inFlight = prometheus.NewGauge(prometheus.GaugeOpts{Name: "probes_in_flight"})
+	}
+
+	// A buffered channel used as a semaphore; nil when the limit is disabled.
+	var sem chan struct{}
+	if opts.MaxConcurrent > 0 {
+		sem = make(chan struct{}, opts.MaxConcurrent)
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -87,6 +102,20 @@ func Handler(opts Options) http.HandlerFunc {
 			writeError(w, requests, moduleName, http.StatusForbidden, fmt.Sprintf("target %q not allowed for module %q", host, moduleName))
 			return
 		}
+
+		if sem != nil {
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			default:
+				logger.Warn("probe rejected: concurrency limit reached", "module", moduleName, "target", target, "limit", opts.MaxConcurrent)
+				writeError(w, requests, moduleName, http.StatusServiceUnavailable, fmt.Sprintf("probe concurrency limit of %d reached", opts.MaxConcurrent))
+				return
+			}
+		}
+
+		inFlight.Inc()
+		defer inFlight.Dec()
 
 		ctx, cancel := context.WithTimeout(r.Context(), effectiveTimeout(r, opts.Timeout))
 		defer cancel()

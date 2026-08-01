@@ -1,6 +1,7 @@
 package probehttp
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -33,7 +34,7 @@ func newRequests() *prometheus.CounterVec {
 	)
 }
 
-// testHandler builds a /probe handler for tests.
+// testHandler builds a /probe handler with no concurrency limit.
 func testHandler(timeout time.Duration, requests *prometheus.CounterVec, live *atomic.Pointer[map[string]config.Module]) http.HandlerFunc {
 	return Handler(Options{Timeout: timeout, Requests: requests, Live: live})
 }
@@ -73,6 +74,28 @@ func doProbe(t *testing.T, h http.HandlerFunc, query string, headers map[string]
 	rec := httptest.NewRecorder()
 	h(rec, req)
 	return rec
+}
+
+// doProbeCtx issues a GET whose context the caller controls, so a probe can be
+// held in flight and released on demand.
+func doProbeCtx(ctx context.Context, h http.HandlerFunc, query string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/probe"+query, nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	return rec
+}
+
+// waitForGauge blocks until g reads want, failing the test if it never does.
+func waitForGauge(t *testing.T, g prometheus.Gauge, want float64) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if testutil.ToFloat64(g) == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("probes_in_flight = %v, want %v", testutil.ToFloat64(g), want)
 }
 
 // itoa is strconv.Itoa, aliased for readable metric-label assertions.
@@ -398,4 +421,114 @@ func TestHandlerUnknownModulesShareOneSeries(t *testing.T) {
 	if got := testutil.ToFloat64(requests.WithLabelValues(moduleUnresolved, itoa(http.StatusBadRequest))); got != bogus {
 		t.Errorf("probe_requests_total{module=%q,code=400} = %v, want %d", moduleUnresolved, got, bogus)
 	}
+}
+
+// concurrencySetup returns a handler capped at maxConcurrent probing a server
+// that accepts TCP but never speaks SSH, so probes hang until released.
+func concurrencySetup(t *testing.T, maxConcurrent int) (http.HandlerFunc, *prometheus.CounterVec, prometheus.Gauge, string) {
+	t.Helper()
+	addr := sshtest.SilentServer(t)
+	port := atoiOrFatal(t, portOf(t, addr))
+	modules := map[string]config.Module{
+		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, nil),
+	}
+	requests := newRequests()
+	inFlight := prometheus.NewGauge(prometheus.GaugeOpts{Name: "probes_in_flight"})
+	h := Handler(Options{
+		Timeout:       30 * time.Second,
+		MaxConcurrent: maxConcurrent,
+		Requests:      requests,
+		InFlight:      inFlight,
+		Live:          modulePointer(modules),
+	})
+	return h, requests, inFlight, "?target=127.0.0.1:" + itoa(port)
+}
+
+// Probes beyond the limit are shed with 503 rather than queued, so a wide
+// scrape fan-out cannot exhaust the SSH server's unauthenticated slots.
+func TestHandlerConcurrencyLimitShedsExcess(t *testing.T) {
+	t.Parallel()
+	const limit = 2
+	h, requests, inFlight, query := concurrencySetup(t, limit)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	for range limit {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			doProbeCtx(ctx, h, query)
+		}()
+	}
+	waitForGauge(t, inFlight, limit)
+
+	rec := doProbe(t, h, query, nil)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d with %d probes in flight and a limit of %d, want 503", rec.Code, limit, limit)
+	}
+	if got := testutil.ToFloat64(requests.WithLabelValues(config.DefaultModuleName, itoa(http.StatusServiceUnavailable))); got != 1 {
+		t.Errorf("probe_requests_total{code=503} = %v, want 1", got)
+	}
+
+	// Finished probes return their slot.
+	cancel()
+	wg.Wait()
+	waitForGauge(t, inFlight, 0)
+
+	rec = doProbe(t, h, query, map[string]string{"X-Prometheus-Scrape-Timeout-Seconds": "0.2"})
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d after the in-flight probes finished, want 200", rec.Code)
+	}
+}
+
+// Requests rejected before probing never take a slot, so bad input cannot
+// crowd out valid probes.
+func TestHandlerConcurrencyLimitIgnoresRejectedRequests(t *testing.T) {
+	t.Parallel()
+	h, _, inFlight, query := concurrencySetup(t, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		doProbeCtx(ctx, h, query)
+	}()
+	waitForGauge(t, inFlight, 1)
+
+	if rec := doProbe(t, h, "?target=192.0.2.9", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d for a disallowed target while the limit is reached, want 403", rec.Code)
+	}
+	if rec := doProbe(t, h, "?target=127.0.0.1&module=nope", nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d for an unknown module while the limit is reached, want 400", rec.Code)
+	}
+
+	cancel()
+	wg.Wait()
+}
+
+// A limit of zero means unlimited.
+func TestHandlerConcurrencyLimitDisabled(t *testing.T) {
+	t.Parallel()
+	const probes = 12
+	h, requests, inFlight, query := concurrencySetup(t, 0)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	for range probes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			doProbeCtx(ctx, h, query)
+		}()
+	}
+	waitForGauge(t, inFlight, probes)
+
+	if got := testutil.ToFloat64(requests.WithLabelValues(config.DefaultModuleName, itoa(http.StatusServiceUnavailable))); got != 0 {
+		t.Errorf("probe_requests_total{code=503} = %v with the limit disabled, want 0", got)
+	}
+
+	cancel()
+	wg.Wait()
 }
