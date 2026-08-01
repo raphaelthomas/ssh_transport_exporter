@@ -47,6 +47,8 @@ Flags:
       --config.file="ssh_transport_exporter.yaml"
                            Path to the exporter's YAML config file with module definitions)
       --probe.timeout=5s   Hard upper bound for a single probe; Prometheus scrape timeout may shorten it.
+      --probe.max-concurrent=500
+                           Maximum probes running at once; further requests get 503 rather than queueing. 0 disables the limit.
       --allow-all-targets  Probe any target when no allowed_targets is set; for fleets too diverse to enumerate. An explicit list always wins.
 ```
 
@@ -69,6 +71,22 @@ Prefer the smallest value that comfortably covers a healthy handshake: an
 offline or filtered target (no connection refused) holds a probe open for the
 full timeout on every scrape, so a large value multiplies resource use across a
 big fleet.
+
+### Probe concurrency
+
+`--probe.max-concurrent` (default `500`) sheds requests above the limit with
+`503` rather than queueing them.
+
+Size it against the cardinality of targets to probe, not the exporter. Every
+probe occupies an unauthenticated connection slot on the SSH server it probes,
+and OpenSSH's `MaxStartups` defaults to `10:30:100`: random drops from 10
+concurrent unauthenticated connections, hard refusal past 100. Probes are
+indistinguishable from logins at that stage, so exceeding a target's budget can
+lead to drops of legitimate pre-auth SSH connections.
+
+Each in-flight probe holds roughly two file descriptors, so the default of 500
+targets needs approximately 1000 file descriptors. If the hard file descriptor
+limit is pinned low; the exporter emits a warning.
 
 ## Exported Metrics
 
@@ -150,13 +168,13 @@ ssh_transport_tcp_connect_success 0
 When a probe does not fully succeed, the exporter emits a single
 `ssh_transport_error_info` metric (constant `1`) carrying two labels `stage`
 and `reason`, and omits the `*_duration_seconds` metrics. The `stage` label
-identifies _how far_ the probe got before failing; the `reason` label explains
-_why_ it failed at that stage.
+identifies *how far* the probe got before failing; the `reason` label explains
+*why* it failed at that stage.
 
 ### Stages
 
 The stage reflects the last phase the probe reached. Probing proceeds strictly
-in this order: _TCP connect_, _key exchange_, _host key verification_.
+in this order: *TCP connect*, *key exchange*, *host key verification*.
 
 | Stage | Description |
 | --- | --- |
@@ -171,8 +189,8 @@ The reason narrows down the cause within a stage.
 | Reason | Typical Stage(s) | Description |
 | --- | --- | --- |
 | `connection_refused` | `tcp_connect` | The target actively refused the connection (`ECONNREFUSED`) — commonly nothing listening on the port, or a firewall sending a reset. |
-| `no_route_to_host` | `tcp_connect` | The destination _network_ is reachable, but the specific _host_ is not (`EHOSTUNREACH`) — often a down host or an ICMP host-unreachable from a router. |
-| `network_unreachable` | `tcp_connect` | There is no route to the destination _network_ at all (`ENETUNREACH`) — typically a missing route, absent default gateway, or a down interface on the prober side. |
+| `no_route_to_host` | `tcp_connect` | The destination *network* is reachable, but the specific *host* is not (`EHOSTUNREACH`) — often a down host or an ICMP host-unreachable from a router. |
+| `network_unreachable` | `tcp_connect` | There is no route to the destination *network* at all (`ENETUNREACH`) — typically a missing route, absent default gateway, or a down interface on the prober side. |
 | `dns_failure` | `tcp_connect` | The target hostname could not be resolved (DNS lookup error). |
 | `connection_reset` | `kex` | The connection was closed unexpectedly during key exchange (e.g. the peer reset it, or it was torn down mid-handshake). |
 | `timeout` | `tcp_connect`, `kex` | The operation exceeded its deadline (the scrape timeout or a network-level timeout). |

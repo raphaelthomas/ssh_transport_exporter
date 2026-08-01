@@ -32,16 +32,18 @@ import (
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/buildinfo"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/config"
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/fdlimit"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/probehttp"
 )
 
 // flags holds the exporter's runtime configuration parsed from CLI flags.
 type flags struct {
-	ListenAddress   string
-	LogLevel        slog.Level
-	ConfigFile      string
-	ProbeTimeout    time.Duration
-	AllowAllTargets bool
+	ListenAddress      string
+	LogLevel           slog.Level
+	ConfigFile         string
+	ProbeTimeout       time.Duration
+	MaxConcurrentProbe int
+	AllowAllTargets    bool
 }
 
 func parseFlags() *flags {
@@ -70,6 +72,11 @@ func parseFlags() *flags {
 		Default("5s").
 		Envar(envPrefix + "PROBE_TIMEOUT").
 		DurationVar(&f.ProbeTimeout)
+
+	app.Flag("probe.max-concurrent", "Maximum probes running at once; further requests get 503 rather than queueing. 0 disables the limit.").
+		Default("500").
+		Envar(envPrefix + "PROBE_MAX_CONCURRENT").
+		IntVar(&f.MaxConcurrentProbe)
 
 	app.Flag("allow-all-targets", "Probe any target when no allowed_targets is set; for fleets too diverse to enumerate. An explicit list always wins.").
 		Default("false").
@@ -157,6 +164,11 @@ func main() {
 		"module_count", len(modules),
 	)
 
+	if ok, soft, needed := fdlimit.Sufficient(cfg.MaxConcurrentProbe); !ok {
+		logger.Warn("file descriptor limit is too low for the configured probe concurrency; probes may fail with 'too many open files'",
+			"soft_limit", soft, "needed", needed, "probe_max_concurrent", cfg.MaxConcurrentProbe)
+	}
+
 	probeRequests := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "ssh_transport_exporter",
@@ -167,15 +179,26 @@ func main() {
 	)
 	prometheus.MustRegister(probeRequests)
 
+	probesInFlight := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ssh_transport_exporter",
+			Name:      "probes_in_flight",
+			Help:      "Probes currently running.",
+		},
+	)
+	prometheus.MustRegister(probesInFlight)
+
 	prometheus.MustRegister(version.NewCollector("ssh_transport_exporter"))
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/probe", probehttp.Handler(probehttp.Options{
-		Logger:   logger,
-		Timeout:  cfg.ProbeTimeout,
-		Requests: probeRequests,
-		Live:     &live,
+		Logger:        logger,
+		Timeout:       cfg.ProbeTimeout,
+		MaxConcurrent: cfg.MaxConcurrentProbe,
+		Requests:      probeRequests,
+		InFlight:      probesInFlight,
+		Live:          &live,
 	}))
 
 	srv := &http.Server{
