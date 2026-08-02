@@ -128,23 +128,23 @@ func Handler(opts Options) http.HandlerFunc {
 	}
 }
 
-// effectiveTimeout returns max, shortened to the Prometheus scrape timeout
-// when the request carries a valid, shorter one via the
+// effectiveTimeout returns maxTimeout, shortened to the Prometheus scrape
+// timeout when the request carries a valid, shorter one via the
 // X-Prometheus-Scrape-Timeout-Seconds header. Malformed, zero, and negative
 // header values are ignored.
-func effectiveTimeout(r *http.Request, max time.Duration) time.Duration {
+func effectiveTimeout(r *http.Request, maxTimeout time.Duration) time.Duration {
 	timeoutSecs := r.Header.Get("X-Prometheus-Scrape-Timeout-Seconds")
 	if timeoutSecs == "" {
-		return max
+		return maxTimeout
 	}
 	s, err := strconv.ParseFloat(timeoutSecs, 64)
 	if err != nil || s <= 0 {
-		return max
+		return maxTimeout
 	}
-	if scrapeTimeout := time.Duration(s * float64(time.Second)); scrapeTimeout < max {
+	if scrapeTimeout := time.Duration(s * float64(time.Second)); scrapeTimeout < maxTimeout {
 		return scrapeTimeout
 	}
-	return max
+	return maxTimeout
 }
 
 // writeError responds with "CODE WORD: msg" (e.g. "403 Forbidden: ...") so a
