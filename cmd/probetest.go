@@ -46,11 +46,11 @@ func main() {
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-	defer cancel()
 
 	start := time.Now()
 	result := probe.Run(ctx, target, probe.Options{HostKeyCallback: hostKeyCallback})
 	elapsed := time.Since(start)
+	cancel()
 
 	fmt.Printf("target:               %s\n", target)
 	fmt.Printf("tcp_connect_success:  %v\n", result.TCPConnectSuccess)

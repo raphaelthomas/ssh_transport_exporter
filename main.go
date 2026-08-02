@@ -123,10 +123,10 @@ func serve(logger *slog.Logger, cfg *flags, srv *http.Server, live *atomic.Point
 			}
 			logger.Info("received signal, shutting down HTTP server", "signal", sig)
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-			defer cancel()
 			if err := srv.Shutdown(shutdownCtx); err != nil {
 				logger.Error("HTTP server shutdown error", "error", err)
 			}
+			cancel()
 			return
 		}
 	}()
