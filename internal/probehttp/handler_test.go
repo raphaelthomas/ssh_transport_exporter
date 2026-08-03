@@ -78,11 +78,10 @@ func doProbe(t *testing.T, h http.HandlerFunc, query string, headers map[string]
 
 // doProbeCtx issues a GET whose context the caller controls, so a probe can be
 // held in flight and released on demand.
-func doProbeCtx(ctx context.Context, h http.HandlerFunc, query string) *httptest.ResponseRecorder {
+func doProbeCtx(ctx context.Context, h http.HandlerFunc, query string) {
 	req := httptest.NewRequest(http.MethodGet, "/probe"+query, nil).WithContext(ctx)
 	rec := httptest.NewRecorder()
 	h(rec, req)
-	return rec
 }
 
 // waitForGauge blocks until g reads want, failing the test if it never does.

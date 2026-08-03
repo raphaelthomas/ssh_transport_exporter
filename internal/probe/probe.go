@@ -14,12 +14,14 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
+// Stages a probe can fail at, reported as Result.ErrorStage.
 const (
 	ErrStageTCPConnect    = "tcp_connect"
 	ErrStageKeyExchange   = "kex"
 	ErrStageHostKeyVerify = "host_key_verify"
 )
 
+// Why a probe failed, reported as Result.ErrorReason.
 const (
 	ErrReasonConnectionRefused  = "connection_refused"
 	ErrReasonNoRouteToHost      = "no_route_to_host"

@@ -62,15 +62,16 @@ func labelValue(t *testing.T, mfs map[string]*dto.MetricFamily, name, key string
 	return ""
 }
 
-// seriesWithLabel returns the series of name whose label key equals want, or nil.
-func seriesWithLabel(mfs map[string]*dto.MetricFamily, name, key, want string) *dto.Metric {
-	mf, ok := mfs[name]
+// cipherInfoSeries returns the ssh_transport_cipher_info series for the given
+// direction label, or nil.
+func cipherInfoSeries(mfs map[string]*dto.MetricFamily, direction string) *dto.Metric {
+	mf, ok := mfs["ssh_transport_cipher_info"]
 	if !ok {
 		return nil
 	}
 	for _, m := range mf.GetMetric() {
 		for _, lp := range m.GetLabel() {
-			if lp.GetName() == key && lp.GetValue() == want {
+			if lp.GetName() == "direction" && lp.GetValue() == direction {
 				return m
 			}
 		}
@@ -123,12 +124,12 @@ func TestCollectFullSuccess(t *testing.T) {
 		t.Errorf("host_key_verify_algorithm_info algorithm = %q", got)
 	}
 
-	if m := seriesWithLabel(mfs, "ssh_transport_cipher_info", "direction", "read"); m == nil {
+	if m := cipherInfoSeries(mfs, "read"); m == nil {
 		t.Error("cipher_info read series missing")
 	} else if got := cipherLabel(m); got != "aes128-gcm@openssh.com" {
 		t.Errorf("cipher_info read cipher = %q", got)
 	}
-	if m := seriesWithLabel(mfs, "ssh_transport_cipher_info", "direction", "write"); m == nil {
+	if m := cipherInfoSeries(mfs, "write"); m == nil {
 		t.Error("cipher_info write series missing")
 	} else if got := cipherLabel(m); got != "chacha20-poly1305@openssh.com" {
 		t.Errorf("cipher_info write cipher = %q", got)
@@ -215,10 +216,10 @@ func TestCollectOmissionBranches(t *testing.T) {
 		t.Errorf("kex_duration_seconds = %v, want 1", got)
 	}
 	// Only the read cipher series exists.
-	if m := seriesWithLabel(mfs, "ssh_transport_cipher_info", "direction", "read"); m == nil {
+	if m := cipherInfoSeries(mfs, "read"); m == nil {
 		t.Error("cipher_info read series missing")
 	}
-	if m := seriesWithLabel(mfs, "ssh_transport_cipher_info", "direction", "write"); m != nil {
+	if m := cipherInfoSeries(mfs, "write"); m != nil {
 		t.Error("cipher_info write series present, want absent")
 	}
 }

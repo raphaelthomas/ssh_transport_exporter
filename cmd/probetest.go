@@ -35,6 +35,7 @@ func main() {
 	var hostKeyCallback ssh.HostKeyCallback
 	if *knownHostsPath == "" {
 		fmt.Fprintln(os.Stderr, "WARNING: no -known-hosts given, host key verification is DISABLED (dev-only mode)")
+		//nolint:gosec // G106: dev-only mode, opt-in by omitting -known-hosts and warned about above.
 		hostKeyCallback = ssh.InsecureIgnoreHostKey()
 	} else {
 		var err error

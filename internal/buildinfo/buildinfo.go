@@ -5,6 +5,7 @@ import (
 	"github.com/prometheus/common/version"
 )
 
+// Overridden at build time via -ldflags -X.
 var (
 	Version   = "snapshot"
 	Revision  = "unknown"

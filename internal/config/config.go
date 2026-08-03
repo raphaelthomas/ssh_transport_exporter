@@ -45,6 +45,7 @@ type rawConfig struct {
 // config file at path. It is pure aside from reading the file itself: it
 // performs no known_hosts I/O and builds no callbacks.
 func loadRawConfig(path string, allowAllTargetsFlag bool, logger *slog.Logger) (*rawConfig, error) {
+	//nolint:gosec // G304: reading the operator-supplied config path is the point.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)

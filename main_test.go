@@ -181,7 +181,7 @@ func TestServeDrainsInFlightRequests(t *testing.T) {
 	var handlerFinished atomic.Bool
 	started := make(chan struct{})
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		close(started)
 		time.Sleep(300 * time.Millisecond)
 		handlerFinished.Store(true)
@@ -238,7 +238,7 @@ func TestServeReloadsOnSIGHUPAndKeepsServing(t *testing.T) {
 	var live atomic.Pointer[map[string]config.Module]
 	live.Store(&initial)
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
 	addr, sigCh, errCh := serveTestSetup(t, handler, &flags{ConfigFile: path}, &live)
