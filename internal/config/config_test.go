@@ -302,6 +302,78 @@ func TestLoadRawConfigPortValidation(t *testing.T) {
 	}
 }
 
+func TestLoadRawConfigAlgorithmValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		contains string
+	}{
+		{
+			"mistyped cipher",
+			"known_hosts: \"k\"\nmodules:\n  m:\n    ciphers: [arcfour28]\n",
+			`unknown ciphers ["arcfour28"]`,
+		},
+		{
+			"mac name in the ciphers list",
+			"known_hosts: \"k\"\nmodules:\n  m:\n    ciphers: [hmac-sha2-256]\n",
+			`unknown ciphers ["hmac-sha2-256"]`,
+		},
+		{
+			"mistyped host key algorithm",
+			"known_hosts: \"k\"\nmodules:\n  m:\n    host_key_algorithms: [ssh-ed25519-cert-v02@openssh.com]\n",
+			`unknown host key algorithms ["ssh-ed25519-cert-v02@openssh.com"]`,
+		},
+		{
+			"security key algorithms are not host key algorithms",
+			"known_hosts: \"k\"\nmodules:\n  m:\n    host_key_algorithms: [sk-ssh-ed25519@openssh.com]\n",
+			`unknown host key algorithms ["sk-ssh-ed25519@openssh.com"]`,
+		},
+		{
+			"a valid entry does not excuse an invalid one",
+			"known_hosts: \"k\"\nmodules:\n  m:\n    ciphers: [aes128-ctr, arcfour28]\n",
+			`unknown ciphers ["arcfour28"]`,
+		},
+		{
+			"every offending name is reported, in config order",
+			"known_hosts: \"k\"\nmodules:\n  m:\n    ciphers: [arcfour28, aes128-ctr, aes128-ctrl, hmac-sha2-256]\n",
+			`unknown ciphers ["arcfour28" "aes128-ctrl" "hmac-sha2-256"]`,
+		},
+		{
+			"every offending host key algorithm is reported",
+			"known_hosts: \"k\"\nmodules:\n  m:\n    host_key_algorithms: [sk-ssh-ed25519@openssh.com, ssh-ed25519, sk-ecdsa-sha2-nistp256@openssh.com]\n",
+			`unknown host key algorithms ["sk-ssh-ed25519@openssh.com" "sk-ecdsa-sha2-nistp256@openssh.com"]`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := loadRaw(t, tt.content)
+			if err == nil || !strings.Contains(err.Error(), tt.contains) {
+				t.Errorf("err = %v, want containing %q", err, tt.contains)
+			}
+		})
+	}
+}
+
+// Deliberately weak algorithms must stay configurable; rejecting them would
+// defeat the point of advertising them.
+func TestLoadRawConfigAcceptsInsecureAlgorithms(t *testing.T) {
+	content := "known_hosts: \"k\"\nmodules:\n  m:\n" +
+		"    ciphers: [arcfour, arcfour128, arcfour256, 3des-cbc, aes128-cbc]\n" +
+		"    host_key_algorithms: [ssh-dss, ssh-rsa, ssh-dss-cert-v01@openssh.com, ssh-rsa-cert-v01@openssh.com]\n"
+	if _, err := loadRaw(t, content); err != nil {
+		t.Errorf("loadRawConfig: %v", err)
+	}
+}
+
+// The shipped example is documentation operators copy from, so it has to pass
+// the same validation as any other config. Only parsing and validation are
+// exercised; the known_hosts paths it names are not read.
+func TestExampleConfigIsValid(t *testing.T) {
+	if _, err := loadRawConfig("../../ssh_transport_exporter.example.yaml", false, discardLogger()); err != nil {
+		t.Errorf("example config: %v", err)
+	}
+}
+
 func TestLoadRawConfigAllowAllGating(t *testing.T) {
 	t.Run("flag set, no default -> allow all enabled", func(t *testing.T) {
 		raw, err := loadRawConfig(writeConfig(t, "known_hosts: \"k\"\nmodules:\n  m: {}\n"), true, discardLogger())

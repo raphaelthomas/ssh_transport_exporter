@@ -8,12 +8,46 @@ import (
 	"os"
 	"slices"
 
+	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 )
 
 // DefaultModuleName is the module used when a config file defines none,
 // and the module selected when a /probe request omits the module parameter.
 const DefaultModuleName = "default"
+
+// Algorithm names x/crypto/ssh implements. Insecure ones are valid to
+// configure, so both sets count as known.
+var (
+	knownCiphers           = algorithmSet(ssh.SupportedAlgorithms().Ciphers, ssh.InsecureAlgorithms().Ciphers)
+	knownHostKeyAlgorithms = algorithmSet(ssh.SupportedAlgorithms().HostKeys, ssh.InsecureAlgorithms().HostKeys)
+)
+
+func algorithmSet(lists ...[]string) map[string]struct{} {
+	set := make(map[string]struct{})
+	for _, list := range lists {
+		for _, name := range list {
+			set[name] = struct{}{}
+		}
+	}
+	return set
+}
+
+// validateAlgorithms rejects names x/crypto/ssh does not implement, which it
+// would otherwise drop from the advertised list silently. It reports every
+// offending name so a config can be fixed in one pass.
+func validateAlgorithms(kind string, names []string, known map[string]struct{}) error {
+	var unknown []string
+	for _, name := range names {
+		if _, ok := known[name]; !ok {
+			unknown = append(unknown, name)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	return fmt.Errorf("unknown %s %q (not implemented by golang.org/x/crypto/ssh)", kind, unknown)
+}
 
 // rawConfigModule defines one named probe configuration as written in YAML.
 type rawConfigModule struct {
@@ -116,6 +150,13 @@ func loadRawConfig(path string, allowAllTargetsFlag bool, logger *slog.Logger) (
 		}
 		if !slices.Contains(mod.AllowedPorts, mod.TargetPort) {
 			return nil, fmt.Errorf("module %q: target_port %d is not in allowed_ports %v", name, mod.TargetPort, mod.AllowedPorts)
+		}
+
+		if err := validateAlgorithms("ciphers", mod.Ciphers, knownCiphers); err != nil {
+			return nil, fmt.Errorf("module %q: %w", name, err)
+		}
+		if err := validateAlgorithms("host key algorithms", mod.HostKeyAlgorithms, knownHostKeyAlgorithms); err != nil {
+			return nil, fmt.Errorf("module %q: %w", name, err)
 		}
 
 		cfg.Modules[name] = mod
