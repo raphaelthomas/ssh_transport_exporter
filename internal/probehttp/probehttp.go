@@ -123,10 +123,41 @@ func Handler(opts Options) http.HandlerFunc {
 		registry := prometheus.NewRegistry()
 		registry.MustRegister(collector.New(ctx, target, moduleName, mod.Options, logger))
 
-		promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
-		requests.WithLabelValues(moduleName, strconv.Itoa(http.StatusOK)).Inc()
+		rec := newStatusRecorder(w)
+		promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP(rec, r)
+		requests.WithLabelValues(moduleName, strconv.Itoa(rec.status)).Inc()
 	}
 }
+
+// statusRecorder wraps an http.ResponseWriter to remember the status code sent
+// to the client.
+type statusRecorder struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+}
+
+// newStatusRecorder wraps w, defaulting to the 200 net/http implies for a
+// response whose header is never written explicitly.
+func newStatusRecorder(w http.ResponseWriter) *statusRecorder {
+	return &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+}
+
+func (rec *statusRecorder) WriteHeader(code int) {
+	if !rec.wroteHeader {
+		rec.status = code
+		rec.wroteHeader = true
+	}
+	rec.ResponseWriter.WriteHeader(code)
+}
+
+func (rec *statusRecorder) Write(b []byte) (int, error) {
+	rec.wroteHeader = true
+	return rec.ResponseWriter.Write(b)
+}
+
+// Unwrap keeps http.ResponseController able to reach the wrapped writer.
+func (rec *statusRecorder) Unwrap() http.ResponseWriter { return rec.ResponseWriter }
 
 // effectiveTimeout returns maxTimeout, shortened to the Prometheus scrape
 // timeout when the request carries a valid, shorter one via the

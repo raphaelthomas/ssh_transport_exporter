@@ -125,6 +125,96 @@ func TestEffectiveTimeout(t *testing.T) {
 	}
 }
 
+func TestStatusRecorder(t *testing.T) {
+	tests := []struct {
+		name  string
+		serve func(w http.ResponseWriter)
+		want  int
+	}{
+		{
+			name:  "body without WriteHeader records the implied 200",
+			serve: func(w http.ResponseWriter) { _, _ = w.Write([]byte("ok")) },
+			want:  http.StatusOK,
+		},
+		{
+			name:  "explicit error status is recorded",
+			serve: func(w http.ResponseWriter) { w.WriteHeader(http.StatusInternalServerError) },
+			want:  http.StatusInternalServerError,
+		},
+		{
+			name: "only the first WriteHeader counts",
+			serve: func(w http.ResponseWriter) {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.WriteHeader(http.StatusOK)
+			},
+			want: http.StatusServiceUnavailable,
+		},
+		{
+			name: "WriteHeader after a body write cannot rewrite the status",
+			serve: func(w http.ResponseWriter) {
+				_, _ = w.Write([]byte("ok"))
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+			want: http.StatusOK,
+		},
+		{
+			name:  "nothing written at all records 200",
+			serve: func(http.ResponseWriter) {},
+			want:  http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := newStatusRecorder(httptest.NewRecorder())
+			tt.serve(rec)
+			if rec.status != tt.want {
+				t.Errorf("recorded status = %d, want %d", rec.status, tt.want)
+			}
+		})
+	}
+}
+
+// The recorder must stay transparent: what it records has to match what the
+// underlying ResponseWriter actually sent.
+func TestStatusRecorderPassesThroughToTheClient(t *testing.T) {
+	under := httptest.NewRecorder()
+	rec := newStatusRecorder(under)
+
+	rec.WriteHeader(http.StatusInternalServerError)
+	if _, err := rec.Write([]byte("boom")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	if under.Code != http.StatusInternalServerError {
+		t.Errorf("underlying status = %d, want %d", under.Code, http.StatusInternalServerError)
+	}
+	if got := under.Body.String(); got != "boom" {
+		t.Errorf("underlying body = %q, want %q", got, "boom")
+	}
+	if rec.status != under.Code {
+		t.Errorf("recorded status %d does not match what was sent (%d)", rec.status, under.Code)
+	}
+}
+
+// http.ResponseController must be able to reach past the wrapper, otherwise
+// flushing and write deadlines would silently stop working.
+func TestStatusRecorderUnwrap(t *testing.T) {
+	under := httptest.NewRecorder()
+	rec := newStatusRecorder(under)
+
+	if got := rec.Unwrap(); got != http.ResponseWriter(under) {
+		t.Errorf("Unwrap() = %v, want the underlying recorder", got)
+	}
+	// httptest.ResponseRecorder implements Flush, so this must reach it.
+	if err := http.NewResponseController(rec).Flush(); err != nil {
+		t.Errorf("ResponseController.Flush through the wrapper: %v", err)
+	}
+	if !under.Flushed {
+		t.Error("underlying recorder was not flushed through the wrapper")
+	}
+}
+
 // A header on one request must not shorten the next one.
 func TestEffectiveTimeoutDoesNotLeakAcrossRequests(t *testing.T) {
 	const maxTimeout = 10 * time.Second
