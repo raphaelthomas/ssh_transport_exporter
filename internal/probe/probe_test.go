@@ -139,6 +139,23 @@ func TestRunHostKeyVerificationFailure(t *testing.T) {
 	}
 }
 
+func TestRunNilHostKeyCallback(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{})
+
+	if result.HostKeyVerifySuccess {
+		t.Error("HostKeyVerifySuccess = true, want false without a callback")
+	}
+	if result.ErrorStage != ErrStageHostKeyVerify {
+		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageHostKeyVerify)
+	}
+}
+
 func TestRunConnectionRefused(t *testing.T) {
 	t.Parallel()
 	addr := sshtest.ClosedPort(t)

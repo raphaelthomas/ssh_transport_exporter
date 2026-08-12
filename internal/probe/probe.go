@@ -66,7 +66,7 @@ var errAbort = errors.New("probe: aborting before auth by design")
 // Options controls how a probe's SSH client connection is configured.
 type Options struct {
 	// HostKeyCallback does the identity check. Called synchronously per probe,
-	// so must be safe for concurrent use.
+	// so must be safe for concurrent use. Nil fails verification.
 	HostKeyCallback ssh.HostKeyCallback
 
 	// Ciphers to advertise. Empty uses golang.org/x/crypto/ssh's default.
@@ -105,6 +105,13 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
+	}
+
+	hostKeyCallback := opts.HostKeyCallback
+	if hostKeyCallback == nil {
+		hostKeyCallback = func(string, net.Addr, ssh.PublicKey) error {
+			return errors.New("no HostKeyCallback configured")
+		}
 	}
 
 	dialer := net.Dialer{}
@@ -151,7 +158,7 @@ func Run(ctx context.Context, target string, opts Options) Result {
 			result.KEXSuccess = true
 			result.KEXDuration = time.Since(kexStart)
 
-			if err := opts.HostKeyCallback(hostname, remote, key); err != nil {
+			if err := hostKeyCallback(hostname, remote, key); err != nil {
 				result.HostKeyVerifySuccess = false
 				result.ErrorStage = ErrStageHostKeyVerify
 				result.ErrorReason = classifyHostKeyVerifyError(err)
