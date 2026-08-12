@@ -32,6 +32,7 @@ const (
 	ErrReasonMismatch           = "mismatch"
 	ErrReasonRevoked            = "revoked"
 	ErrReasonTimeout            = "timeout"
+	ErrReasonCanceled           = "canceled"
 	ErrReasonOther              = "other"
 )
 
@@ -111,7 +112,7 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	rawConn, err := dialer.DialContext(ctx, "tcp", target)
 	if err != nil {
 		result.ErrorStage = ErrStageTCPConnect
-		result.ErrorReason = classifyDialError(err)
+		result.ErrorReason = classifyDialError(ctx, err)
 		return result
 	}
 	defer func() {
@@ -127,10 +128,6 @@ func Run(ctx context.Context, target string, opts Options) Result {
 		} else if logger.Enabled(ctx, slog.LevelDebug) {
 			logger.Debug("failed to read negotiated TCP MSS", "target", target, "error", err)
 		}
-	}
-
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = rawConn.SetDeadline(deadline)
 	}
 
 	forceCloseOnCtxDone := context.AfterFunc(ctx, func() {
@@ -189,7 +186,7 @@ func Run(ctx context.Context, target string, opts Options) Result {
 		logger.Warn("SSH handshake completed without hitting abort sentinel; x/crypto/ssh behavior may have changed", "target", target)
 	default:
 		result.ErrorStage = ErrStageKeyExchange
-		result.ErrorReason = classifyKexError(handshakeErr)
+		result.ErrorReason = classifyKexError(ctx, handshakeErr)
 	}
 
 	return result
@@ -210,7 +207,26 @@ func classifyHostKeyVerifyError(err error) string {
 	return ErrReasonOther
 }
 
-func classifyDialError(err error) string {
+// classifyContextError reports the reason implied by ctx's own state, or the
+// empty string when ctx is still live. It takes precedence over the error
+// value: aborting a probe closes the connection, which is indistinguishable
+// from a peer reset by error alone.
+func classifyContextError(ctx context.Context) string {
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return ErrReasonTimeout
+	case errors.Is(ctx.Err(), context.Canceled):
+		return ErrReasonCanceled
+	default:
+		return ""
+	}
+}
+
+func classifyDialError(ctx context.Context, err error) string {
+	if reason := classifyContextError(ctx); reason != "" {
+		return reason
+	}
+
 	if netErr, ok := errors.AsType[net.Error](err); ok && netErr.Timeout() {
 		return ErrReasonTimeout
 	}
@@ -231,7 +247,11 @@ func classifyDialError(err error) string {
 	return ErrReasonOther
 }
 
-func classifyKexError(err error) string {
+func classifyKexError(ctx context.Context, err error) string {
+	if reason := classifyContextError(ctx); reason != "" {
+		return reason
+	}
+
 	if netErr, ok := errors.AsType[net.Error](err); ok && netErr.Timeout() {
 		return ErrReasonTimeout
 	}

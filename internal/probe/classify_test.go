@@ -1,12 +1,14 @@
 package probe
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -53,23 +55,48 @@ func (timeoutError) Error() string   { return "i/o timeout" }
 func (timeoutError) Timeout() bool   { return true }
 func (timeoutError) Temporary() bool { return true }
 
+// expiredContext returns a context whose deadline has already passed.
+func expiredContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	t.Cleanup(cancel)
+	return ctx
+}
+
+// canceledContext returns a context that has already been cancelled.
+func canceledContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
+}
+
 func TestClassifyDialError(t *testing.T) {
 	tests := []struct {
 		name string
+		ctx  func(*testing.T) context.Context
 		err  error
 		want string
 	}{
-		{"timeout", timeoutError{}, ErrReasonTimeout},
-		{"connection refused", syscall.ECONNREFUSED, ErrReasonConnectionRefused},
-		{"no route to host", syscall.EHOSTUNREACH, ErrReasonNoRouteToHost},
-		{"network unreachable", syscall.ENETUNREACH, ErrReasonNetworkUnreachable},
-		{"dns failure", &net.DNSError{Err: "no such host", Name: "nope"}, ErrReasonDNSFailure},
-		{"wrapped connection refused", fmt.Errorf("dial: %w", syscall.ECONNREFUSED), ErrReasonConnectionRefused},
-		{"other", errors.New("boom"), ErrReasonOther},
+		{"timeout", nil, timeoutError{}, ErrReasonTimeout},
+		{"connection refused", nil, syscall.ECONNREFUSED, ErrReasonConnectionRefused},
+		{"no route to host", nil, syscall.EHOSTUNREACH, ErrReasonNoRouteToHost},
+		{"network unreachable", nil, syscall.ENETUNREACH, ErrReasonNetworkUnreachable},
+		{"dns failure", nil, &net.DNSError{Err: "no such host", Name: "nope"}, ErrReasonDNSFailure},
+		{"wrapped connection refused", nil, fmt.Errorf("dial: %w", syscall.ECONNREFUSED), ErrReasonConnectionRefused},
+		{"other", nil, errors.New("boom"), ErrReasonOther},
+		{"expired context reports timeout", expiredContext, errors.New("boom"), ErrReasonTimeout},
+		{"expired context outranks ErrClosed", expiredContext, net.ErrClosed, ErrReasonTimeout},
+		{"canceled context reports canceled", canceledContext, errors.New("boom"), ErrReasonCanceled},
+		{"canceled context outranks ErrClosed", canceledContext, net.ErrClosed, ErrReasonCanceled},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := classifyDialError(tt.err); got != tt.want {
+			ctx := context.Background()
+			if tt.ctx != nil {
+				ctx = tt.ctx(t)
+			}
+			if got := classifyDialError(ctx, tt.err); got != tt.want {
 				t.Errorf("classifyDialError(%v) = %q, want %q", tt.err, got, tt.want)
 			}
 		})
@@ -79,17 +106,26 @@ func TestClassifyDialError(t *testing.T) {
 func TestClassifyKexError(t *testing.T) {
 	tests := []struct {
 		name string
+		ctx  func(*testing.T) context.Context
 		err  error
 		want string
 	}{
-		{"timeout", timeoutError{}, ErrReasonTimeout},
-		{"connection reset via ErrClosed", net.ErrClosed, ErrReasonConnectionReset},
-		{"wrapped ErrClosed", fmt.Errorf("read: %w", net.ErrClosed), ErrReasonConnectionReset},
-		{"other", errors.New("kex exploded"), ErrReasonOther},
+		{"timeout", nil, timeoutError{}, ErrReasonTimeout},
+		{"connection reset via ErrClosed", nil, net.ErrClosed, ErrReasonConnectionReset},
+		{"wrapped ErrClosed", nil, fmt.Errorf("read: %w", net.ErrClosed), ErrReasonConnectionReset},
+		{"other", nil, errors.New("kex exploded"), ErrReasonOther},
+		{"expired context reports timeout", expiredContext, net.ErrClosed, ErrReasonTimeout},
+		{"expired context outranks a generic error", expiredContext, errors.New("kex exploded"), ErrReasonTimeout},
+		{"canceled context reports canceled", canceledContext, net.ErrClosed, ErrReasonCanceled},
+		{"canceled context outranks a generic error", canceledContext, errors.New("kex exploded"), ErrReasonCanceled},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := classifyKexError(tt.err); got != tt.want {
+			ctx := context.Background()
+			if tt.ctx != nil {
+				ctx = tt.ctx(t)
+			}
+			if got := classifyKexError(ctx, tt.err); got != tt.want {
 				t.Errorf("classifyKexError(%v) = %q, want %q", tt.err, got, tt.want)
 			}
 		})

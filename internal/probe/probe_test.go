@@ -215,9 +215,32 @@ func TestRunKexTimeout(t *testing.T) {
 	if result.ErrorStage != ErrStageKeyExchange {
 		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageKeyExchange)
 	}
-	// Either the deadline fires (timeout) or the forced close wins (reset).
-	if result.ErrorReason != ErrReasonTimeout && result.ErrorReason != ErrReasonConnectionReset {
-		t.Errorf("ErrorReason = %q, want timeout or connection_reset", result.ErrorReason)
+	if result.ErrorReason != ErrReasonTimeout {
+		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonTimeout)
+	}
+}
+
+func TestRunKexCanceled(t *testing.T) {
+	t.Parallel()
+	addr := sshtest.SilentServer(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+	defer cancel()
+
+	result := Run(ctx, addr, Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+
+	if !result.TCPConnectSuccess {
+		t.Fatal("TCPConnectSuccess = false, want true (TCP connect should succeed)")
+	}
+	if result.ErrorStage != ErrStageKeyExchange {
+		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageKeyExchange)
+	}
+	if result.ErrorReason != ErrReasonCanceled {
+		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonCanceled)
 	}
 }
 
