@@ -226,6 +226,44 @@ func TestServeDrainsInFlightRequests(t *testing.T) {
 	}
 }
 
+// serve owns the signal handler, so it has to reap it on every exit path, not
+// only the one a termination signal drives.
+func TestServeStopsSignalHandlerOnListenerError(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv := &http.Server{Handler: http.NewServeMux(), ReadHeaderTimeout: time.Second}
+	sigCh := make(chan os.Signal, 1)
+	errCh := make(chan error, 1)
+
+	var live atomic.Pointer[map[string]config.Module]
+	go func() {
+		errCh <- serve(slog.New(slog.DiscardHandler), &flags{}, srv, &live, ln, sigCh)
+	}()
+
+	// Break Accept so Serve fails with something other than ErrServerClosed.
+	if err := ln.Close(); err != nil {
+		t.Fatalf("closing listener: %v", err)
+	}
+
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("serve returned nil, want the listener error")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not return after the listener closed")
+	}
+
+	// A stranded handler would still be reading sigCh and consume this.
+	sigCh <- syscall.SIGHUP
+	time.Sleep(100 * time.Millisecond)
+	if len(sigCh) != 1 {
+		t.Error("signal handler still running after serve returned")
+	}
+}
+
 // SIGHUP reloads config and leaves the server serving.
 func TestServeReloadsOnSIGHUPAndKeepsServing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")

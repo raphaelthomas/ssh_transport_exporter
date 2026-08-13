@@ -111,32 +111,41 @@ const shutdownTimeout = 10 * time.Second
 // config on SIGHUP. It returns once in-flight requests have drained, so the
 // caller must not exit before it does.
 func serve(logger *slog.Logger, cfg *flags, srv *http.Server, live *atomic.Pointer[map[string]config.Module], ln net.Listener, sigCh <-chan os.Signal) error {
+	stop := make(chan struct{})
 	shutdownDone := make(chan struct{})
 
 	go func() {
 		defer close(shutdownDone)
-		for sig := range sigCh {
-			if sig == syscall.SIGHUP {
-				logger.Info("received SIGHUP, reloading config")
-				reload(logger, cfg, live)
-				continue
+		for {
+			select {
+			case <-stop:
+				return
+			case sig := <-sigCh:
+				if sig == syscall.SIGHUP {
+					logger.Info("received SIGHUP, reloading config")
+					reload(logger, cfg, live)
+					continue
+				}
+				logger.Info("received signal, shutting down HTTP server", "signal", sig)
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+				if err := srv.Shutdown(shutdownCtx); err != nil {
+					logger.Error("HTTP server shutdown error", "error", err)
+				}
+				cancel()
+				return
 			}
-			logger.Info("received signal, shutting down HTTP server", "signal", sig)
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-			if err := srv.Shutdown(shutdownCtx); err != nil {
-				logger.Error("HTTP server shutdown error", "error", err)
-			}
-			cancel()
-			return
 		}
 	}()
 
-	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
-	}
+	err := srv.Serve(ln)
+	close(stop)
 
 	// Serve returns as soon as the listener closes; wait for the drain.
 	<-shutdownDone
+
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
 	logger.Info("shutdown complete")
 	return nil
 }
