@@ -54,6 +54,8 @@ sboms:
       - "{{ .Version }}"
       - "--output"
       - "spdx-json=$document"
+      - "--enrich"
+      - "all"
 
 changelog:
   use: git
