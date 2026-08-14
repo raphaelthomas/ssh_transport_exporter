@@ -44,6 +44,9 @@ archives:
   - formats: [ 'tar.gz' ]
     name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
 
+sboms:
+  - artifacts: archive
+
 changelog:
   use: git
   sort: asc
