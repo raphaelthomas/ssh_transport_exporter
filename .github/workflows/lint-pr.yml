@@ -1,11 +1,15 @@
 name: 'Lint PR'
 on:
-  pull_request_target:
+  # Not pull_request_target: this check needs no write access and no secrets.
+  pull_request:
     types:
       - opened
       - reopened
       - edited
       - synchronize
+
+permissions: {}
+
 jobs:
   main:
     name: Validate PR title
