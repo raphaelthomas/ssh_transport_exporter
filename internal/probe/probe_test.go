@@ -316,14 +316,18 @@ func TestRunDebugLoggingEnabled(t *testing.T) {
 
 func TestRunSanitizesServerVersion(t *testing.T) {
 	t.Parallel()
-	// Banner containing a DEL byte, which must be stripped from the label.
+	// Banner containing a DEL byte, which must not reach the label.
 	srv := sshtest.NewServer(t, sshtest.Options{ServerVersion: "SSH-2.0-Test\x7fServer"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
-	if result.ServerVersion != "SSH-2.0-TestServer" {
-		t.Errorf("ServerVersion = %q, want sanitized SSH-2.0-TestServer", result.ServerVersion)
+	if result.ServerVersion != "" {
+		t.Errorf("ServerVersion = %q, want it dropped as malformed", result.ServerVersion)
+	}
+	// The probe itself still succeeds; only the banner is withheld.
+	if !result.KEXSuccess {
+		t.Error("KEXSuccess = false, want true")
 	}
 }

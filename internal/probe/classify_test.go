@@ -20,12 +20,19 @@ func TestSanitizeServerVersion(t *testing.T) {
 		want string
 	}{
 		{"normal banner", "SSH-2.0-OpenSSH_9.6", "SSH-2.0-OpenSSH_9.6"},
+		{"banner with comments", "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5", "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5"},
+		{"minus in softwareversion", "SSH-2.0-Cisco-1.25", "SSH-2.0-Cisco-1.25"},
+		{"1.99 protoversion", "SSH-1.99-OpenSSH_9.6", "SSH-1.99-OpenSSH_9.6"},
 		{"empty", "", ""},
-		{"control chars stripped", "SSH-2.0-\x00\x01\x1fTest", "SSH-2.0-Test"},
-		{"del char stripped", "SSH-2.0-Test\x7f", "SSH-2.0-Test"},
-		{"tab and newline stripped", "SSH-2.0-Te\tst\n", "SSH-2.0-Test"},
-		{"invalid utf8 dropped", "SSH-2.0-Test\xff", "SSH-2.0-Test"},
-		{"printable unicode kept", "SSH-2.0-café", "SSH-2.0-café"},
+		{"missing prefix", "OpenSSH_9.6", ""},
+		{"unsupported protoversion", "SSH-1.5-OpenSSH_9.6", ""},
+		{"empty softwareversion", "SSH-2.0-", ""},
+		{"comments without softwareversion", "SSH-2.0- Ubuntu", ""},
+		{"control chars rejected", "SSH-2.0-\x00\x01\x1fTest", ""},
+		{"del char rejected", "SSH-2.0-Test\x7f", ""},
+		{"tab and newline rejected", "SSH-2.0-Te\tst\n", ""},
+		{"invalid utf8 rejected", "SSH-2.0-Test\xff", ""},
+		{"non-ascii rejected", "SSH-2.0-café", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -36,15 +43,16 @@ func TestSanitizeServerVersion(t *testing.T) {
 	}
 }
 
-func TestSanitizeServerVersionTruncates(t *testing.T) {
+func TestSanitizeServerVersionLengthLimit(t *testing.T) {
 	const maxLen = 255
-	raw := strings.Repeat("a", 300)
-	got := sanitizeServerVersion([]byte(raw))
-	if len(got) != maxLen {
-		t.Errorf("sanitizeServerVersion length = %d, want %d", len(got), maxLen)
+
+	atLimit := "SSH-2.0-" + strings.Repeat("a", maxLen-len("SSH-2.0-"))
+	if got := sanitizeServerVersion([]byte(atLimit)); got != atLimit {
+		t.Errorf("a %d byte banner was rejected", len(atLimit))
 	}
-	if got != strings.Repeat("a", maxLen) {
-		t.Errorf("sanitizeServerVersion did not truncate to first %d bytes", maxLen)
+
+	if got := sanitizeServerVersion([]byte(atLimit + "a")); got != "" {
+		t.Errorf("sanitizeServerVersion = %q, want %q for an overlong banner", got, "")
 	}
 }
 

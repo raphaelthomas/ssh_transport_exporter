@@ -2,13 +2,13 @@
 package probe
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
 	"net"
 	"syscall"
 	"time"
-	"unicode/utf8"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -288,21 +288,34 @@ func classifyKexError(ctx context.Context, err error) string {
 	return ErrReasonOther
 }
 
-// sanitizeServerVersion returns a bounded, control-character-free copy of the
-// raw SSH version banner. The banner is attacker-controlled: nothing about it
-// is signed or verified, so this must not pass the raw bytes straight through
-// to a Prometheus label.
+// sanitizeServerVersion returns raw unchanged if it is a well-formed RFC 4253,
+// section 4.2 identification string, and "" otherwise. The banner is
+// unverified, so a malformed one is dropped rather than repaired into a label
+// value.
 func sanitizeServerVersion(raw []byte) string {
 	const maxLen = 255 // see RFC 4253, section 4.2
+
 	if len(raw) > maxLen {
-		raw = raw[:maxLen]
+		return ""
 	}
-	b := make([]byte, 0, len(raw))
-	for _, r := range string(raw) {
-		if r < 0x20 || r == 0x7f || r == utf8.RuneError {
-			continue // drop control characters and invalid encoding
+
+	// RFC 4253, section 5.1 defines 2.0 and 1.99 as the only protoversions.
+	rest, ok := bytes.CutPrefix(raw, []byte("SSH-2.0-"))
+	if !ok {
+		rest, ok = bytes.CutPrefix(raw, []byte("SSH-1.99-"))
+	}
+	if !ok {
+		return ""
+	}
+
+	// softwareversion runs up to the optional comments, and must be present.
+	if software, _, _ := bytes.Cut(rest, []byte{' '}); len(software) == 0 {
+		return ""
+	}
+	for _, c := range rest {
+		if c < 0x20 || c > 0x7e {
+			return ""
 		}
-		b = utf8.AppendRune(b, r)
 	}
-	return string(b)
+	return string(raw)
 }
