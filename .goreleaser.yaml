@@ -46,6 +46,16 @@ archives:
 
 sboms:
   - artifacts: archive
+    env:
+      - SYFT_GOLANG_SEARCH_LOCAL_MOD_CACHE_LICENSES=true
+    args:
+      - "$artifact"
+      - "--source-name"
+      - "{{ .ProjectName }}"
+      - "--source-version"
+      - "{{ .Version }}"
+      - "--output"
+      - "spdx-json=$document"
 
 changelog:
   use: git
