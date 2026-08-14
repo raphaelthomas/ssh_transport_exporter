@@ -67,6 +67,15 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
+	serverVersionValidDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemIdent, "server_version_valid"),
+			"Whether the server's identification string conformed to RFC 4253 4.2. 0 means one was presented but rejected, and no server_version_info is exported for it. Absent if the probe never observed one.",
+			nil,
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
 	kexSuccessDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemKEX, "success"),
@@ -160,6 +169,7 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- tcpConnectDurationDesc.desc
 	ch <- tcpConnectNegotiatedMSSDesc.desc
 	ch <- serverVersionInfoDesc.desc
+	ch <- serverVersionValidDesc.desc
 	ch <- kexSuccessDesc.desc
 	ch <- kexDurationDesc.desc
 	ch <- kexAlgorithmInfoDesc.desc
@@ -181,6 +191,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"tcp_connect_duration", result.TCPConnectDuration,
 			"tcp_connect_negotiated_mss", result.TCPConnectNegotiatedMSS,
 			"server_version", result.ServerVersion,
+			"server_version_malformed", result.ServerVersionMalformed,
 			"kex_success", result.KEXSuccess,
 			"kex_duration", result.KEXDuration,
 			"kex_algorithm", result.KEXAlgorithm,
@@ -201,8 +212,12 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 	}
 
-	if result.ServerVersion != "" {
+	switch {
+	case result.ServerVersion != "":
 		ch <- serverVersionInfoDesc.mustNewConstMetric(1, result.ServerVersion)
+		ch <- serverVersionValidDesc.mustNewConstMetric(1)
+	case result.ServerVersionMalformed:
+		ch <- serverVersionValidDesc.mustNewConstMetric(0)
 	}
 
 	ch <- kexSuccessDesc.mustNewConstMetric(boolToFloat64(result.KEXSuccess))

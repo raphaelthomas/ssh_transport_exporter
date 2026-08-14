@@ -111,6 +111,10 @@ ssh_transport_host_key_verify_success 1
 # TYPE ssh_transport_identification_server_version_info gauge
 ssh_transport_identification_server_version_info{version="SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10"} 1
 
+# HELP ssh_transport_identification_server_version_valid Whether the server's identification string conformed to RFC 4253 4.2. 0 means one was presented but rejected, and no server_version_info is exported for it. Absent if the probe never observed one.
+# TYPE ssh_transport_identification_server_version_valid gauge
+ssh_transport_identification_server_version_valid 1
+
 # HELP ssh_transport_kex_algorithm_info Negotiated key exchange algorithm. Constant 1. Absent if key exchange did not complete.
 # TYPE ssh_transport_kex_algorithm_info gauge
 ssh_transport_kex_algorithm_info{algorithm="curve25519-sha256"} 1

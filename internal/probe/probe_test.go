@@ -52,6 +52,9 @@ func TestRunSuccess(t *testing.T) {
 	if result.ServerVersion != "SSH-2.0-TestServer_1.0" {
 		t.Errorf("ServerVersion = %q, want SSH-2.0-TestServer_1.0", result.ServerVersion)
 	}
+	if result.ServerVersionMalformed {
+		t.Error("ServerVersionMalformed = true, want false for a conforming banner")
+	}
 	if result.CipherRead == "" || result.CipherWrite == "" {
 		t.Errorf("ciphers read=%q write=%q, want both set", result.CipherRead, result.CipherWrite)
 	}
@@ -325,6 +328,9 @@ func TestRunSanitizesServerVersion(t *testing.T) {
 	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
 	if result.ServerVersion != "" {
 		t.Errorf("ServerVersion = %q, want it dropped as malformed", result.ServerVersion)
+	}
+	if !result.ServerVersionMalformed {
+		t.Error("ServerVersionMalformed = false, want true")
 	}
 	// The probe itself still succeeds; only the banner is withheld.
 	if !result.KEXSuccess {

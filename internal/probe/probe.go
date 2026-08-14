@@ -44,6 +44,9 @@ type Result struct {
 	TCPConnectNegotiatedMSS int
 	// SSH identification string exchange results
 	ServerVersion string
+	// ServerVersionMalformed records that a banner was presented but did not
+	// conform, which ServerVersion alone cannot express once it is dropped.
+	ServerVersionMalformed bool
 	// Key exchange results
 	KEXSuccess   bool
 	KEXDuration  time.Duration
@@ -179,7 +182,12 @@ func Run(ctx context.Context, target string, opts Options) Result {
 			return nil
 		},
 		TransportReadyCallback: func(connMetadata ssh.ConnMetadata, negotiatedAlgorithms ssh.NegotiatedAlgorithms) error {
-			result.ServerVersion = sanitizeServerVersion(connMetadata.ServerVersion())
+			rawVersion := connMetadata.ServerVersion()
+			result.ServerVersion = sanitizeServerVersion(rawVersion)
+			if result.ServerVersion == "" {
+				result.ServerVersionMalformed = true
+				logger.Debug("dropping malformed server version banner", "target", target, "banner", string(rawVersion))
+			}
 			result.KEXAlgorithm = negotiatedAlgorithms.KeyExchange
 			result.HostKeyAlgorithm = negotiatedAlgorithms.HostKey
 			result.CipherRead = negotiatedAlgorithms.Read.Cipher

@@ -135,8 +135,42 @@ func TestCollectFullSuccess(t *testing.T) {
 		t.Errorf("cipher_info write cipher = %q", got)
 	}
 
+	if got := singleValue(t, mfs, "ssh_transport_identification_server_version_valid"); got != 1 {
+		t.Errorf("server_version_valid = %v, want 1", got)
+	}
+
 	if _, ok := mfs["ssh_transport_error_info"]; ok {
 		t.Error("error_info present on a fully successful probe, want absent")
+	}
+}
+
+// A rejected banner is reported as invalid rather than vanishing silently.
+func TestCollectMalformedServerVersion(t *testing.T) {
+	t.Parallel()
+	mfs := collectMetrics(t, probe.Result{
+		TCPConnectSuccess:      true,
+		KEXSuccess:             true,
+		ServerVersionMalformed: true,
+	})
+
+	if got := singleValue(t, mfs, "ssh_transport_identification_server_version_valid"); got != 0 {
+		t.Errorf("server_version_valid = %v, want 0", got)
+	}
+	if _, ok := mfs["ssh_transport_identification_server_version_info"]; ok {
+		t.Error("server_version_info present for a rejected banner, want absent")
+	}
+}
+
+// No banner observed at all is distinct from one that was rejected.
+func TestCollectNoServerVersionObserved(t *testing.T) {
+	t.Parallel()
+	mfs := collectMetrics(t, probe.Result{TCPConnectSuccess: true})
+
+	if _, ok := mfs["ssh_transport_identification_server_version_valid"]; ok {
+		t.Error("server_version_valid present when no banner was observed, want absent")
+	}
+	if _, ok := mfs["ssh_transport_identification_server_version_info"]; ok {
+		t.Error("server_version_info present when no banner was observed, want absent")
 	}
 }
 
@@ -230,8 +264,8 @@ func TestDescribeEmitsAllDescriptors(t *testing.T) {
 	ch := make(chan *prometheus.Desc, 32)
 	c.Describe(ch)
 	close(ch)
-	if got := len(ch); got != 11 {
-		t.Errorf("Describe emitted %d descriptors, want 11", got)
+	if got := len(ch); got != 12 {
+		t.Errorf("Describe emitted %d descriptors, want 12", got)
 	}
 }
 
