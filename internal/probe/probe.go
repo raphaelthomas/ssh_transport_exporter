@@ -97,6 +97,14 @@ var defaultHostKeyAlgorithms = []string{
 	ssh.KeyAlgoRSASHA512,
 }
 
+// hostKeyResult moves the verification result off the goroutine that runs
+// HostKeyCallback; only the first key exchange is recorded.
+type hostKeyResult struct {
+	kexDuration time.Duration
+	verified    bool
+	errorReason string
+}
+
 // Run probes the provided target and returns the result including a potential
 // error.
 func Run(ctx context.Context, target string, opts Options) Result {
@@ -143,6 +151,7 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	defer forceCloseOnCtxDone()
 
 	kexStart := time.Now()
+	hostKeyResultCh := make(chan hostKeyResult, 1)
 
 	hostKeyAlgorithms := opts.HostKeyAlgorithms
 	if len(hostKeyAlgorithms) == 0 {
@@ -155,15 +164,14 @@ func Run(ctx context.Context, target string, opts Options) Result {
 		Config:            ssh.Config{Ciphers: opts.Ciphers},
 		HostKeyAlgorithms: hostKeyAlgorithms,
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			result.KEXSuccess = true
-			result.KEXDuration = time.Since(kexStart)
-
+			hk := hostKeyResult{kexDuration: time.Since(kexStart), verified: true}
 			if err := hostKeyCallback(hostname, remote, key); err != nil {
-				result.HostKeyVerifySuccess = false
-				result.ErrorStage = ErrStageHostKeyVerify
-				result.ErrorReason = classifyHostKeyVerifyError(err)
-			} else {
-				result.HostKeyVerifySuccess = true
+				hk.verified = false
+				hk.errorReason = classifyHostKeyVerifyError(err)
+			}
+			select {
+			case hostKeyResultCh <- hk:
+			default:
 			}
 			// we deliberately continue here regardless of the host key verification
 			// result, so that we can record connection metadata and negotiated
@@ -182,6 +190,18 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	}
 
 	_, _, _, handshakeErr := ssh.NewClientConn(rawConn, target, clientConfig)
+
+	select {
+	case hk := <-hostKeyResultCh:
+		result.KEXSuccess = true
+		result.KEXDuration = hk.kexDuration
+		result.HostKeyVerifySuccess = hk.verified
+		if !hk.verified {
+			result.ErrorStage = ErrStageHostKeyVerify
+			result.ErrorReason = hk.errorReason
+		}
+	default:
+	}
 
 	switch {
 	case errors.Is(handshakeErr, errAbort):
