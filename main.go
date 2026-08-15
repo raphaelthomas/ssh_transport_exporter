@@ -63,7 +63,7 @@ func parseFlags() *flags {
 		Default("info").
 		Enum("debug", "info", "warn", "error")
 
-	app.Flag("config.file", "Path to the exporter's YAML config file with module definitions)").
+	app.Flag("config.file", "Path to the exporter's YAML config file with module definitions").
 		Default("ssh_transport_exporter.yaml").
 		Envar(envPrefix + "CONFIG_FILE").
 		StringVar(&f.ConfigFile)
