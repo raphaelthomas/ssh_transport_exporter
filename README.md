@@ -31,6 +31,74 @@ alternative that provides these capabilities is the
 > upstream this hook; until then the fork is pinned by commit. As the exporter
 > is credential-less by design, it never holds keys or secrets.
 
+## Quick Start
+
+Create `ssh_transport_exporter.yaml` with a `known_hosts` source to verify
+targets against, and the targets the exporter is allowed to probe:
+
+```yaml
+known_hosts_file: /etc/ssh/ssh_known_hosts
+allowed_targets:
+  - "*.example.com"
+```
+
+Run the exporter:
+
+```
+docker run --rm -p 10022:10022 \
+  -v ./ssh_transport_exporter.yaml:/ssh_transport_exporter.yaml:ro \
+  -v /etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro \
+  ghcr.io/raphaelthomas/ssh_transport_exporter:latest
+```
+
+Like other multi-target exporters, the target to probe is passed to the exporter
+as a URL parameter, so Prometheus is pointed at the exporter and the intended
+target is moved into `__param_target` by relabelling:
+
+```yaml
+scrape_configs:
+  - job_name: ssh_transport
+    metrics_path: /probe
+    params:
+      module: [default]
+    scrape_timeout: 5s
+    static_configs:
+      - targets:
+          - bastion.example.com          # probed on the module's target_port
+          - 192.0.2.10:2222              # explicit port, must be in allowed_ports
+    relabel_configs:
+      # the target becomes the ?target= parameter
+      - source_labels: [__address__]
+        target_label: __param_target
+      # label the series with the probed target rather than the exporter
+      - source_labels: [__param_target]
+        target_label: instance
+      # and actually scrape the exporter
+      - target_label: __address__
+        replacement: 127.0.0.1:10022
+
+  # the exporter's own metrics, scraped directly
+  - job_name: ssh_transport_exporter
+    static_configs:
+      - targets: ['127.0.0.1:10022']
+```
+
+## Installation
+
+Container images are published to GHCR for `linux/amd64` and `linux/arm64`. The
+image is built `FROM scratch` and runs as UID 65534.
+
+Binaries for Linux, macOS and Windows, an SPDX SBOM per archive, and a checksums
+file are attached to every
+[release](https://github.com/raphaelthomas/ssh_transport_exporter/releases).
+Every published artifact carries SLSA build provenance, which can be verified
+against this repository:
+
+```
+gh attestation verify ssh_transport_exporter-<version>-linux-amd64.tar.gz \
+  --repo raphaelthomas/ssh_transport_exporter
+```
+
 ## Configuration
 
 The exporter itself is configured via the following parameters:
@@ -45,7 +113,7 @@ Flags:
                            Address to listen on for web interface and telemetry
       --log-level=info     Log level (debug, info, warn, error)
       --config.file="ssh_transport_exporter.yaml"
-                           Path to the exporter's YAML config file with module definitions)
+                           Path to the exporter's YAML config file with module definitions
       --probe.timeout=5s   Hard upper bound for a single probe; Prometheus scrape timeout may shorten it.
       --probe.max-concurrent=500
                            Maximum probes running at once; further requests get 503 rather than queueing. 0 disables the limit.
@@ -59,12 +127,30 @@ See
 [`ssh_transport_exporter.example.yaml`](./ssh_transport_exporter.example.yaml)
 for a fully annotated example configuration file.
 
+Use one job per module, each with its own `params.module`, since the module
+selects the `known_hosts`, the allowed targets, and the advertised algorithms.
+
+### Configuration reload
+
+`SIGHUP` re-reads the configuration file and the `known_hosts` files it
+references, which is how a host key rotation is picked up without a restart:
+
+```
+kill -HUP $(pidof ssh_transport_exporter)
+```
+
+The new configuration is validated before it is swapped in. If it is rejected,
+the error is logged and the previous configuration stays active, so a bad edit
+cannot take the exporter down.
+
+## Tuning
+
 ### Probe timeout
 
 `--probe.timeout` (default `5s`) is a hard upper bound on a single probe,
 applied even when a request carries no `X-Prometheus-Scrape-Timeout-Seconds`
 header. When Prometheus does send that header, the effective timeout is the
-**smaller** of the two - so a per-job `scrape_timeout` is the right place to
+**smaller** of the two, so a per-job `scrape_timeout` is the right place to
 tune timeouts per target set.
 
 Prefer the smallest value that comfortably covers a healthy handshake: an
@@ -88,10 +174,29 @@ Each in-flight probe holds roughly two file descriptors, so the default of 500
 targets needs approximately 1000 file descriptors. If the hard file descriptor
 limit is pinned low, the exporter emits a warning.
 
+## Security Considerations
+
+`/probe` is unauthenticated. Anyone able to reach it can have the exporter open
+a TCP connection to a target and report whether it answered, which makes the
+exporter a probing tool for whoever can call it. As with `blackbox_exporter`,
+keep it on a trusted network.
+
+`allowed_targets` is the access control and denies everything by default: a
+module with no list configured refuses every target, and `--allow-all-targets`
+only relaxes that when no list is configured anywhere. `allowed_ports` is the
+second axis and defaults to just `target_port`; widening it turns the exporter
+into a port scanner for the allowed hosts, because `ssh_transport_error_info`
+distinguishes `connection_refused` from `timeout` and so reveals whether a port
+is open.
+
+The exporter holds no credentials and never authenticates, so a probed host
+cannot obtain anything from it. Data coming back from a target is treated as
+untrusted and never reaches a Prometheus label unvalidated.
+
 ## Exported Metrics
 
 The following probe result metrics are exported by the
-`ssh_transport_exporter`s `/probe` endpoint for a successful probe:
+`ssh_transport_exporter`'s `/probe` endpoint for a successful probe:
 
 ```
 # HELP ssh_transport_cipher_info Negotiated cipher per direction. Constant 1. Absent if key exchange did not complete.
@@ -140,32 +245,48 @@ ssh_transport_tcp_connect_negotiated_mss_bytes 1448
 ssh_transport_tcp_connect_success 1
 ```
 
-In case of an unsuccessful probe, an additional
-`ssh_transport_exporter_error_info` metric will be emitted, and the
-`*_duration_seconds` metrics will be omitted. The
-`ssh_transport_exporter_error_info` metric contains an error reason and the
-stage at which the error occurred as a label value.
-
-The following is an example of the emitted metrics where DNS resolution for the
-probe target failed:
+An unsuccessful probe adds an `ssh_transport_error_info` metric, reports `0` for
+the `*_success` gauges, and omits the `*_duration_seconds` metrics. See [Error
+Stages and Reasons](#error-stages-and-reasons) for the label values. For a probe
+whose target failed DNS resolution:
 
 ```
 # HELP ssh_transport_error_info Stage and reason this probe failed. Constant 1. Absent if the probe fully succeeded.
 # TYPE ssh_transport_error_info gauge
 ssh_transport_error_info{reason="dns_failure",stage="tcp_connect"} 1
-
-# HELP ssh_transport_host_key_verify_success Whether the server host key was successfully verified.
-# TYPE ssh_transport_host_key_verify_success gauge
-ssh_transport_host_key_verify_success 0
-
-# HELP ssh_transport_kex_success Whether the SSH transport layer key exchange (RFC 4253) completed successfully.
-# TYPE ssh_transport_kex_success gauge
-ssh_transport_kex_success 0
-
-# HELP ssh_transport_tcp_connect_success Whether a TCP connection to the target could be established.
-# TYPE ssh_transport_tcp_connect_success gauge
-ssh_transport_tcp_connect_success 0
 ```
+
+### Exporter Metrics
+
+The exporter's own metrics are served from `/metrics`, under the
+`ssh_transport_exporter` namespace, alongside the standard Go runtime and
+process collectors:
+
+```
+# HELP ssh_transport_exporter_build_info A metric with a constant '1' value labeled by version, revision, branch, goversion from which ssh_transport_exporter was built, and the goos and goarch for the build.
+# TYPE ssh_transport_exporter_build_info gauge
+ssh_transport_exporter_build_info{branch="main",goarch="amd64",goos="linux",goversion="go1.26.5",revision="0000000",tags="unknown",version="0.11.5"} 1
+
+# HELP ssh_transport_exporter_probe_requests_total Total probe requests served by module and HTTP status code. Module is empty when the request named no configured module.
+# TYPE ssh_transport_exporter_probe_requests_total counter
+ssh_transport_exporter_probe_requests_total{code="200",module="default"} 1
+ssh_transport_exporter_probe_requests_total{code="400",module=""} 1
+ssh_transport_exporter_probe_requests_total{code="403",module="default"} 1
+
+# HELP ssh_transport_exporter_probes_in_flight Probes currently running.
+# TYPE ssh_transport_exporter_probes_in_flight gauge
+ssh_transport_exporter_probes_in_flight 0
+```
+
+`probe_requests_total` counts every request to `/probe` by module and response
+code: `400` for a missing or malformed target and for an unknown module, `403`
+for a target or port the module does not allow, and `503` once
+`--probe.max-concurrent` is reached. The module label is empty when the request
+named no configured module, which keeps an unknown module name from creating
+series.
+
+`probes_in_flight` tracks probes currently running and is what to compare
+against `--probe.max-concurrent` when sizing it.
 
 ## Error Stages and Reasons
 
@@ -192,14 +313,14 @@ The reason narrows down the cause within a stage.
 
 | Reason | Typical Stage(s) | Description |
 | --- | --- | --- |
-| `connection_refused` | `tcp_connect` | The target actively refused the connection (`ECONNREFUSED`) — commonly nothing listening on the port, or a firewall sending a reset. |
-| `no_route_to_host` | `tcp_connect` | The destination *network* is reachable, but the specific *host* is not (`EHOSTUNREACH`) — often a down host or an ICMP host-unreachable from a router. |
-| `network_unreachable` | `tcp_connect` | There is no route to the destination *network* at all (`ENETUNREACH`) — typically a missing route, absent default gateway, or a down interface on the prober side. |
+| `connection_refused` | `tcp_connect` | The target actively refused the connection (`ECONNREFUSED`), commonly because nothing is listening on the port or a firewall sent a reset. |
+| `no_route_to_host` | `tcp_connect` | The destination *network* is reachable, but the specific *host* is not (`EHOSTUNREACH`), often a down host or an ICMP host-unreachable from a router. |
+| `network_unreachable` | `tcp_connect` | There is no route to the destination *network* at all (`ENETUNREACH`), typically a missing route, an absent default gateway, or a down interface on the prober side. |
 | `dns_failure` | `tcp_connect` | The target hostname could not be resolved (DNS lookup error). |
 | `connection_reset` | `kex` | The connection was closed unexpectedly by the peer during key exchange, with the probe deadline still unexpired. |
 | `timeout` | `tcp_connect`, `kex` | The operation exceeded its deadline (the effective probe timeout, or a network-level timeout). |
-| `canceled` | `tcp_connect`, `kex` | The caller went away before the probe finished — typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
+| `canceled` | `tcp_connect`, `kex` | The caller went away before the probe finished, typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
 | `unknown_host` | `host_key_verify` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
-| `mismatch` | `host_key_verify` | The server's host key did **not** match the key pinned for that host in `known_hosts` — a potential man-in-the-middle indicator or an un-rotated key. |
+| `mismatch` | `host_key_verify` | The server's host key did **not** match the key pinned for that host in `known_hosts`, which indicates either a man-in-the-middle or an un-rotated key. |
 | `revoked` | `host_key_verify` | The server's host key is explicitly listed as revoked in `known_hosts`. |
 | `other` | any | The failure did not match any of the classified cases above. If you see this frequently, please open an issue with the target and (debug-level) logs so the classification can be improved. |
