@@ -258,10 +258,17 @@ ssh_transport_tcp_connect_negotiated_mss_bytes 1448
 ssh_transport_tcp_connect_success 1
 ```
 
-`ssh_transport_mac_info{direction,mac}` is absent above because the sample
-negotiated an AEAD cipher, which authenticates without a separate MAC. It
-appears whenever a non-AEAD cipher is agreed, which is what makes a module
-restricted to CBC or RC4 ciphers able to audit MAC choice.
+One further metric is absent above because the sample negotiated an AEAD
+cipher, which authenticates without a separate MAC. It appears whenever a
+non-AEAD cipher is agreed, which is what makes a module restricted to CBC or
+RC4 ciphers able to audit MAC choice:
+
+```
+# HELP ssh_transport_mac_info Negotiated MAC algorithm per direction. Constant 1. Absent for AEAD ciphers (aes128-gcm@openssh.com, aes256-gcm@openssh.com, chacha20-poly1305@openssh.com), which provide integrity without a separate MAC, and absent if key exchange did not complete.
+# TYPE ssh_transport_mac_info gauge
+ssh_transport_mac_info{direction="read",mac="hmac-sha2-256-etm@openssh.com"} 1
+ssh_transport_mac_info{direction="write",mac="hmac-sha2-256-etm@openssh.com"} 1
+```
 
 An unsuccessful probe adds an `ssh_transport_error_info` metric, reports `0` for
 the `*_success` gauges, and omits the `*_duration_seconds` metrics. See [Error
