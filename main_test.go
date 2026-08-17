@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/config"
 )
 
@@ -42,6 +44,7 @@ func TestReloadSwapsLiveModules(t *testing.T) {
 
 	logger := slog.New(slog.DiscardHandler)
 	cfg := &flags{ConfigFile: path}
+	reloadMetrics := newConfigReloadMetrics()
 
 	initial, err := config.Load(path, false, logger)
 	if err != nil {
@@ -52,7 +55,7 @@ func TestReloadSwapsLiveModules(t *testing.T) {
 
 	// Rewrite the config with a different module set and reload.
 	writeFile(t, path, configWithModules("a", "b"))
-	reload(logger, cfg, &live)
+	reload(logger, cfg, &live, reloadMetrics)
 
 	got := *live.Load()
 	if len(got) != 2 {
@@ -60,6 +63,12 @@ func TestReloadSwapsLiveModules(t *testing.T) {
 	}
 	if _, ok := got["b"]; !ok {
 		t.Errorf("module %q missing after reload; modules = %v", "b", keys(got))
+	}
+	if v := testutil.ToFloat64(reloadMetrics.successful); v != 1 {
+		t.Errorf("config_last_reload_successful = %v, want 1", v)
+	}
+	if v := testutil.ToFloat64(reloadMetrics.timestamp); v == 0 {
+		t.Error("config_last_reload_success_timestamp_seconds = 0, want the reload time")
 	}
 }
 
@@ -70,6 +79,7 @@ func TestReloadKeepsPreviousConfigOnError(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 	cfg := &flags{ConfigFile: path}
+	reloadMetrics := newConfigReloadMetrics()
 
 	initial, err := config.Load(path, false, logger)
 	if err != nil {
@@ -81,7 +91,7 @@ func TestReloadKeepsPreviousConfigOnError(t *testing.T) {
 
 	// Break the config, then reload.
 	writeFile(t, path, "modules: [this is not a map\n")
-	reload(logger, cfg, &live)
+	reload(logger, cfg, &live, reloadMetrics)
 
 	if live.Load() != before {
 		t.Error("live module set was swapped despite a failed reload")
@@ -92,6 +102,9 @@ func TestReloadKeepsPreviousConfigOnError(t *testing.T) {
 	if !bytes.Contains(buf.Bytes(), []byte("config reload failed")) {
 		t.Errorf("expected a reload-failure log, got: %s", buf.String())
 	}
+	if v := testutil.ToFloat64(reloadMetrics.successful); v != 0 {
+		t.Errorf("config_last_reload_successful = %v, want 0 after a failed reload", v)
+	}
 }
 
 func TestReloadMissingFileKeepsPreviousConfig(t *testing.T) {
@@ -101,6 +114,7 @@ func TestReloadMissingFileKeepsPreviousConfig(t *testing.T) {
 
 	logger := slog.New(slog.DiscardHandler)
 	cfg := &flags{ConfigFile: path}
+	reloadMetrics := newConfigReloadMetrics()
 
 	initial, err := config.Load(path, false, logger)
 	if err != nil {
@@ -113,7 +127,7 @@ func TestReloadMissingFileKeepsPreviousConfig(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("removing config: %v", err)
 	}
-	reload(logger, cfg, &live)
+	reload(logger, cfg, &live, reloadMetrics)
 
 	if live.Load() != before {
 		t.Error("live module set was swapped after the config file disappeared")
@@ -127,18 +141,19 @@ func TestReloadHonorsAllowAllTargets(t *testing.T) {
 	writeFile(t, path, fmt.Sprintf("known_hosts: %q\nmodules:\n  a: {}\n", knownHosts))
 
 	logger := slog.New(slog.DiscardHandler)
+	reloadMetrics := newConfigReloadMetrics()
 
 	// Without the flag the config is invalid, so nothing is stored.
 	var live atomic.Pointer[map[string]config.Module]
 	empty := map[string]config.Module{}
 	live.Store(&empty)
-	reload(logger, &flags{ConfigFile: path, AllowAllTargets: false}, &live)
+	reload(logger, &flags{ConfigFile: path, AllowAllTargets: false}, &live, reloadMetrics)
 	if len(*live.Load()) != 0 {
 		t.Error("reload succeeded without --allow-all-targets, want failure")
 	}
 
 	// With the flag it loads and permits any target.
-	reload(logger, &flags{ConfigFile: path, AllowAllTargets: true}, &live)
+	reload(logger, &flags{ConfigFile: path, AllowAllTargets: true}, &live, reloadMetrics)
 	modules := *live.Load()
 	mod, ok := modules["a"]
 	if !ok {
@@ -170,7 +185,7 @@ func serveTestSetup(t *testing.T, handler http.Handler, cfg *flags, live *atomic
 	sigCh := make(chan os.Signal, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- serve(slog.New(slog.DiscardHandler), cfg, srv, live, ln, sigCh)
+		errCh <- serve(slog.New(slog.DiscardHandler), cfg, srv, live, ln, sigCh, newConfigReloadMetrics())
 	}()
 	return "http://" + ln.Addr().String(), sigCh, errCh
 }
@@ -239,7 +254,7 @@ func TestServeStopsSignalHandlerOnListenerError(t *testing.T) {
 
 	var live atomic.Pointer[map[string]config.Module]
 	go func() {
-		errCh <- serve(slog.New(slog.DiscardHandler), &flags{}, srv, &live, ln, sigCh)
+		errCh <- serve(slog.New(slog.DiscardHandler), &flags{}, srv, &live, ln, sigCh, newConfigReloadMetrics())
 	}()
 
 	// Break Accept so Serve fails with something other than ErrServerClosed.

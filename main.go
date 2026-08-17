@@ -91,11 +91,45 @@ func parseFlags() *flags {
 	return f
 }
 
+// configReloadMetrics reports the outcome of the most recent config load, so a
+// reload that failed and left the previous config in place is visible beyond
+// the log.
+type configReloadMetrics struct {
+	successful prometheus.Gauge
+	timestamp  prometheus.Gauge
+}
+
+func newConfigReloadMetrics() configReloadMetrics {
+	return configReloadMetrics{
+		successful: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "ssh_transport_exporter",
+			Name:      "config_last_reload_successful",
+			Help:      "Whether the most recent configuration load succeeded. 0 means the exporter is still serving the previously loaded configuration.",
+		}),
+		timestamp: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "ssh_transport_exporter",
+			Name:      "config_last_reload_success_timestamp_seconds",
+			Help:      "Unix timestamp of the most recent successful configuration load.",
+		}),
+	}
+}
+
+// record updates the gauges for a load that returned err.
+func (m configReloadMetrics) record(err error) {
+	if err != nil {
+		m.successful.Set(0)
+		return
+	}
+	m.successful.Set(1)
+	m.timestamp.SetToCurrentTime()
+}
+
 // reload re-reads the config file and atomically swaps the live module
 // set. On any error, it logs and leaves the previous (still valid)
 // module set in place.
-func reload(logger *slog.Logger, cfg *flags, live *atomic.Pointer[map[string]config.Module]) {
+func reload(logger *slog.Logger, cfg *flags, live *atomic.Pointer[map[string]config.Module], metrics configReloadMetrics) {
 	modules, err := config.Load(cfg.ConfigFile, cfg.AllowAllTargets, logger)
+	metrics.record(err)
 	if err != nil {
 		logger.Error("config reload failed, keeping previous config", "path", cfg.ConfigFile, "error", err)
 		return
@@ -110,7 +144,7 @@ const shutdownTimeout = 10 * time.Second
 // serve runs srv on ln until a termination signal arrives on sigCh, reloading
 // config on SIGHUP. It returns once in-flight requests have drained, so the
 // caller must not exit before it does.
-func serve(logger *slog.Logger, cfg *flags, srv *http.Server, live *atomic.Pointer[map[string]config.Module], ln net.Listener, sigCh <-chan os.Signal) error {
+func serve(logger *slog.Logger, cfg *flags, srv *http.Server, live *atomic.Pointer[map[string]config.Module], ln net.Listener, sigCh <-chan os.Signal, reloadMetrics configReloadMetrics) error {
 	stop := make(chan struct{})
 	shutdownDone := make(chan struct{})
 
@@ -123,7 +157,7 @@ func serve(logger *slog.Logger, cfg *flags, srv *http.Server, live *atomic.Point
 			case sig := <-sigCh:
 				if sig == syscall.SIGHUP {
 					logger.Info("received SIGHUP, reloading config")
-					reload(logger, cfg, live)
+					reload(logger, cfg, live, reloadMetrics)
 					continue
 				}
 				logger.Info("received signal, shutting down HTTP server", "signal", sig)
@@ -157,7 +191,11 @@ func main() {
 	logLevel.Set(cfg.LogLevel)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 
+	reloadMetrics := newConfigReloadMetrics()
+	prometheus.MustRegister(reloadMetrics.successful, reloadMetrics.timestamp)
+
 	modules, err := config.Load(cfg.ConfigFile, cfg.AllowAllTargets, logger)
+	reloadMetrics.record(err)
 	if err != nil {
 		logger.Error("failed to load config", "path", cfg.ConfigFile, "error", err)
 		os.Exit(1)
@@ -226,7 +264,7 @@ func main() {
 	}
 	logger.Info("HTTP server listening", "address", ln.Addr().String())
 
-	if err := serve(logger, cfg, srv, &live, ln, sigCh); err != nil {
+	if err := serve(logger, cfg, srv, &live, ln, sigCh, reloadMetrics); err != nil {
 		logger.Error("HTTP server error", "error", err)
 		os.Exit(1)
 	}

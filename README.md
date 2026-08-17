@@ -294,7 +294,19 @@ ssh_transport_exporter_probe_requests_total{code="403",module="default"} 1
 # HELP ssh_transport_exporter_probes_in_flight Probes currently running.
 # TYPE ssh_transport_exporter_probes_in_flight gauge
 ssh_transport_exporter_probes_in_flight 0
+
+# HELP ssh_transport_exporter_config_last_reload_successful Whether the most recent configuration load succeeded. 0 means the exporter is still serving the previously loaded configuration.
+# TYPE ssh_transport_exporter_config_last_reload_successful gauge
+ssh_transport_exporter_config_last_reload_successful 1
+
+# HELP ssh_transport_exporter_config_last_reload_success_timestamp_seconds Unix timestamp of the most recent successful configuration load.
+# TYPE ssh_transport_exporter_config_last_reload_success_timestamp_seconds gauge
+ssh_transport_exporter_config_last_reload_success_timestamp_seconds 1.7712e+09
 ```
+
+`config_last_reload_successful` goes to `0` when a `SIGHUP` reload fails, while
+the exporter keeps serving the previously loaded configuration, so it is worth
+alerting on.
 
 `probe_requests_total` counts every request to `/probe` by module and response
 code: `400` for a missing or malformed target and for an unknown module, `403`
