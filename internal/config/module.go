@@ -56,6 +56,8 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			Options: probe.Options{
 				HostKeyCallback:   hostKeyCallback,
 				Ciphers:           mod.Ciphers,
+				KeyExchanges:      mod.KeyExchanges,
+				MACs:              mod.MACs,
 				HostKeyAlgorithms: mod.HostKeyAlgorithms,
 				Logger:            logger,
 			},
@@ -70,6 +72,8 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			"allowed_ports", mod.AllowedPorts,
 			"target_port", mod.TargetPort,
 			"ciphers", mod.Ciphers,
+			"kex_algorithms", mod.KeyExchanges,
+			"macs", mod.MACs,
 			"host_key_algorithms", mod.HostKeyAlgorithms,
 		)
 	}

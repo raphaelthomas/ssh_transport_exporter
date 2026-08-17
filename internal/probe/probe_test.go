@@ -108,6 +108,52 @@ func TestRunHostKeyAlgorithmsRespected(t *testing.T) {
 	}
 }
 
+func TestRunKeyExchangesRespected(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// The server offers only its defaults, which exclude this insecure kex.
+	result := Run(ctx, srv.Addr, Options{
+		HostKeyCallback: acceptKey(srv.HostKey),
+		KeyExchanges:    []string{ssh.InsecureKeyExchangeDH1SHA1},
+	})
+
+	if !result.TCPConnectSuccess {
+		t.Fatal("TCPConnectSuccess = false, want true")
+	}
+	if result.KEXSuccess {
+		t.Error("KEXSuccess = true, want false when no common key exchange")
+	}
+	if result.ErrorStage != ErrStageKeyExchange {
+		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageKeyExchange)
+	}
+}
+
+// The configured MAC list decides which MAC a non-AEAD cipher agrees.
+func TestRunMACsRespected(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{
+		HostKeyCallback: acceptKey(srv.HostKey),
+		Ciphers:         []string{ssh.CipherAES128CTR},
+		MACs:            []string{ssh.HMACSHA512},
+	})
+
+	if !result.KEXSuccess {
+		t.Fatalf("KEXSuccess = false, want true (stage %q, reason %q)", result.ErrorStage, result.ErrorReason)
+	}
+	if result.MACRead != ssh.HMACSHA512 || result.MACWrite != ssh.HMACSHA512 {
+		t.Errorf("MACs read=%q write=%q, want %q", result.MACRead, result.MACWrite, ssh.HMACSHA512)
+	}
+}
+
 // A non-AEAD cipher agrees a MAC, which is reported per direction.
 func TestRunNonAEADCipherReportsMAC(t *testing.T) {
 	t.Parallel()

@@ -20,6 +20,8 @@ const DefaultModuleName = "default"
 // configure, so both sets count as known.
 var (
 	knownCiphers           = algorithmSet(ssh.SupportedAlgorithms().Ciphers, ssh.InsecureAlgorithms().Ciphers)
+	knownKeyExchanges      = algorithmSet(ssh.SupportedAlgorithms().KeyExchanges, ssh.InsecureAlgorithms().KeyExchanges)
+	knownMACs              = algorithmSet(ssh.SupportedAlgorithms().MACs, ssh.InsecureAlgorithms().MACs)
 	knownHostKeyAlgorithms = algorithmSet(ssh.SupportedAlgorithms().HostKeys, ssh.InsecureAlgorithms().HostKeys)
 )
 
@@ -57,6 +59,8 @@ type rawConfigModule struct {
 	AllowedPorts      []int    `yaml:"allowed_ports,omitempty"`
 	TargetPort        int      `yaml:"target_port,omitempty"`
 	Ciphers           []string `yaml:"ciphers,omitempty"`
+	KeyExchanges      []string `yaml:"kex_algorithms,omitempty"`
+	MACs              []string `yaml:"macs,omitempty"`
 	HostKeyAlgorithms []string `yaml:"host_key_algorithms,omitempty"`
 }
 
@@ -153,6 +157,12 @@ func loadRawConfig(path string, allowAllTargetsFlag bool, logger *slog.Logger) (
 		}
 
 		if err := validateAlgorithms("ciphers", mod.Ciphers, knownCiphers); err != nil {
+			return nil, fmt.Errorf("module %q: %w", name, err)
+		}
+		if err := validateAlgorithms("kex algorithms", mod.KeyExchanges, knownKeyExchanges); err != nil {
+			return nil, fmt.Errorf("module %q: %w", name, err)
+		}
+		if err := validateAlgorithms("macs", mod.MACs, knownMACs); err != nil {
 			return nil, fmt.Errorf("module %q: %w", name, err)
 		}
 		if err := validateAlgorithms("host key algorithms", mod.HostKeyAlgorithms, knownHostKeyAlgorithms); err != nil {

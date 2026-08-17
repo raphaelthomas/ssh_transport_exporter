@@ -78,6 +78,12 @@ type Options struct {
 	// Ciphers to advertise. Empty uses golang.org/x/crypto/ssh's default.
 	Ciphers []string
 
+	// KeyExchanges to advertise. Empty uses golang.org/x/crypto/ssh's default.
+	KeyExchanges []string
+
+	// MACs to advertise. Empty uses golang.org/x/crypto/ssh's default.
+	MACs []string
+
 	// HostKeyAlgorithms to accept, in preference order. Empty uses
 	// defaultHostKeyAlgorithms below, not the library's own default.
 	HostKeyAlgorithms []string
@@ -165,9 +171,13 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	}
 
 	clientConfig := &ssh.ClientConfig{
-		User:              "ssh_transport_exporter",
-		Auth:              nil,
-		Config:            ssh.Config{Ciphers: opts.Ciphers},
+		User: "ssh_transport_exporter",
+		Auth: nil,
+		Config: ssh.Config{
+			Ciphers:      opts.Ciphers,
+			KeyExchanges: opts.KeyExchanges,
+			MACs:         opts.MACs,
+		},
 		HostKeyAlgorithms: hostKeyAlgorithms,
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			hk := hostKeyResult{kexDuration: time.Since(kexStart), verified: true}

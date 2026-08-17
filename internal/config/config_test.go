@@ -339,6 +339,21 @@ func TestLoadRawConfigAlgorithmValidation(t *testing.T) {
 			`unknown ciphers ["arcfour28" "aes128-ctrl" "hmac-sha2-256"]`,
 		},
 		{
+			"mistyped kex algorithm",
+			"known_hosts: \"k\"\nmodules:\n  m:\n    kex_algorithms: [curve25519-sha255]\n",
+			`unknown kex algorithms ["curve25519-sha255"]`,
+		},
+		{
+			"cipher name in the kex list",
+			"known_hosts: \"k\"\nmodules:\n  m:\n    kex_algorithms: [aes128-ctr]\n",
+			`unknown kex algorithms ["aes128-ctr"]`,
+		},
+		{
+			"mistyped mac",
+			"known_hosts: \"k\"\nmodules:\n  m:\n    macs: [hmac-sha2-2566]\n",
+			`unknown macs ["hmac-sha2-2566"]`,
+		},
+		{
 			"every offending host key algorithm is reported",
 			"known_hosts: \"k\"\nmodules:\n  m:\n    host_key_algorithms: [sk-ssh-ed25519@openssh.com, ssh-ed25519, sk-ecdsa-sha2-nistp256@openssh.com]\n",
 			`unknown host key algorithms ["sk-ssh-ed25519@openssh.com" "sk-ecdsa-sha2-nistp256@openssh.com"]`,
@@ -359,6 +374,8 @@ func TestLoadRawConfigAlgorithmValidation(t *testing.T) {
 func TestLoadRawConfigAcceptsInsecureAlgorithms(t *testing.T) {
 	content := "known_hosts: \"k\"\nmodules:\n  m:\n" +
 		"    ciphers: [arcfour, arcfour128, arcfour256, 3des-cbc, aes128-cbc]\n" +
+		"    kex_algorithms: [diffie-hellman-group1-sha1, diffie-hellman-group14-sha1, diffie-hellman-group-exchange-sha1]\n" +
+		"    macs: [hmac-sha1, hmac-sha1-96]\n" +
 		"    host_key_algorithms: [ssh-dss, ssh-rsa, ssh-dss-cert-v01@openssh.com, ssh-rsa-cert-v01@openssh.com]\n"
 	if _, err := loadRaw(t, content); err != nil {
 		t.Errorf("loadRawConfig: %v", err)

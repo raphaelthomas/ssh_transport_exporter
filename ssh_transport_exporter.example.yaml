@@ -45,6 +45,22 @@ modules:
       - aes256-ctr
       - aes128-gcm@openssh.com
       - aes256-gcm@openssh.com
+    # Specify the advertised key exchange algorithms and their order.
+    kex_algorithms:
+      - curve25519-sha256
+      - ecdh-sha2-nistp256
+      - ecdh-sha2-nistp384
+      - ecdh-sha2-nistp521
+      - diffie-hellman-group14-sha256
+      - diffie-hellman-group16-sha512
+    # Specify the advertised MAC algorithms and their order. Only negotiated
+    # when the agreed cipher is not AEAD, since AEAD ciphers authenticate on
+    # their own.
+    macs:
+      - hmac-sha2-256-etm@openssh.com
+      - hmac-sha2-512-etm@openssh.com
+      - hmac-sha2-256
+      - hmac-sha2-512
     # Specify the advertised host key algorithms and their order used to verify
     # the target's identity.
     host_key_algorithms:
@@ -72,6 +88,15 @@ modules:
       - arcfour256     # RC4
       - 3des-cbc       # 64-bit block cipher, CBC
       - aes128-cbc     # CBC mode (vulnerable to padding-oracle attacks)
+    kex_algorithms:
+      - diffie-hellman-group1-sha1          # 1024-bit group, SHA-1
+      - diffie-hellman-group14-sha1         # SHA-1
+      - diffie-hellman-group-exchange-sha1  # SHA-1
+    # None of the ciphers above are AEAD, so a MAC is always negotiated here and
+    # ssh_transport_mac_info reports which one the target accepted.
+    macs:
+      - hmac-sha1      # SHA-1
+      - hmac-sha1-96   # SHA-1, truncated to 96 bits
     host_key_algorithms:
       - ssh-dss-cert-v01@openssh.com   # DSA, insecure key sizes
       - ssh-dss                        # DSA, insecure key sizes
