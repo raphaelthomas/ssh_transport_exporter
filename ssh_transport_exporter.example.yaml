@@ -53,7 +53,7 @@ modules:
     # Off by default: Debian and Ubuntu backport security fixes without bumping
     # the upstream version, so the comment carries the actionable patch level.
     # Turn it on where distro noise dominates the series count.
-    strip_server_version_comment: true
+    strip_server_version_comment: false
     # Specify the advertised key exchange algorithms and their order.
     kex_algorithms:
       - curve25519-sha256
@@ -111,3 +111,6 @@ modules:
       - ssh-dss                        # DSA, insecure key sizes
       - ssh-rsa-cert-v01@openssh.com   # SHA-1 signature
       - ssh-rsa                        # SHA-1 signature
+    # This module only answers "did the target accept something weak", so the
+    # distro patch level in the comment adds nothing here.
+    strip_server_version_comment: true
