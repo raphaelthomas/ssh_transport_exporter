@@ -62,10 +62,10 @@ func labelValue(t *testing.T, mfs map[string]*dto.MetricFamily, name, key string
 	return ""
 }
 
-// cipherInfoSeries returns the ssh_transport_cipher_info series for the given
+// directionSeries returns the series of metric name carrying the given
 // direction label, or nil.
-func cipherInfoSeries(mfs map[string]*dto.MetricFamily, direction string) *dto.Metric {
-	mf, ok := mfs["ssh_transport_cipher_info"]
+func directionSeries(mfs map[string]*dto.MetricFamily, name, direction string) *dto.Metric {
+	mf, ok := mfs[name]
 	if !ok {
 		return nil
 	}
@@ -124,15 +124,20 @@ func TestCollectFullSuccess(t *testing.T) {
 		t.Errorf("host_key_verify_algorithm_info algorithm = %q", got)
 	}
 
-	if m := cipherInfoSeries(mfs, "read"); m == nil {
+	if m := directionSeries(mfs, "ssh_transport_cipher_info", "read"); m == nil {
 		t.Error("cipher_info read series missing")
-	} else if got := cipherLabel(m); got != "aes128-gcm@openssh.com" {
+	} else if got := labelOf(m, "cipher"); got != "aes128-gcm@openssh.com" {
 		t.Errorf("cipher_info read cipher = %q", got)
 	}
-	if m := cipherInfoSeries(mfs, "write"); m == nil {
+	if m := directionSeries(mfs, "ssh_transport_cipher_info", "write"); m == nil {
 		t.Error("cipher_info write series missing")
-	} else if got := cipherLabel(m); got != "chacha20-poly1305@openssh.com" {
+	} else if got := labelOf(m, "cipher"); got != "chacha20-poly1305@openssh.com" {
 		t.Errorf("cipher_info write cipher = %q", got)
+	}
+
+	// The sample negotiates AEAD ciphers, so no separate MAC is agreed.
+	if _, ok := mfs["ssh_transport_mac_info"]; ok {
+		t.Error("mac_info present for AEAD ciphers, want absent")
 	}
 
 	if got := singleValue(t, mfs, "ssh_transport_identification_server_version_valid"); got != 1 {
@@ -250,11 +255,35 @@ func TestCollectOmissionBranches(t *testing.T) {
 		t.Errorf("kex_duration_seconds = %v, want 1", got)
 	}
 	// Only the read cipher series exists.
-	if m := cipherInfoSeries(mfs, "read"); m == nil {
+	if m := directionSeries(mfs, "ssh_transport_cipher_info", "read"); m == nil {
 		t.Error("cipher_info read series missing")
 	}
-	if m := cipherInfoSeries(mfs, "write"); m != nil {
+	if m := directionSeries(mfs, "ssh_transport_cipher_info", "write"); m != nil {
 		t.Error("cipher_info write series present, want absent")
+	}
+}
+
+// A non-AEAD cipher agrees a MAC per direction, which is reported.
+func TestCollectMACInfo(t *testing.T) {
+	t.Parallel()
+	mfs := collectMetrics(t, probe.Result{
+		TCPConnectSuccess: true,
+		KEXSuccess:        true,
+		CipherRead:        "aes128-cbc",
+		CipherWrite:       "aes128-cbc",
+		MACRead:           "hmac-sha1",
+		MACWrite:          "hmac-sha2-256",
+	})
+
+	if m := directionSeries(mfs, "ssh_transport_mac_info", "read"); m == nil {
+		t.Error("mac_info read series missing")
+	} else if got := labelOf(m, "mac"); got != "hmac-sha1" {
+		t.Errorf("mac_info read mac = %q, want hmac-sha1", got)
+	}
+	if m := directionSeries(mfs, "ssh_transport_mac_info", "write"); m == nil {
+		t.Error("mac_info write series missing")
+	} else if got := labelOf(m, "mac"); got != "hmac-sha2-256" {
+		t.Errorf("mac_info write mac = %q, want hmac-sha2-256", got)
 	}
 }
 
@@ -264,8 +293,8 @@ func TestDescribeEmitsAllDescriptors(t *testing.T) {
 	ch := make(chan *prometheus.Desc, 32)
 	c.Describe(ch)
 	close(ch)
-	if got := len(ch); got != 12 {
-		t.Errorf("Describe emitted %d descriptors, want 12", got)
+	if got := len(ch); got != 13 {
+		t.Errorf("Describe emitted %d descriptors, want 13", got)
 	}
 }
 
@@ -290,10 +319,10 @@ func TestBoolToFloat64(t *testing.T) {
 	}
 }
 
-// cipherLabel returns the "cipher" label of a cipher_info series.
-func cipherLabel(m *dto.Metric) string {
+// labelOf returns the value of label key on m.
+func labelOf(m *dto.Metric, key string) string {
 	for _, lp := range m.GetLabel() {
-		if lp.GetName() == "cipher" {
+		if lp.GetName() == key {
 			return lp.GetValue()
 		}
 	}

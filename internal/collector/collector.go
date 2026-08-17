@@ -18,6 +18,7 @@ const (
 	subSystemKEX           = "kex"
 	subSystemHostKeyVerify = "host_key_verify"
 	subSystemCipher        = "cipher"
+	subSystemMAC           = "mac"
 	subSystemError         = "error"
 )
 
@@ -130,6 +131,15 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
+	macInfoDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemMAC, "info"),
+			"Negotiated MAC algorithm per direction. Constant 1. Absent for AEAD ciphers (aes128-gcm@openssh.com, aes256-gcm@openssh.com, chacha20-poly1305@openssh.com), which provide integrity without a separate MAC, and absent if key exchange did not complete.",
+			[]string{"direction", "mac"},
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
 	errorInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemError, "info"),
@@ -176,6 +186,7 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- hostKeyVerifySuccessDesc.desc
 	ch <- hostKeyAlgorithmInfoDesc.desc
 	ch <- cipherInfoDesc.desc
+	ch <- macInfoDesc.desc
 	ch <- errorInfoDesc.desc
 }
 
@@ -199,6 +210,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"host_key_algorithm", result.HostKeyAlgorithm,
 			"cipher_read", result.CipherRead,
 			"cipher_write", result.CipherWrite,
+			"mac_read", result.MACRead,
+			"mac_write", result.MACWrite,
 			"error_stage", result.ErrorStage,
 			"error_reason", result.ErrorReason,
 		)
@@ -238,6 +251,13 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 	if result.CipherWrite != "" {
 		ch <- cipherInfoDesc.mustNewConstMetric(1, "write", result.CipherWrite)
+	}
+
+	if result.MACRead != "" {
+		ch <- macInfoDesc.mustNewConstMetric(1, "read", result.MACRead)
+	}
+	if result.MACWrite != "" {
+		ch <- macInfoDesc.mustNewConstMetric(1, "write", result.MACWrite)
 	}
 
 	if result.ErrorStage != "" {

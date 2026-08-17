@@ -245,6 +245,11 @@ ssh_transport_tcp_connect_negotiated_mss_bytes 1448
 ssh_transport_tcp_connect_success 1
 ```
 
+`ssh_transport_mac_info{direction,mac}` is absent above because the sample
+negotiated an AEAD cipher, which authenticates without a separate MAC. It
+appears whenever a non-AEAD cipher is agreed, which is what makes a module
+restricted to CBC or RC4 ciphers able to audit MAC choice.
+
 An unsuccessful probe adds an `ssh_transport_error_info` metric, reports `0` for
 the `*_success` gauges, and omits the `*_duration_seconds` metrics. See [Error
 Stages and Reasons](#error-stages-and-reasons) for the label values. For a probe

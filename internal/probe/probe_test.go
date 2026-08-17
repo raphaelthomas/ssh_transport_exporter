@@ -108,6 +108,48 @@ func TestRunHostKeyAlgorithmsRespected(t *testing.T) {
 	}
 }
 
+// A non-AEAD cipher agrees a MAC, which is reported per direction.
+func TestRunNonAEADCipherReportsMAC(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{
+		HostKeyCallback: acceptKey(srv.HostKey),
+		Ciphers:         []string{ssh.CipherAES128CTR},
+	})
+
+	if !result.KEXSuccess {
+		t.Fatalf("KEXSuccess = false, want true (stage %q, reason %q)", result.ErrorStage, result.ErrorReason)
+	}
+	if result.MACRead == "" || result.MACWrite == "" {
+		t.Errorf("MACs read=%q write=%q, want both set for a non-AEAD cipher", result.MACRead, result.MACWrite)
+	}
+}
+
+// AEAD ciphers provide integrity themselves, so no MAC is negotiated.
+func TestRunAEADCipherReportsNoMAC(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{
+		HostKeyCallback: acceptKey(srv.HostKey),
+		Ciphers:         []string{ssh.CipherAES128GCM},
+	})
+
+	if !result.KEXSuccess {
+		t.Fatalf("KEXSuccess = false, want true (stage %q, reason %q)", result.ErrorStage, result.ErrorReason)
+	}
+	if result.MACRead != "" || result.MACWrite != "" {
+		t.Errorf("MACs read=%q write=%q, want both empty for an AEAD cipher", result.MACRead, result.MACWrite)
+	}
+}
+
 func TestRunHostKeyVerificationFailure(t *testing.T) {
 	t.Parallel()
 	srv := sshtest.NewServer(t, sshtest.Options{})

@@ -57,6 +57,9 @@ type Result struct {
 	// Negotiated ciphers
 	CipherRead  string
 	CipherWrite string
+	// Negotiated MACs, empty for AEAD ciphers, which need none
+	MACRead  string
+	MACWrite string
 	// Error classification results
 	ErrorStage  string
 	ErrorReason string
@@ -192,6 +195,8 @@ func Run(ctx context.Context, target string, opts Options) Result {
 			result.HostKeyAlgorithm = negotiatedAlgorithms.HostKey
 			result.CipherRead = negotiatedAlgorithms.Read.Cipher
 			result.CipherWrite = negotiatedAlgorithms.Write.Cipher
+			result.MACRead = negotiatedAlgorithms.Read.MAC
+			result.MACWrite = negotiatedAlgorithms.Write.MAC
 
 			return errAbort
 		},
