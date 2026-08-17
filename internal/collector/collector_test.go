@@ -207,6 +207,7 @@ func TestCollectTCPFailure(t *testing.T) {
 		"ssh_transport_kex_algorithm_info",
 		"ssh_transport_host_key_verify_algorithm_info",
 		"ssh_transport_cipher_info",
+		"ssh_transport_mac_info",
 	} {
 		if _, ok := mfs[name]; ok {
 			t.Errorf("metric %q present on TCP failure, want absent", name)
