@@ -43,6 +43,26 @@ func TestSanitizeServerVersion(t *testing.T) {
 	}
 }
 
+func TestStripServerVersionComment(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"comment dropped", "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10", "SSH-2.0-OpenSSH_9.2p1"},
+		{"no comment is unchanged", "SSH-2.0-OpenSSH_9.6", "SSH-2.0-OpenSSH_9.6"},
+		{"comment containing spaces", "SSH-2.0-Foo_1.0 a b c", "SSH-2.0-Foo_1.0"},
+		{"empty comment after trailing space", "SSH-2.0-Foo_1.0 ", "SSH-2.0-Foo_1.0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := stripServerVersionComment(tt.in); got != tt.want {
+				t.Errorf("stripServerVersionComment(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSanitizeServerVersionLengthLimit(t *testing.T) {
 	const maxLen = 255
 

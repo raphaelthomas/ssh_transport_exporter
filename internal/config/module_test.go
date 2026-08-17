@@ -33,6 +33,52 @@ func exercise(cb ssh.HostKeyCallback, key ssh.PublicKey) error {
 	return cb("example.com:22", remote, key)
 }
 
+func TestLoadStripServerVersionComment(t *testing.T) {
+	content := fmt.Sprintf(`
+known_hosts: %q
+allowed_targets: ["example.com"]
+modules:
+  keeps: {}
+  strips:
+    strip_server_version_comment: true
+`, knownhosts.Line([]string{"example.com:22"}, newHostKey(t)))
+
+	modules, err := Load(writeConfig(t, content), false, discardLogger())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := modules["keeps"].Options.StripServerVersionComment; got {
+		t.Error("keeps: StripServerVersionComment = true, want false by default")
+	}
+	if got := modules["strips"].Options.StripServerVersionComment; !got {
+		t.Error("strips: StripServerVersionComment = false, want true")
+	}
+}
+
+// The top-level default enables stripping everywhere, and a module cannot turn
+// it back off.
+func TestLoadStripServerVersionCommentDefault(t *testing.T) {
+	content := fmt.Sprintf(`
+known_hosts: %q
+allowed_targets: ["example.com"]
+strip_server_version_comment: true
+modules:
+  inherits: {}
+  cannot_opt_out:
+    strip_server_version_comment: false
+`, knownhosts.Line([]string{"example.com:22"}, newHostKey(t)))
+
+	modules, err := Load(writeConfig(t, content), false, discardLogger())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, name := range []string{"inherits", "cannot_opt_out"} {
+		if got := modules[name].Options.StripServerVersionComment; !got {
+			t.Errorf("%s: StripServerVersionComment = false, want true", name)
+		}
+	}
+}
+
 func TestLoadInlineKnownHosts(t *testing.T) {
 	pub := newHostKey(t)
 	line := knownhosts.Line([]string{"example.com:22"}, pub)

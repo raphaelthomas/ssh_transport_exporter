@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"strings"
 	"syscall"
 	"time"
 
@@ -87,6 +88,10 @@ type Options struct {
 	// HostKeyAlgorithms to accept, in preference order. Empty uses
 	// defaultHostKeyAlgorithms below, not the library's own default.
 	HostKeyAlgorithms []string
+
+	// StripServerVersionComment reduces the recorded identification string to
+	// its software version, dropping the optional comments field.
+	StripServerVersionComment bool
 
 	// Optional Logger for diagnostics (not for target health).
 	Logger *slog.Logger
@@ -196,11 +201,14 @@ func Run(ctx context.Context, target string, opts Options) Result {
 		},
 		TransportReadyCallback: func(connMetadata ssh.ConnMetadata, negotiatedAlgorithms ssh.NegotiatedAlgorithms) error {
 			rawVersion := connMetadata.ServerVersion()
-			result.ServerVersion = sanitizeServerVersion(rawVersion)
-			if result.ServerVersion == "" {
+			version := sanitizeServerVersion(rawVersion)
+			if version == "" {
 				result.ServerVersionMalformed = true
 				logger.Debug("dropping malformed server version banner", "target", target, "banner", string(rawVersion))
+			} else if opts.StripServerVersionComment {
+				version = stripServerVersionComment(version)
 			}
+			result.ServerVersion = version
 			result.KEXAlgorithm = negotiatedAlgorithms.KeyExchange
 			result.HostKeyAlgorithm = negotiatedAlgorithms.HostKey
 			result.CipherRead = negotiatedAlgorithms.Read.Cipher
@@ -341,4 +349,11 @@ func sanitizeServerVersion(raw []byte) string {
 		}
 	}
 	return string(raw)
+}
+
+// stripServerVersionComment drops the optional comments field of an already
+// validated identification string.
+func stripServerVersionComment(version string) string {
+	software, _, _ := strings.Cut(version, " ")
+	return software
 }

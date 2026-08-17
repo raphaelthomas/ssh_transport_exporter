@@ -62,6 +62,8 @@ type rawConfigModule struct {
 	KeyExchanges      []string `yaml:"kex_algorithms,omitempty"`
 	MACs              []string `yaml:"macs,omitempty"`
 	HostKeyAlgorithms []string `yaml:"host_key_algorithms,omitempty"`
+
+	StripServerVersionComment bool `yaml:"strip_server_version_comment,omitempty"`
 }
 
 // rawConfig is the top-level YAML structure.
@@ -72,6 +74,10 @@ type rawConfig struct {
 	AllowedPorts   []int                      `yaml:"allowed_ports,omitempty"`
 	TargetPort     int                        `yaml:"target_port,omitempty"`
 	Modules        map[string]rawConfigModule `yaml:"modules,omitempty"`
+
+	// StripServerVersionComment enables stripping for every module. Modules can
+	// enable it individually but cannot switch it back off once set here.
+	StripServerVersionComment bool `yaml:"strip_server_version_comment,omitempty"`
 
 	// allowAll is set (never from YAML) when --allow-all-targets is passed and
 	// no top-level allowed_targets default is configured. It makes modules that
@@ -132,6 +138,8 @@ func loadRawConfig(path string, allowAllTargetsFlag bool, logger *slog.Logger) (
 		if len(mod.AllowedTargets) == 0 {
 			mod.AllowedTargets = cfg.AllowedTargets
 		}
+
+		mod.StripServerVersionComment = mod.StripServerVersionComment || cfg.StripServerVersionComment
 
 		if mod.TargetPort == 0 {
 			mod.TargetPort = cfg.TargetPort

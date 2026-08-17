@@ -17,6 +17,9 @@ allowed_ports:
   - 2222
 # Default port to probe targets on, if no port has been provided
 target_port: 22
+# Strip the identification string comment for every module. Modules can enable
+# this individually, but cannot switch it back off once it is set here.
+strip_server_version_comment: false
 # Named modules containing a specific probe configuration
 modules:
   # Module named "default". Used when no module is explicitly specified in a
@@ -45,6 +48,12 @@ modules:
       - aes256-ctr
       - aes128-gcm@openssh.com
       - aes256-gcm@openssh.com
+    # Reduce the exported identification string to its software version, so
+    # "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10" becomes "SSH-2.0-OpenSSH_9.2p1".
+    # Off by default: Debian and Ubuntu backport security fixes without bumping
+    # the upstream version, so the comment carries the actionable patch level.
+    # Turn it on where distro noise dominates the series count.
+    strip_server_version_comment: true
     # Specify the advertised key exchange algorithms and their order.
     kex_algorithms:
       - curve25519-sha256

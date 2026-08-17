@@ -193,6 +193,19 @@ The exporter holds no credentials and never authenticates, so a probed host
 cannot obtain anything from it. Data coming back from a target is treated as
 untrusted and never reaches a Prometheus label unvalidated.
 
+The one label a target still controls is the identification string on
+`ssh_transport_identification_server_version_info`, so a host that varies its
+banner varies the series. Setting `strip_server_version_comment` on a module
+reduces the label to the software version, and dropping the metric at scrape
+time bounds it entirely:
+
+```yaml
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: ssh_transport_identification_server_version_info
+        action: drop
+```
+
 ## Exported Metrics
 
 The following probe result metrics are exported by the

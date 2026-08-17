@@ -196,6 +196,40 @@ func TestRunAEADCipherReportsNoMAC(t *testing.T) {
 	}
 }
 
+func TestRunStripsServerVersionComment(t *testing.T) {
+	t.Parallel()
+	const banner = "SSH-2.0-TestServer_1.0 Debian-2+deb12u10"
+
+	for _, tt := range []struct {
+		name  string
+		strip bool
+		want  string
+	}{
+		{"off keeps the comment", false, banner},
+		{"on drops the comment", true, "SSH-2.0-TestServer_1.0"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := sshtest.NewServer(t, sshtest.Options{ServerVersion: banner})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			result := Run(ctx, srv.Addr, Options{
+				HostKeyCallback:           acceptKey(srv.HostKey),
+				StripServerVersionComment: tt.strip,
+			})
+
+			if result.ServerVersionMalformed {
+				t.Fatal("ServerVersionMalformed = true, want false")
+			}
+			if result.ServerVersion != tt.want {
+				t.Errorf("ServerVersion = %q, want %q", result.ServerVersion, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunHostKeyVerificationFailure(t *testing.T) {
 	t.Parallel()
 	srv := sshtest.NewServer(t, sshtest.Options{})
