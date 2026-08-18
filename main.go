@@ -138,6 +138,21 @@ func reload(logger *slog.Logger, cfg *flags, live *atomic.Pointer[map[string]con
 	logger.Info("config reloaded", "module_count", len(modules))
 }
 
+const landingPage = `<html>
+<head><title>SSH Transport Exporter</title></head>
+<body>
+<h1>SSH Transport Exporter</h1>
+<p><a href="/metrics">Metrics</a> of the exporter itself.</p>
+<p>Probe results are served from <code>/probe?target=&lt;host&gt;&amp;module=&lt;module&gt;</code>.</p>
+</body>
+</html>
+`
+
+func landingPageHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(landingPage))
+}
+
 // shutdownTimeout bounds how long in-flight probes may drain on shutdown.
 const shutdownTimeout = 10 * time.Second
 
@@ -238,6 +253,8 @@ func main() {
 	prometheus.MustRegister(version.NewCollector("ssh_transport_exporter"))
 
 	mux := http.NewServeMux()
+	// {$} matches only the root, so any other unrouted path still 404s.
+	mux.HandleFunc("GET /{$}", landingPageHandler)
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/probe", probehttp.Handler(probehttp.Options{
 		Logger:        logger,

@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -171,6 +173,36 @@ func keys(m map[string]config.Module) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+func TestLandingPage(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", landingPageHandler)
+
+	tests := []struct {
+		path     string
+		wantCode int
+	}{
+		{"/", http.StatusOK},
+		{"/nope", http.StatusNotFound},
+		{"/metrics", http.StatusNotFound}, // routed elsewhere in the real mux
+	}
+	for _, tt := range tests {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+		if rec.Code != tt.wantCode {
+			t.Errorf("GET %s = %d, want %d", tt.path, rec.Code, tt.wantCode)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Errorf("Content-Type = %q", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "/metrics") {
+		t.Errorf("landing page does not link /metrics: %s", rec.Body.String())
+	}
 }
 
 // serveTestSetup starts serve on a random port and returns its address, the
