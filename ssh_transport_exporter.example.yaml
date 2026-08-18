@@ -1,5 +1,12 @@
 # Default known_hosts file for all modules
 known_hosts_file: /etc/ssh/ssh_known_hosts
+# Entries can be given inline instead, which avoids mounting a file into a
+# container. Inline wins over known_hosts_file at the same level, and setting
+# both logs a warning and ignores the file. Both forms are inherited by modules
+# that set neither.
+#known_hosts: |
+#  bastion.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyDataHere
+#  10.0.0.7 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAnotherExampleKeyHere
 # Default allow-list of probe targets, inherited by modules that set none.
 # Forms: exact hostname, "*.sub.example.com" (exactly one left label),
 # IPv4/IPv6 literal, or CIDR. A nil or empty list denies all targets. Matching
