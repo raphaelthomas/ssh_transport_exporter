@@ -308,7 +308,7 @@ process collectors:
 ```
 # HELP ssh_transport_exporter_build_info A metric with a constant '1' value labeled by version, revision, branch, goversion from which ssh_transport_exporter was built, and the goos and goarch for the build.
 # TYPE ssh_transport_exporter_build_info gauge
-ssh_transport_exporter_build_info{branch="main",goarch="amd64",goos="linux",goversion="go1.26.5",revision="0000000",tags="unknown",version="0.11.5"} 1
+ssh_transport_exporter_build_info{branch="HEAD",goarch="arm64",goos="darwin",goversion="go1.26.5",revision="ef06da765d59345b2f8600196342bc9e7a2dabe2",tags="unknown",version="0.15.0"} 1
 
 # HELP ssh_transport_exporter_probe_requests_total Total probe requests served by module and HTTP status code. Module is empty when the request named no configured module.
 # TYPE ssh_transport_exporter_probe_requests_total counter
