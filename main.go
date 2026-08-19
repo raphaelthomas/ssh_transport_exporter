@@ -16,6 +16,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"html"
 	"log/slog"
 	"net"
 	"net/http"
@@ -138,15 +140,16 @@ func reload(logger *slog.Logger, cfg *flags, live *atomic.Pointer[map[string]con
 	logger.Info("config reloaded", "module_count", len(modules))
 }
 
-const landingPage = `<html>
+var landingPage = fmt.Sprintf(`<html>
 <head><title>SSH Transport Exporter</title></head>
 <body>
 <h1>SSH Transport Exporter</h1>
-<p><a href="/metrics">Metrics</a> of the exporter itself.</p>
-<p>Probe results are served from <code>/probe?target=&lt;host&gt;&amp;module=&lt;module&gt;</code>.</p>
+<p>Version <code>%s</code>, <a href="https://github.com/raphaelthomas/ssh_transport_exporter">source and documentation</a>.</p>
+<p><a href="/metrics"><code>/metrics</code></a> exposes the exporter's own metrics.</p>
+<p><code>/probe?target=&lt;host&gt;&amp;module=&lt;module&gt;</code> runs a probe and returns its result.</p>
 </body>
 </html>
-`
+`, html.EscapeString(buildinfo.Version))
 
 func landingPageHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

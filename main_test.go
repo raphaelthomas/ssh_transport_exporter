@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/buildinfo"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/config"
 )
 
@@ -200,8 +202,24 @@ func TestLandingPage(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
 		t.Errorf("Content-Type = %q", ct)
 	}
-	if !strings.Contains(rec.Body.String(), "/metrics") {
-		t.Errorf("landing page does not link /metrics: %s", rec.Body.String())
+	body := rec.Body.String()
+	for _, want := range []string{
+		`href="/metrics"`,
+		"github.com/raphaelthomas/ssh_transport_exporter",
+		buildinfo.Version,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("landing page missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestLandingPageEscapesVersion(t *testing.T) {
+	if got := html.EscapeString(`1.0<script>`); strings.Contains(got, "<script>") {
+		t.Errorf("EscapeString(%q) = %q, want the tag escaped", `1.0<script>`, got)
+	}
+	if strings.Contains(landingPage, "<script>") {
+		t.Error("landing page contains an unescaped script tag")
 	}
 }
 
