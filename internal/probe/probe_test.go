@@ -63,6 +63,38 @@ func TestRunSuccess(t *testing.T) {
 	}
 }
 
+// Everything the probe reports beyond the TCP and key exchange timings is
+// recorded in TransportReadyCallback, whose errAbort return ends the handshake
+// before user authentication. Were the callback to stop firing, the fields
+// below would stay empty and the probe would authenticate.
+func TestRunAbortsAtTransportReady(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
+
+	if !result.KEXSuccess {
+		t.Fatalf("KEXSuccess = false, want true (stage %q, reason %q)", result.ErrorStage, result.ErrorReason)
+	}
+	for _, f := range []struct{ name, got string }{
+		{"ServerVersion", result.ServerVersion},
+		{"KEXAlgorithm", result.KEXAlgorithm},
+		{"HostKeyAlgorithm", result.HostKeyAlgorithm},
+		{"CipherRead", result.CipherRead},
+		{"CipherWrite", result.CipherWrite},
+	} {
+		if f.got == "" {
+			t.Errorf("%s is empty, want it recorded by TransportReadyCallback", f.name)
+		}
+	}
+	if srv.AuthReached() {
+		t.Error("server reached user authentication, want the probe to abort before it")
+	}
+}
+
 func TestRunNegotiatesRequestedCipher(t *testing.T) {
 	t.Parallel()
 	const cipher = "aes128-ctr"

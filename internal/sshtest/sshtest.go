@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"net"
+	"sync/atomic"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
@@ -18,7 +19,14 @@ type Server struct {
 	Addr string
 	// HostKey is the server's public host key.
 	HostKey ssh.PublicKey
+
+	authReached atomic.Bool
 }
+
+// AuthReached reports whether a client asked for user authentication. The
+// server answers the request only after setting this, so a probe that has
+// returned has already been accounted for.
+func (s *Server) AuthReached() bool { return s.authReached.Load() }
 
 // Options configures a test server. The zero value uses library defaults.
 type Options struct {
@@ -42,19 +50,25 @@ func NewServer(t *testing.T, opts Options) *Server {
 		t.Fatalf("sshtest: NewSignerFromKey: %v", err)
 	}
 
-	cfg := &ssh.ServerConfig{
-		// The probe never authenticates, but a server must advertise a method.
-		NoClientAuth:  true,
-		ServerVersion: opts.ServerVersion,
-		Config:        ssh.Config{Ciphers: opts.Ciphers},
-	}
-	cfg.AddHostKey(signer)
-
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("sshtest: listen: %v", err)
 	}
 	t.Cleanup(func() { _ = ln.Close() })
+
+	srv := &Server{Addr: ln.Addr().String(), HostKey: signer.PublicKey()}
+
+	cfg := &ssh.ServerConfig{
+		// The probe never authenticates, but a server must advertise a method.
+		NoClientAuth: true,
+		NoClientAuthCallback: func(ssh.ConnMetadata) (*ssh.Permissions, error) {
+			srv.authReached.Store(true)
+			return nil, nil
+		},
+		ServerVersion: opts.ServerVersion,
+		Config:        ssh.Config{Ciphers: opts.Ciphers},
+	}
+	cfg.AddHostKey(signer)
 
 	go func() {
 		for {
@@ -78,7 +92,7 @@ func NewServer(t *testing.T, opts Options) *Server {
 		}
 	}()
 
-	return &Server{Addr: ln.Addr().String(), HostKey: signer.PublicKey()}
+	return srv
 }
 
 // Port returns the server's port as a string.
