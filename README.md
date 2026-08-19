@@ -24,12 +24,9 @@ alternative that provides these capabilities is the
 [`ssh_exporter`](https://github.com/treydock/ssh_exporter).
 
 > [!NOTE]
-> This exporter depends on a fork of `golang.org/x/crypto` (see the `replace`
-> directive in [`go.mod`](./go.mod)), which adds a `TransportReadyCallback`
-> hook to `ssh.ClientConfig` used to surface the negotiated algorithms and the
-> server identification string before aborting the connection. The intent is to
-> upstream this hook; until then the fork is pinned by commit. As the exporter
-> is credential-less by design, it never holds keys or secrets.
+> This exporter depends on a fork of `golang.org/x/crypto` (see [The
+> `golang.org/x/crypto` fork](#the-golangorgxcrypto-fork)). It is
+> credential-less by design and never holds keys or secrets.
 
 ## Quick Start
 
@@ -205,6 +202,26 @@ time bounds it entirely:
         regex: ssh_transport_identification_server_version_info
         action: drop
 ```
+
+## The `golang.org/x/crypto` fork
+
+`go.mod` pins a fork of `golang.org/x/crypto`. The delta is one optional field
+on `ssh.ClientConfig` plus its call site in `clientHandshake`:
+
+```go
+TransportReadyCallback func(ConnMetadata, NegotiatedAlgorithms) error
+```
+
+Called after the RFC 4253 transport handshake, before RFC 4252 auth. Returning
+an error aborts the connection, which is how this credential-less exporter reads
+the negotiated algorithms and then stops. No cryptographic code changed.
+
+Verify the whole delta against upstream:
+
+<https://github.com/golang/crypto/compare/master...raphaelthomas:crypto:master>
+
+Rebased onto upstream releases and pinned by commit in `go.mod`. Goes away once
+the hook is upstreamed.
 
 ## Exported Metrics
 
