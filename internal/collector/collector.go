@@ -44,7 +44,7 @@ var (
 	tcpConnectDurationDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemTCP, "duration_seconds"),
-			"Time taken to establish the TCP connection. Omitted on failure.",
+			"Time taken to establish the TCP connection. Absent on failure.",
 			nil,
 			nil,
 		),
@@ -53,7 +53,7 @@ var (
 	tcpConnectNegotiatedMSSDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemTCP, "negotiated_mss_bytes"),
-			"Negotiated TCP maximum segment size (MSS) observed at TCP connect time. Omitted if unavailable.",
+			"Negotiated TCP maximum segment size at connect time. Absent if unavailable.",
 			nil,
 			nil,
 		),
@@ -62,7 +62,7 @@ var (
 	serverVersionInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemIdent, "server_version_info"),
-			"SSH version banner presented by the server (RFC 4253 4.2). Constant 1. Absent if the identification string exchange did not complete.",
+			"SSH version banner presented by the server (RFC 4253 4.2). Absent if not observed.",
 			[]string{"version"},
 			nil,
 		),
@@ -71,7 +71,7 @@ var (
 	serverVersionValidDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemIdent, "server_version_valid"),
-			"Whether the server's identification string conformed to RFC 4253 4.2. 0 means one was presented but rejected, and no server_version_info is exported for it. Absent if the probe never observed one.",
+			"Whether the server's identification string conformed to RFC 4253 4.2. Absent if none was presented.",
 			nil,
 			nil,
 		),
@@ -89,7 +89,7 @@ var (
 	kexDurationDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemKEX, "duration_seconds"),
-			"Time taken for the SSH transport layer handshake. Omitted on failure.",
+			"Time taken for the SSH transport layer handshake. Absent on failure.",
 			nil,
 			nil,
 		),
@@ -98,7 +98,7 @@ var (
 	kexAlgorithmInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemKEX, "algorithm_info"),
-			"Negotiated key exchange algorithm. Constant 1. Absent if key exchange did not complete.",
+			"Negotiated key exchange algorithm. Absent unless key exchange completed.",
 			[]string{"algorithm"},
 			nil,
 		),
@@ -116,7 +116,7 @@ var (
 	hostKeyAlgorithmInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemHostKeyVerify, "algorithm_info"),
-			"Negotiated host key algorithm. Constant 1. Absent if key exchange did not complete.",
+			"Negotiated host key algorithm. Absent unless key exchange completed.",
 			[]string{"algorithm"},
 			nil,
 		),
@@ -125,7 +125,7 @@ var (
 	cipherInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemCipher, "info"),
-			"Negotiated cipher per direction. Constant 1. Absent if key exchange did not complete.",
+			"Negotiated cipher per direction. Absent unless key exchange completed.",
 			[]string{"direction", "cipher"},
 			nil,
 		),
@@ -134,7 +134,7 @@ var (
 	macInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemMAC, "info"),
-			"Negotiated MAC algorithm per direction. Constant 1. Absent for AEAD ciphers (aes128-gcm@openssh.com, aes256-gcm@openssh.com, chacha20-poly1305@openssh.com), which provide integrity without a separate MAC, and absent if key exchange did not complete.",
+			"Negotiated MAC algorithm per direction. Absent for AEAD ciphers, which need no separate MAC.",
 			[]string{"direction", "mac"},
 			nil,
 		),
@@ -143,7 +143,7 @@ var (
 	errorInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemError, "info"),
-			"Stage and reason this probe failed. Constant 1. Absent if the probe fully succeeded.",
+			"Stage and reason this probe failed. Absent if the probe succeeded.",
 			[]string{"stage", "reason"},
 			nil,
 		),

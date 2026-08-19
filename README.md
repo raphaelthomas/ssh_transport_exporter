@@ -212,12 +212,12 @@ The following probe result metrics are exported by the
 `ssh_transport_exporter`'s `/probe` endpoint for a successful probe:
 
 ```
-# HELP ssh_transport_cipher_info Negotiated cipher per direction. Constant 1. Absent if key exchange did not complete.
+# HELP ssh_transport_cipher_info Negotiated cipher per direction. Absent unless key exchange completed.
 # TYPE ssh_transport_cipher_info gauge
 ssh_transport_cipher_info{cipher="aes128-gcm@openssh.com",direction="read"} 1
 ssh_transport_cipher_info{cipher="aes128-gcm@openssh.com",direction="write"} 1
 
-# HELP ssh_transport_host_key_verify_algorithm_info Negotiated host key algorithm. Constant 1. Absent if key exchange did not complete.
+# HELP ssh_transport_host_key_verify_algorithm_info Negotiated host key algorithm. Absent unless key exchange completed.
 # TYPE ssh_transport_host_key_verify_algorithm_info gauge
 ssh_transport_host_key_verify_algorithm_info{algorithm="ssh-ed25519"} 1
 
@@ -225,19 +225,19 @@ ssh_transport_host_key_verify_algorithm_info{algorithm="ssh-ed25519"} 1
 # TYPE ssh_transport_host_key_verify_success gauge
 ssh_transport_host_key_verify_success 1
 
-# HELP ssh_transport_identification_server_version_info SSH version banner presented by the server (RFC 4253 4.2). Constant 1. Absent if the identification string exchange did not complete.
+# HELP ssh_transport_identification_server_version_info SSH version banner presented by the server (RFC 4253 4.2). Absent if not observed.
 # TYPE ssh_transport_identification_server_version_info gauge
 ssh_transport_identification_server_version_info{version="SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10"} 1
 
-# HELP ssh_transport_identification_server_version_valid Whether the server's identification string conformed to RFC 4253 4.2. 0 means one was presented but rejected, and no server_version_info is exported for it. Absent if the probe never observed one.
+# HELP ssh_transport_identification_server_version_valid Whether the server's identification string conformed to RFC 4253 4.2. Absent if none was presented.
 # TYPE ssh_transport_identification_server_version_valid gauge
 ssh_transport_identification_server_version_valid 1
 
-# HELP ssh_transport_kex_algorithm_info Negotiated key exchange algorithm. Constant 1. Absent if key exchange did not complete.
+# HELP ssh_transport_kex_algorithm_info Negotiated key exchange algorithm. Absent unless key exchange completed.
 # TYPE ssh_transport_kex_algorithm_info gauge
 ssh_transport_kex_algorithm_info{algorithm="curve25519-sha256"} 1
 
-# HELP ssh_transport_kex_duration_seconds Time taken for the SSH transport layer handshake. Omitted on failure.
+# HELP ssh_transport_kex_duration_seconds Time taken for the SSH transport layer handshake. Absent on failure.
 # TYPE ssh_transport_kex_duration_seconds gauge
 ssh_transport_kex_duration_seconds 0.090082416
 
@@ -245,11 +245,11 @@ ssh_transport_kex_duration_seconds 0.090082416
 # TYPE ssh_transport_kex_success gauge
 ssh_transport_kex_success 1
 
-# HELP ssh_transport_tcp_connect_duration_seconds Time taken to establish the TCP connection. Omitted on failure.
+# HELP ssh_transport_tcp_connect_duration_seconds Time taken to establish the TCP connection. Absent on failure.
 # TYPE ssh_transport_tcp_connect_duration_seconds gauge
 ssh_transport_tcp_connect_duration_seconds 0.026296792
 
-# HELP ssh_transport_tcp_connect_negotiated_mss_bytes Negotiated TCP maximum segment size (MSS) observed at TCP connect time. Omitted if unavailable.
+# HELP ssh_transport_tcp_connect_negotiated_mss_bytes Negotiated TCP maximum segment size at connect time. Absent if unavailable.
 # TYPE ssh_transport_tcp_connect_negotiated_mss_bytes gauge
 ssh_transport_tcp_connect_negotiated_mss_bytes 1448
 
@@ -258,13 +258,14 @@ ssh_transport_tcp_connect_negotiated_mss_bytes 1448
 ssh_transport_tcp_connect_success 1
 ```
 
-One further metric is absent above because the sample negotiated an AEAD
-cipher, which authenticates without a separate MAC. It appears whenever a
-non-AEAD cipher is agreed, which is what makes a module restricted to CBC or
-RC4 ciphers able to audit MAC choice:
+One further metric is absent above because the sample negotiated an AEAD cipher
+(`aes128-gcm@openssh.com`, `aes256-gcm@openssh.com` or
+`chacha20-poly1305@openssh.com`), which authenticates without a separate MAC. It
+appears whenever a non-AEAD cipher is agreed, which is what makes a module
+restricted to CBC or RC4 ciphers able to audit MAC choice:
 
 ```
-# HELP ssh_transport_mac_info Negotiated MAC algorithm per direction. Constant 1. Absent for AEAD ciphers (aes128-gcm@openssh.com, aes256-gcm@openssh.com, chacha20-poly1305@openssh.com), which provide integrity without a separate MAC, and absent if key exchange did not complete.
+# HELP ssh_transport_mac_info Negotiated MAC algorithm per direction. Absent for AEAD ciphers, which need no separate MAC.
 # TYPE ssh_transport_mac_info gauge
 ssh_transport_mac_info{direction="read",mac="hmac-sha2-256-etm@openssh.com"} 1
 ssh_transport_mac_info{direction="write",mac="hmac-sha2-256-etm@openssh.com"} 1
@@ -276,7 +277,7 @@ Stages and Reasons](#error-stages-and-reasons) for the label values. For a probe
 whose target failed DNS resolution:
 
 ```
-# HELP ssh_transport_error_info Stage and reason this probe failed. Constant 1. Absent if the probe fully succeeded.
+# HELP ssh_transport_error_info Stage and reason this probe failed. Absent if the probe succeeded.
 # TYPE ssh_transport_error_info gauge
 ssh_transport_error_info{reason="dns_failure",stage="tcp_connect"} 1
 ```
