@@ -31,12 +31,16 @@ alternative that provides these capabilities is the
 ## Quick Start
 
 Create `ssh_transport_exporter.yaml` with a `known_hosts` source to verify
-targets against, and the targets the exporter is allowed to probe:
+targets against, and the targets and ports the exporter is allowed to probe:
 
 ```yaml
 known_hosts_file: /etc/ssh/ssh_known_hosts
 allowed_targets:
   - "*.example.com"
+  - 192.0.2.0/24
+allowed_ports:
+  - 22
+  - 2222
 ```
 
 Run the exporter:
@@ -48,9 +52,30 @@ docker run --rm -p 10022:10022 \
   ghcr.io/raphaelthomas/ssh_transport_exporter:latest
 ```
 
+Confirm the exporter and your `known_hosts` are wired up correctly before
+pointing Prometheus at it:
+
+```
+curl 'localhost:10022/probe?target=bastion.example.com'
+```
+
+A healthy probe reports all three stages:
+
+```
+ssh_transport_tcp_connect_success 1
+ssh_transport_kex_success 1
+ssh_transport_host_key_verify_success 1
+```
+
+On failure the stage-specific `_success` metric is `0` and
+`ssh_transport_error_info` carries the stage and reason, e.g.
+`{stage="host_key_verify",reason="mismatch"}`. A target outside
+`allowed_targets` or `allowed_ports` is rejected with HTTP 403 before any
+connection is attempted.
+
 Like other multi-target exporters, the target to probe is passed to the exporter
-as a URL parameter, so Prometheus is pointed at the exporter and the intended
-target is moved into `__param_target` by relabelling:
+as a URL parameter, so in `prometheus.yml` Prometheus is pointed at the exporter
+and the intended target is moved into `__param_target` by relabelling:
 
 ```yaml
 scrape_configs:
