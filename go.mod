@@ -1,13 +1,13 @@
 module github.com/raphaelthomas/ssh_transport_exporter
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/alecthomas/kingpin v2.2.6+incompatible
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
 	github.com/prometheus/common v0.71.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/sys v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -23,4 +23,4 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace golang.org/x/crypto => github.com/raphaelthomas/crypto v0.0.0-20260723204529-be6bf78aea9c
+replace golang.org/x/crypto => github.com/raphaelthomas/crypto v0.0.0-20260904080047-6e0c2131d58c
