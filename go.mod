@@ -23,4 +23,4 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace golang.org/x/crypto => github.com/raphaelthomas/crypto v0.0.0-20260909131942-c580e57e1aa5
+replace golang.org/x/crypto => github.com/raphaelthomas/crypto v0.0.0-20261006200428-97dfb551f915
