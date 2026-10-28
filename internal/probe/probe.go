@@ -199,8 +199,8 @@ func Run(ctx context.Context, target string, opts Options) Result {
 			// algorithms in TransportReadyCallback and abort therein.
 			return nil
 		},
-		TransportReadyCallback: func(connMetadata ssh.ConnMetadata, negotiatedAlgorithms ssh.NegotiatedAlgorithms) error {
-			rawVersion := connMetadata.ServerVersion()
+		TransportReadyCallback: func(tc *ssh.ClientTransportReadyContext) error {
+			rawVersion := tc.Metadata.ServerVersion()
 			version := sanitizeServerVersion(rawVersion)
 			if version == "" {
 				result.ServerVersionMalformed = true
@@ -209,12 +209,12 @@ func Run(ctx context.Context, target string, opts Options) Result {
 				version = stripServerVersionComment(version)
 			}
 			result.ServerVersion = version
-			result.KEXAlgorithm = negotiatedAlgorithms.KeyExchange
-			result.HostKeyAlgorithm = negotiatedAlgorithms.HostKey
-			result.CipherRead = negotiatedAlgorithms.Read.Cipher
-			result.CipherWrite = negotiatedAlgorithms.Write.Cipher
-			result.MACRead = negotiatedAlgorithms.Read.MAC
-			result.MACWrite = negotiatedAlgorithms.Write.MAC
+			result.KEXAlgorithm = tc.Algorithms.KeyExchange
+			result.HostKeyAlgorithm = tc.Algorithms.HostKey
+			result.CipherRead = tc.Algorithms.Read.Cipher
+			result.CipherWrite = tc.Algorithms.Write.Cipher
+			result.MACRead = tc.Algorithms.Read.MAC
+			result.MACWrite = tc.Algorithms.Write.MAC
 
 			return errAbort
 		},

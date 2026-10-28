@@ -231,11 +231,15 @@ time bounds it entirely:
 ## The `golang.org/x/crypto` fork
 
 `go.mod` pins a fork of `golang.org/x/crypto`. The delta is one optional field
-on `ssh.ClientConfig` plus its call site in `clientHandshake`:
+on `ssh.ClientConfig`, the context type it receives, and its call site in
+`clientHandshake`:
 
 ```go
-TransportReadyCallback func(ConnMetadata, NegotiatedAlgorithms) error
+TransportReadyCallback func(*ClientTransportReadyContext) error
 ```
+
+The context carries the connection's `Metadata` and the negotiated
+`Algorithms`, following the shape of `ClientAuthCallback`.
 
 Called after the RFC 4253 transport handshake, before RFC 4252 auth. Returning
 an error aborts the connection, which is how this credential-less exporter reads
