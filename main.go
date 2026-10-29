@@ -86,11 +86,24 @@ func parseFlags() *flags {
 		BoolVar(&f.AllowAllTargets)
 
 	kingpin.MustParse(app.Parse(os.Args[1:]))
+	if err := f.validate(); err != nil {
+		app.Fatalf("%s", err)
+	}
 
 	if err := f.LogLevel.UnmarshalText([]byte(*logLevelFlag)); err != nil {
 		f.LogLevel = slog.LevelInfo
 	}
 	return f
+}
+
+func (f *flags) validate() error {
+	if f.ProbeTimeout <= 0 {
+		return fmt.Errorf("--probe.timeout must be positive, got %s", f.ProbeTimeout)
+	}
+	if f.MaxConcurrentProbe < 0 {
+		return fmt.Errorf("--probe.max-concurrent must be 0 (no limit) or positive, got %d", f.MaxConcurrentProbe)
+	}
+	return nil
 }
 
 // configReloadMetrics reports the outcome of the most recent config load, so a

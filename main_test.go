@@ -378,3 +378,32 @@ func TestServeReloadsOnSIGHUPAndKeepsServing(t *testing.T) {
 		t.Errorf("serve returned %v, want nil", err)
 	}
 }
+
+func TestFlagsValidate(t *testing.T) {
+	tests := []struct {
+		name          string
+		timeout       time.Duration
+		maxConcurrent int
+		wantErr       string
+	}{
+		{"defaults", 5 * time.Second, 500, ""},
+		{"no concurrency limit", 5 * time.Second, 0, ""},
+		{"zero timeout", 0, 500, "--probe.timeout"},
+		{"negative timeout", -time.Second, 500, "--probe.timeout"},
+		{"negative concurrency", 5 * time.Second, -1, "--probe.max-concurrent"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := (&flags{ProbeTimeout: tt.timeout, MaxConcurrentProbe: tt.maxConcurrent}).validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("validate() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("validate() = %v, want error mentioning %s", err, tt.wantErr)
+			}
+		})
+	}
+}
