@@ -128,18 +128,19 @@ The exporter itself is configured via the following parameters:
 ```
 usage: ssh_transport_exporter [<flags>]
 
+
 Flags:
-  -h, --help               Show context-sensitive help (also try --help-long and --help-man).
-      --version            Show application version.
+  -h, --[no-]help               Show context-sensitive help (also try --help-long and --help-man).
+      --[no-]version            Show application version.
       --web.listen-address=":10022"
-                           Address to listen on for web interface and telemetry
-      --log.level=info     Log level (debug, info, warn, error)
+                                Address to listen on for web interface and telemetry ($SSH_TRANSPORT_EXPORTER_LISTEN_ADDRESS)
+      --log.level=info          Log level (debug, info, warn, error) ($SSH_TRANSPORT_EXPORTER_LOG_LEVEL)
       --config.file="ssh_transport_exporter.yaml"
-                           Path to the exporter's YAML config file with module definitions
-      --probe.timeout=5s   Hard upper bound for a single probe; Prometheus scrape timeout may shorten it.
+                                Path to the exporter's YAML config file with module definitions ($SSH_TRANSPORT_EXPORTER_CONFIG_FILE)
+      --probe.timeout=5s        Hard upper bound for a single probe; Prometheus scrape timeout may shorten it. ($SSH_TRANSPORT_EXPORTER_PROBE_TIMEOUT)
       --probe.max-concurrent=500
-                           Maximum probes running at once; further requests get 503 rather than queueing. 0 disables the limit.
-      --allow-all-targets  Probe any target when no allowed_targets is set; for fleets too diverse to enumerate. An explicit list always wins.
+                                Maximum probes running at once; further requests get 503 rather than queueing. 0 disables the limit. ($SSH_TRANSPORT_EXPORTER_PROBE_MAX_CONCURRENT)
+      --[no-]allow-all-targets  Probe any target when no allowed_targets is set; for fleets too diverse to enumerate. An explicit list always wins. ($SSH_TRANSPORT_EXPORTER_ALLOW_ALL_TARGETS)
 ```
 
 Probes are defined in a YAML configuration file, which is specified via the
