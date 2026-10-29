@@ -2,15 +2,23 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"html"
 	"io"
 	"log/slog"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -18,6 +26,8 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/prometheus/exporter-toolkit/web"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/buildinfo"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/config"
@@ -466,20 +476,125 @@ func TestServeReloadsOnSIGHUPAndKeepsServing(t *testing.T) {
 	}
 }
 
+// writeWebConfig writes a web config with a self-signed certificate and one user.
+func writeWebConfig(t *testing.T, user, password string) (string, *x509.Certificate) {
+	t.Helper()
+	dir := t.TempDir()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generating key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1)},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("creating certificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parsing certificate: %v", err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatalf("marshaling key: %v", err)
+	}
+	certPath, keyPath := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
+	writeFile(t, certPath, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})))
+	writeFile(t, keyPath, string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})))
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hashing password: %v", err)
+	}
+	path := filepath.Join(dir, "web.yml")
+	writeFile(t, path, fmt.Sprintf("tls_server_config:\n  cert_file: %q\n  key_file: %q\nbasic_auth_users:\n  %s: %q\n", certPath, keyPath, user, hash))
+	return path, cert
+}
+
+// --web.config.file reaches the toolkit, which then serves TLS and basic auth.
+func TestServeWithWebConfig(t *testing.T) {
+	webConfig, cert := writeWebConfig(t, "prometheus", "secret")
+	cfg := parseFlags([]string{"--web.config.file=" + webConfig})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	})
+	srv := &http.Server{Handler: handler, ReadHeaderTimeout: time.Second}
+	sigCh := make(chan os.Signal, 1)
+	errCh := make(chan error, 1)
+	logger := slog.New(slog.DiscardHandler)
+	go func() {
+		errCh <- serve(logger, srv, func() error { return web.Serve(ln, srv, cfg.Web, logger) }, sigCh, &reloader{})
+	}()
+
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}}}
+	get := func(user, password string) int {
+		req, err := http.NewRequest(http.MethodGet, "https://"+ln.Addr().String()+"/probe", nil)
+		if err != nil {
+			t.Fatalf("building request: %v", err)
+		}
+		if user != "" {
+			req.SetBasicAuth(user, password)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("GET over TLS: %v", err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if code := get("", ""); code != http.StatusUnauthorized {
+		t.Errorf("without credentials = %d, want %d", code, http.StatusUnauthorized)
+	}
+	if code := get("prometheus", "wrong"); code != http.StatusUnauthorized {
+		t.Errorf("with a wrong password = %d, want %d", code, http.StatusUnauthorized)
+	}
+	if code := get("prometheus", "secret"); code != http.StatusOK {
+		t.Errorf("with credentials = %d, want %d", code, http.StatusOK)
+	}
+
+	sigCh <- syscall.SIGTERM
+	if err := <-errCh; err != nil {
+		t.Errorf("serve returned %v, want nil", err)
+	}
+}
+
 func TestParseFlags(t *testing.T) {
+	check := func(t *testing.T, got *flags, want flags, wantListen []string, wantWebConfig string) {
+		t.Helper()
+		if addrs := *got.Web.WebListenAddresses; !slices.Equal(addrs, wantListen) {
+			t.Errorf("listen addresses = %q, want %q", addrs, wantListen)
+		}
+		if path := *got.Web.WebConfigFile; path != wantWebConfig {
+			t.Errorf("web config file = %q, want %q", path, wantWebConfig)
+		}
+		got.Web = nil
+		if *got != want {
+			t.Errorf("flags = %+v, want %+v", *got, want)
+		}
+	}
+
 	want := flags{
-		ListenAddress:      ":10022",
 		LogLevel:           slog.LevelInfo,
 		ConfigFile:         "ssh_transport_exporter.yaml",
 		ProbeTimeout:       5 * time.Second,
 		MaxConcurrentProbe: 500,
 	}
-	if got := *parseFlags(nil); got != want {
-		t.Errorf("defaults = %+v, want %+v", got, want)
-	}
+	check(t, parseFlags(nil), want, []string{":10022"}, "")
 
 	want = flags{
-		ListenAddress:      "127.0.0.1:9999",
 		LogLevel:           slog.LevelDebug,
 		ConfigFile:         "other.yaml",
 		CheckConfig:        true,
@@ -487,8 +602,11 @@ func TestParseFlags(t *testing.T) {
 		MaxConcurrentProbe: 10,
 		AllowAllTargets:    true,
 	}
+	listen := []string{"127.0.0.1:9999", "[::1]:9999"}
 	args := []string{
-		"--web.listen-address=127.0.0.1:9999",
+		"--web.listen-address=" + listen[0],
+		"--web.listen-address=" + listen[1],
+		"--web.config.file=web.yml",
 		"--log.level=debug",
 		"--config.file=other.yaml",
 		"--config.check",
@@ -496,12 +614,11 @@ func TestParseFlags(t *testing.T) {
 		"--probe.max-concurrent=10",
 		"--allow-all-targets",
 	}
-	if got := *parseFlags(args); got != want {
-		t.Errorf("flags = %+v, want %+v", got, want)
-	}
+	check(t, parseFlags(args), want, listen, "web.yml")
 
 	for name, value := range map[string]string{
-		"LISTEN_ADDRESS":       "127.0.0.1:9999",
+		"LISTEN_ADDRESS":       strings.Join(listen, "\n"),
+		"WEB_CONFIG_FILE":      "web.yml",
 		"LOG_LEVEL":            "debug",
 		"CONFIG_FILE":          "other.yaml",
 		"PROBE_TIMEOUT":        "1s",
@@ -511,9 +628,7 @@ func TestParseFlags(t *testing.T) {
 		t.Setenv("SSH_TRANSPORT_EXPORTER_"+name, value)
 	}
 	want.CheckConfig = false // a one-off action, so it has no env var
-	if got := *parseFlags(nil); got != want {
-		t.Errorf("flags from env = %+v, want %+v", got, want)
-	}
+	check(t, parseFlags(nil), want, listen, "web.yml")
 }
 
 func TestFlagsValidate(t *testing.T) {

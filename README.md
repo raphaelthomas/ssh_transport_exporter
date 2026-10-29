@@ -135,8 +135,9 @@ usage: ssh_transport_exporter [<flags>]
 Flags:
   -h, --[no-]help               Show context-sensitive help (also try --help-long and --help-man).
       --[no-]version            Show application version.
-      --web.listen-address=":10022"
-                                Address to listen on for web interface and telemetry ($SSH_TRANSPORT_EXPORTER_LISTEN_ADDRESS)
+      --web.listen-address=:10022 ...
+                                Addresses on which to expose metrics and web interface. Repeatable for multiple addresses. Examples: `:9100` or `[::1]:9100` for http, `vsock://:9100` for vsock ($SSH_TRANSPORT_EXPORTER_LISTEN_ADDRESS)
+      --web.config.file=""      Path to configuration file that can enable TLS or authentication. See: https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md ($SSH_TRANSPORT_EXPORTER_WEB_CONFIG_FILE)
       --log.level=info          Log level (debug, info, warn, error) ($SSH_TRANSPORT_EXPORTER_LOG_LEVEL)
       --config.file="ssh_transport_exporter.yaml"
                                 Path to the exporter's YAML config file with module definitions ($SSH_TRANSPORT_EXPORTER_CONFIG_FILE)
@@ -158,6 +159,23 @@ for a fully annotated example configuration file.
 
 Use one job per module, each with its own `params.module`, since the module
 selects the `known_hosts`, the allowed targets, and the advertised algorithms.
+
+### TLS and basic auth
+
+`--web.config.file` enables TLS and basic auth, using the
+[exporter-toolkit web configuration](https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md)
+format shared by the Prometheus exporters:
+
+```yaml
+tls_server_config:
+  cert_file: /etc/ssh_transport_exporter/tls.crt
+  key_file: /etc/ssh_transport_exporter/tls.key
+basic_auth_users:
+  prometheus: $2y$10$...  # bcrypt hash of the password
+```
+
+Basic auth then covers every endpoint, including `/probe`, `/-/reload` and the
+health checks.
 
 ### Configuration reload
 
@@ -213,10 +231,11 @@ limit is pinned low, the exporter emits a warning.
 
 ## Security Considerations
 
-`/probe` is unauthenticated. Anyone able to reach it can have the exporter open
-a TCP connection to a target and report whether it answered, which makes the
-exporter a probing tool for whoever can call it. As with `blackbox_exporter`,
-keep it on a trusted network.
+`/probe` is unauthenticated unless `--web.config.file` enables basic auth (see
+[TLS and basic auth](#tls-and-basic-auth)). Anyone able to reach it can have the
+exporter open a TCP connection to a target and report whether it answered,
+which makes the exporter a probing tool for whoever can call it. As with
+`blackbox_exporter`, keep it on a trusted network.
 
 `allowed_targets` is the access control and denies everything by default: a
 module with no list configured refuses every target, and `--allow-all-targets`

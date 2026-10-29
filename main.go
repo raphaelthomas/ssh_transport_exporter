@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,6 +31,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/exporter-toolkit/web"
+	"github.com/prometheus/exporter-toolkit/web/kingpinflag"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/buildinfo"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/config"
@@ -40,7 +41,7 @@ import (
 )
 
 type flags struct {
-	ListenAddress      string
+	Web                *web.FlagConfig
 	LogLevel           slog.Level
 	ConfigFile         string
 	CheckConfig        bool
@@ -54,13 +55,11 @@ func parseFlags(args []string) *flags {
 	app.Version(buildinfo.Version)
 	app.HelpFlag.Short('h')
 
-	f := &flags{}
 	const envPrefix = "SSH_TRANSPORT_EXPORTER_"
 
-	app.Flag("web.listen-address", "Address to listen on for web interface and telemetry").
-		Default(":10022").
-		Envar(envPrefix + "LISTEN_ADDRESS").
-		StringVar(&f.ListenAddress)
+	f := &flags{Web: kingpinflag.AddFlags(app, ":10022")}
+	app.GetFlag("web.listen-address").Envar(envPrefix + "LISTEN_ADDRESS")
+	app.GetFlag("web.config.file").Envar(envPrefix + "WEB_CONFIG_FILE")
 
 	logLevelFlag := app.Flag("log.level", "Log level (debug, info, warn, error)").
 		Default("info").
@@ -296,7 +295,7 @@ func main() {
 
 	logger.Info("Starting SSH Transport Exporter",
 		"version", buildinfo.Version,
-		"listen_address", cfg.ListenAddress,
+		"listen_addresses", *cfg.Web.WebListenAddresses,
 		"config_file", cfg.ConfigFile,
 		"module_count", len(modules),
 	)
@@ -343,7 +342,6 @@ func main() {
 	}))
 
 	srv := &http.Server{
-		Addr:              cfg.ListenAddress,
 		Handler:           mux,
 		ReadHeaderTimeout: readHeaderTimeout,
 		IdleTimeout:       idleTimeout,
@@ -352,14 +350,8 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
-	ln, err := net.Listen("tcp", cfg.ListenAddress)
-	if err != nil {
-		logger.Error("failed to listen", "address", cfg.ListenAddress, "error", err)
-		os.Exit(1)
-	}
-	logger.Info("HTTP server listening", "address", ln.Addr().String())
-
-	if err := serve(logger, srv, func() error { return srv.Serve(ln) }, sigCh, rl); err != nil {
+	listenAndServe := func() error { return web.ListenAndServe(srv, cfg.Web, logger) }
+	if err := serve(logger, srv, listenAndServe, sigCh, rl); err != nil {
 		logger.Error("HTTP server error", "error", err)
 		os.Exit(1)
 	}
