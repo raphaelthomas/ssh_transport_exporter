@@ -43,6 +43,7 @@ type flags struct {
 	ListenAddress      string
 	LogLevel           slog.Level
 	ConfigFile         string
+	CheckConfig        bool
 	ProbeTimeout       time.Duration
 	MaxConcurrentProbe int
 	AllowAllTargets    bool
@@ -70,6 +71,9 @@ func parseFlags() *flags {
 		Default("ssh_transport_exporter.yaml").
 		Envar(envPrefix + "CONFIG_FILE").
 		StringVar(&f.ConfigFile)
+
+	app.Flag("config.check", "Validate the config file and exit.").
+		BoolVar(&f.CheckConfig)
 
 	app.Flag("probe.timeout", "Hard upper bound for a single probe; Prometheus scrape timeout may shorten it.").
 		Default("5s").
@@ -241,6 +245,10 @@ func main() {
 	if err != nil {
 		logger.Error("failed to load config", "path", cfg.ConfigFile, "error", err)
 		os.Exit(1)
+	}
+	if cfg.CheckConfig {
+		logger.Info("config OK", "path", cfg.ConfigFile, "module_count", len(modules))
+		return
 	}
 
 	var live atomic.Pointer[map[string]config.Module]

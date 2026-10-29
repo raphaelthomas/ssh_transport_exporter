@@ -137,6 +137,7 @@ Flags:
       --log.level=info          Log level (debug, info, warn, error) ($SSH_TRANSPORT_EXPORTER_LOG_LEVEL)
       --config.file="ssh_transport_exporter.yaml"
                                 Path to the exporter's YAML config file with module definitions ($SSH_TRANSPORT_EXPORTER_CONFIG_FILE)
+      --[no-]config.check       Validate the config file and exit.
       --probe.timeout=5s        Hard upper bound for a single probe; Prometheus scrape timeout may shorten it. ($SSH_TRANSPORT_EXPORTER_PROBE_TIMEOUT)
       --probe.max-concurrent=500
                                 Maximum probes running at once; further requests get 503 rather than queueing. 0 disables the limit. ($SSH_TRANSPORT_EXPORTER_PROBE_MAX_CONCURRENT)
@@ -145,6 +146,8 @@ Flags:
 
 Probes are defined in a YAML configuration file, which is specified via the
 `--config.file` parameter. The default path is `ssh_transport_exporter.yaml`.
+`--config.check` validates it, including the `known_hosts` files it references,
+and exits.
 
 See
 [`ssh_transport_exporter.example.yaml`](./ssh_transport_exporter.example.yaml)
