@@ -199,7 +199,7 @@ func TestReloadHandler(t *testing.T) {
 	addLifecycleHandlers(mux, testReloader(logger, path, &live, newConfigReloadMetrics()))
 	do := func(method string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(method, "/-/reload", nil))
+		mux.ServeHTTP(rec, httptest.NewRequest(method, "/-/reload", http.NoBody))
 		return rec
 	}
 
@@ -275,14 +275,14 @@ func TestLandingPage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, http.NoBody))
 		if rec.Code != tt.wantCode {
 			t.Errorf("GET %s = %d, want %d", tt.path, rec.Code, tt.wantCode)
 		}
 	}
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 	if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
 		t.Errorf("Content-Type = %q", ct)
 	}
@@ -312,7 +312,7 @@ func TestHealthEndpoints(t *testing.T) {
 			{http.MethodPost, http.StatusMethodNotAllowed},
 		} {
 			rec := httptest.NewRecorder()
-			mux.ServeHTTP(rec, httptest.NewRequest(tt.method, path, nil))
+			mux.ServeHTTP(rec, httptest.NewRequest(tt.method, path, http.NoBody))
 			if rec.Code != tt.wantCode {
 				t.Errorf("%s %s = %d, want %d", tt.method, path, rec.Code, tt.wantCode)
 			}
@@ -332,7 +332,7 @@ func TestLandingPageEscapesVersion(t *testing.T) {
 	}
 }
 
-func serveTestSetup(t *testing.T, handler http.Handler, rl *reloader) (string, chan os.Signal, <-chan error) {
+func serveTestSetup(t *testing.T, handler http.Handler, rl *reloader) (baseURL string, signals chan os.Signal, serveErr <-chan error) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -540,7 +540,7 @@ func TestServeWithWebConfig(t *testing.T) {
 	roots.AddCert(cert)
 	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}}}
 	get := func(user, password string) int {
-		req, err := http.NewRequest(http.MethodGet, "https://"+ln.Addr().String()+"/probe", nil)
+		req, err := http.NewRequest(http.MethodGet, "https://"+ln.Addr().String()+"/probe", http.NoBody)
 		if err != nil {
 			t.Fatalf("building request: %v", err)
 		}

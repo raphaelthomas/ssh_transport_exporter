@@ -119,7 +119,7 @@ func TestEffectiveTimeout(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", nil)
+			req := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", http.NoBody)
 			if tt.header != "" {
 				req.Header.Set("X-Prometheus-Scrape-Timeout-Seconds", strings.Trim(tt.header, `"`))
 			}
@@ -159,7 +159,7 @@ func TestEffectiveTimeoutOffset(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", nil)
+			req := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", http.NoBody)
 			if tt.header != "" {
 				req.Header.Set("X-Prometheus-Scrape-Timeout-Seconds", tt.header)
 			}
@@ -263,13 +263,13 @@ func TestStatusRecorderUnwrap(t *testing.T) {
 func TestEffectiveTimeoutDoesNotLeakAcrossRequests(t *testing.T) {
 	const maxTimeout = 10 * time.Second
 
-	withHeader := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", nil)
+	withHeader := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", http.NoBody)
 	withHeader.Header.Set("X-Prometheus-Scrape-Timeout-Seconds", "0.1")
 	if got := effectiveTimeout(withHeader, maxTimeout, 0); got != 100*time.Millisecond {
 		t.Fatalf("first request: got %s, want 100ms", got)
 	}
 
-	bare := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", nil)
+	bare := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", http.NoBody)
 	if got := effectiveTimeout(bare, maxTimeout, 0); got != maxTimeout {
 		t.Errorf("second request without header: got %s, want the full %s bound", got, maxTimeout)
 	}

@@ -25,6 +25,9 @@ linters:
       disable:
         - fieldalignment
     gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
       enabled-checks:
         - deferInLoop
 

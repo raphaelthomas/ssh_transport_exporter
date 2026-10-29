@@ -62,7 +62,7 @@ func testModule(host string, targetPort int, allowedPorts []int, hostKey ssh.Pub
 
 func doProbe(t *testing.T, h http.HandlerFunc, query string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/probe"+query, nil)
+	req := httptest.NewRequest(http.MethodGet, "/probe"+query, http.NoBody)
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -74,7 +74,7 @@ func doProbe(t *testing.T, h http.HandlerFunc, query string, headers map[string]
 // doProbeCtx issues a GET whose context the caller controls, so a probe can be
 // held in flight and released on demand.
 func doProbeCtx(ctx context.Context, h http.HandlerFunc, query string) {
-	req := httptest.NewRequest(http.MethodGet, "/probe"+query, nil).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodGet, "/probe"+query, http.NoBody).WithContext(ctx)
 	rec := httptest.NewRecorder()
 	h(rec, req)
 }
