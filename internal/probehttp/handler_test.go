@@ -363,13 +363,11 @@ func TestHandlerScrapeTimeoutIsPerRequest(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range 8 {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
+		wg.Go(func() {
 			doProbe(t, h, query, map[string]string{
 				"X-Prometheus-Scrape-Timeout-Seconds": fmt.Sprintf("0.%02d", 10+i),
 			})
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -443,11 +441,7 @@ func TestHandlerConcurrencyLimitShedsExcess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	for range limit {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			doProbeCtx(ctx, h, query)
-		}()
+		wg.Go(func() { doProbeCtx(ctx, h, query) })
 	}
 	waitForGauge(t, inFlight, limit)
 
@@ -478,11 +472,7 @@ func TestHandlerConcurrencyLimitIgnoresRejectedRequests(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		doProbeCtx(ctx, h, query)
-	}()
+	wg.Go(func() { doProbeCtx(ctx, h, query) })
 	waitForGauge(t, inFlight, 1)
 
 	if rec := doProbe(t, h, "?target=192.0.2.9", nil); rec.Code != http.StatusForbidden {
@@ -504,11 +494,7 @@ func TestHandlerConcurrencyLimitDisabled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	for range probes {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			doProbeCtx(ctx, h, query)
-		}()
+		wg.Go(func() { doProbeCtx(ctx, h, query) })
 	}
 	waitForGauge(t, inFlight, probes)
 

@@ -10,6 +10,7 @@ linters:
     - gocritic
     - gosec
     - misspell
+    - modernize
     - nilerr
     - predeclared
     - revive
