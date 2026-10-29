@@ -83,16 +83,16 @@ var (
 	serverIdentificationInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemServerIdent, "info"),
-			"Identification string sent by the server (RFC 4253 section 4.2). Absent if not observed.",
+			"Identification string sent by the server (RFC 4253 section 4.2). Absent if none was received or it could not be parsed.",
 			[]string{"version"},
 			nil,
 		),
 		prometheus.GaugeValue,
 	}
-	serverIdentificationValidDesc = typedDesc{
+	serverIdentificationRFCConformantDesc = typedDesc{
 		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemServerIdent, "valid"),
-			"Whether the server's identification string conformed to RFC 4253 section 4.2. Absent if none was presented.",
+			prometheus.BuildFQName(namespace, subSystemServerIdent, "rfc_conformant"),
+			"Whether the server's identification string conforms to RFC 4253 section 4.2. Absent if none was received.",
 			nil,
 			nil,
 		),
@@ -219,7 +219,7 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- tcpConnectDurationDesc.desc
 	ch <- tcpMSSDesc.desc
 	ch <- serverIdentificationInfoDesc.desc
-	ch <- serverIdentificationValidDesc.desc
+	ch <- serverIdentificationRFCConformantDesc.desc
 	ch <- kexAlgorithmInfoDesc.desc
 	ch <- serverHostKeyAlgorithmInfoDesc.desc
 	ch <- encryptionAlgorithmInfoDesc.desc
@@ -247,7 +247,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"tcp_connect_duration", result.TCPConnectDuration,
 			"tcp_mss", result.TCPMSS,
 			"server_identification", result.ServerIdentification,
-			"server_identification_malformed", result.ServerIdentificationMalformed,
+			"server_identification_received", result.ServerIdentificationReceived,
+			"server_identification_rfc_conformant", result.ServerIdentificationRFCConformant,
 			"kex_algorithm", result.KEXAlgorithm,
 			"server_host_key_algorithm", result.ServerHostKeyAlgorithm,
 			"encryption_client_to_server", result.EncryptionClientToServer,
@@ -279,12 +280,11 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 	}
 
-	switch {
-	case result.ServerIdentification != "":
-		ch <- serverIdentificationInfoDesc.mustNewConstMetric(1, result.ServerIdentification)
-		ch <- serverIdentificationValidDesc.mustNewConstMetric(1)
-	case result.ServerIdentificationMalformed:
-		ch <- serverIdentificationValidDesc.mustNewConstMetric(0)
+	if result.ServerIdentificationReceived {
+		if result.ServerIdentification != "" {
+			ch <- serverIdentificationInfoDesc.mustNewConstMetric(1, result.ServerIdentification)
+		}
+		ch <- serverIdentificationRFCConformantDesc.mustNewConstMetric(boolToFloat64(result.ServerIdentificationRFCConformant))
 	}
 
 	if result.KeyExchangeSuccess && result.KEXAlgorithm != "" {

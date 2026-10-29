@@ -76,22 +76,24 @@ func directionSeries(mfs map[string]*dto.MetricFamily, name, direction string) *
 func TestCollectFullSuccess(t *testing.T) {
 	t.Parallel()
 	result := probe.Result{
-		DNSLookup:                  true,
-		DNSLookupSuccess:           true,
-		DNSLookupDuration:          250 * time.Millisecond,
-		TCPConnectSuccess:          true,
-		TCPConnectDuration:         500 * time.Millisecond,
-		TCPMSS:                     1448,
-		ServerIdentification:       "SSH-2.0-OpenSSH_9.6",
-		KeyExchangeSuccess:         true,
-		KeyExchangeDuration:        time.Second,
-		KEXAlgorithm:               "curve25519-sha256",
-		ServerHostKeyVerifySuccess: true,
-		ServerHostKeyAlgorithm:     "ssh-ed25519",
-		EncryptionServerToClient:   "aes128-gcm@openssh.com",
-		EncryptionClientToServer:   "chacha20-poly1305@openssh.com",
-		Duration:                   2 * time.Second,
-		Success:                    true,
+		DNSLookup:                         true,
+		DNSLookupSuccess:                  true,
+		DNSLookupDuration:                 250 * time.Millisecond,
+		TCPConnectSuccess:                 true,
+		TCPConnectDuration:                500 * time.Millisecond,
+		TCPMSS:                            1448,
+		ServerIdentification:              "SSH-2.0-OpenSSH_9.6",
+		ServerIdentificationReceived:      true,
+		ServerIdentificationRFCConformant: true,
+		KeyExchangeSuccess:                true,
+		KeyExchangeDuration:               time.Second,
+		KEXAlgorithm:                      "curve25519-sha256",
+		ServerHostKeyVerifySuccess:        true,
+		ServerHostKeyAlgorithm:            "ssh-ed25519",
+		EncryptionServerToClient:          "aes128-gcm@openssh.com",
+		EncryptionClientToServer:          "chacha20-poly1305@openssh.com",
+		Duration:                          2 * time.Second,
+		Success:                           true,
 	}
 	mfs := collectMetrics(t, result)
 
@@ -151,8 +153,8 @@ func TestCollectFullSuccess(t *testing.T) {
 		t.Error("mac_algorithm_info present for AEAD ciphers, want absent")
 	}
 
-	if got := singleValue(t, mfs, "ssh_transport_server_identification_valid"); got != 1 {
-		t.Errorf("server_identification_valid = %v, want 1", got)
+	if got := singleValue(t, mfs, "ssh_transport_server_identification_rfc_conformant"); got != 1 {
+		t.Errorf("server_identification_rfc_conformant = %v, want 1", got)
 	}
 
 	if _, ok := mfs["ssh_transport_error_info"]; ok {
@@ -160,33 +162,51 @@ func TestCollectFullSuccess(t *testing.T) {
 	}
 }
 
-// A rejected banner is reported as invalid rather than vanishing silently.
-func TestCollectMalformedServerIdentification(t *testing.T) {
+// A parsable but non-conforming string is exported and flagged.
+func TestCollectNonConformantServerIdentification(t *testing.T) {
 	t.Parallel()
 	mfs := collectMetrics(t, probe.Result{
-		TCPConnectSuccess:             true,
-		KeyExchangeSuccess:            true,
-		ServerIdentificationMalformed: true,
+		TCPConnectSuccess:            true,
+		KeyExchangeSuccess:           true,
+		ServerIdentification:         "SSH-2.0-Cisco-1.25",
+		ServerIdentificationReceived: true,
 	})
 
-	if got := singleValue(t, mfs, "ssh_transport_server_identification_valid"); got != 0 {
-		t.Errorf("server_identification_valid = %v, want 0", got)
+	if got := singleValue(t, mfs, "ssh_transport_server_identification_rfc_conformant"); got != 0 {
+		t.Errorf("server_identification_rfc_conformant = %v, want 0", got)
 	}
-	if _, ok := mfs["ssh_transport_server_identification_info"]; ok {
-		t.Error("server_identification_info present for a rejected banner, want absent")
+	if got := labelValue(t, mfs, "ssh_transport_server_identification_info", "version"); got != "SSH-2.0-Cisco-1.25" {
+		t.Errorf("server_identification_info version = %q, want SSH-2.0-Cisco-1.25", got)
 	}
 }
 
-// No banner observed at all is distinct from one that was rejected.
+// An unparsable string is flagged rather than vanishing silently.
+func TestCollectUnparsableServerIdentification(t *testing.T) {
+	t.Parallel()
+	mfs := collectMetrics(t, probe.Result{
+		TCPConnectSuccess:            true,
+		KeyExchangeSuccess:           true,
+		ServerIdentificationReceived: true,
+	})
+
+	if got := singleValue(t, mfs, "ssh_transport_server_identification_rfc_conformant"); got != 0 {
+		t.Errorf("server_identification_rfc_conformant = %v, want 0", got)
+	}
+	if _, ok := mfs["ssh_transport_server_identification_info"]; ok {
+		t.Error("server_identification_info present for an unparsable string, want absent")
+	}
+}
+
+// No identification string received is distinct from an unparsable one.
 func TestCollectNoServerIdentificationObserved(t *testing.T) {
 	t.Parallel()
 	mfs := collectMetrics(t, probe.Result{TCPConnectSuccess: true})
 
-	if _, ok := mfs["ssh_transport_server_identification_valid"]; ok {
-		t.Error("server_identification_valid present when no banner was observed, want absent")
+	if _, ok := mfs["ssh_transport_server_identification_rfc_conformant"]; ok {
+		t.Error("server_identification_rfc_conformant present when none was received, want absent")
 	}
 	if _, ok := mfs["ssh_transport_server_identification_info"]; ok {
-		t.Error("server_identification_info present when no banner was observed, want absent")
+		t.Error("server_identification_info present when none was received, want absent")
 	}
 }
 

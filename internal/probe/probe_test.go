@@ -55,8 +55,8 @@ func TestRunSuccess(t *testing.T) {
 	if result.ServerIdentification != "SSH-2.0-TestServer_1.0" {
 		t.Errorf("ServerIdentification = %q, want SSH-2.0-TestServer_1.0", result.ServerIdentification)
 	}
-	if result.ServerIdentificationMalformed {
-		t.Error("ServerIdentificationMalformed = true, want false for a conforming banner")
+	if !result.ServerIdentificationReceived || !result.ServerIdentificationRFCConformant {
+		t.Errorf("ServerIdentificationReceived = %t, ServerIdentificationRFCConformant = %t, want both true", result.ServerIdentificationReceived, result.ServerIdentificationRFCConformant)
 	}
 	if result.EncryptionClientToServer == "" || result.EncryptionServerToClient == "" {
 		t.Errorf("encryption client_to_server=%q server_to_client=%q, want both set", result.EncryptionClientToServer, result.EncryptionServerToClient)
@@ -259,9 +259,6 @@ func TestRunStripsServerIdentificationComments(t *testing.T) {
 				StripServerIdentificationComments: tt.strip,
 			})
 
-			if result.ServerIdentificationMalformed {
-				t.Fatal("ServerIdentificationMalformed = true, want false")
-			}
 			if result.ServerIdentification != tt.want {
 				t.Errorf("ServerIdentification = %q, want %q", result.ServerIdentification, tt.want)
 			}
@@ -644,7 +641,7 @@ func TestRunDebugLoggingEnabled(t *testing.T) {
 	}
 }
 
-func TestRunSanitizesServerIdentification(t *testing.T) {
+func TestRunDropsUnparsableServerIdentification(t *testing.T) {
 	t.Parallel()
 	// Banner containing a DEL byte, which must not reach the label.
 	srv := sshtest.NewServer(t, sshtest.Options{ServerVersion: "SSH-2.0-Test\x7fServer"})
@@ -654,10 +651,10 @@ func TestRunSanitizesServerIdentification(t *testing.T) {
 
 	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
 	if result.ServerIdentification != "" {
-		t.Errorf("ServerIdentification = %q, want it dropped as malformed", result.ServerIdentification)
+		t.Errorf("ServerIdentification = %q, want it dropped as unparsable", result.ServerIdentification)
 	}
-	if !result.ServerIdentificationMalformed {
-		t.Error("ServerIdentificationMalformed = false, want true")
+	if !result.ServerIdentificationReceived || result.ServerIdentificationRFCConformant {
+		t.Errorf("ServerIdentificationReceived = %t, ServerIdentificationRFCConformant = %t, want true, false", result.ServerIdentificationReceived, result.ServerIdentificationRFCConformant)
 	}
 	if !result.KeyExchangeSuccess {
 		t.Error("KeyExchangeSuccess = false, want true")

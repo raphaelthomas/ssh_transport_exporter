@@ -14,31 +14,33 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-func TestSanitizeServerIdentification(t *testing.T) {
+func TestParseServerIdentification(t *testing.T) {
 	tests := []struct {
-		name string
-		in   string
-		want string
+		name              string
+		in                string
+		wantRFCConformant bool
+		wantErr           bool
 	}{
-		{"normal banner", "SSH-2.0-OpenSSH_9.6", "SSH-2.0-OpenSSH_9.6"},
-		{"banner with comments", "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5", "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5"},
-		{"minus in softwareversion", "SSH-2.0-Cisco-1.25", "SSH-2.0-Cisco-1.25"},
-		{"1.99 protoversion", "SSH-1.99-OpenSSH_9.6", "SSH-1.99-OpenSSH_9.6"},
-		{"empty", "", ""},
-		{"missing prefix", "OpenSSH_9.6", ""},
-		{"unsupported protoversion", "SSH-1.5-OpenSSH_9.6", ""},
-		{"empty softwareversion", "SSH-2.0-", ""},
-		{"comments without softwareversion", "SSH-2.0- Ubuntu", ""},
-		{"control chars rejected", "SSH-2.0-\x00\x01\x1fTest", ""},
-		{"del char rejected", "SSH-2.0-Test\x7f", ""},
-		{"tab and newline rejected", "SSH-2.0-Te\tst\n", ""},
-		{"invalid utf8 rejected", "SSH-2.0-Test\xff", ""},
-		{"non-ascii rejected", "SSH-2.0-café", ""},
+		{"normal", "SSH-2.0-OpenSSH_9.6", true, false},
+		{"with comments", "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5", true, false},
+		{"1.99 protoversion", "SSH-1.99-OpenSSH_9.6", true, false},
+		{"minus in softwareversion", "SSH-2.0-Cisco-1.25", false, false},
+		{"empty", "", false, true},
+		{"missing prefix", "OpenSSH_9.6", false, true},
+		{"unsupported protoversion", "SSH-1.5-OpenSSH_9.6", false, true},
+		{"empty softwareversion", "SSH-2.0-", false, true},
+		{"comments without softwareversion", "SSH-2.0- Ubuntu", false, true},
+		{"control chars", "SSH-2.0-\x00\x01\x1fTest", false, true},
+		{"del char", "SSH-2.0-Test\x7f", false, true},
+		{"tab and newline", "SSH-2.0-Te\tst\n", false, true},
+		{"invalid utf8", "SSH-2.0-Test\xff", false, true},
+		{"non-ascii", "SSH-2.0-café", false, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := sanitizeServerIdentification([]byte(tt.in)); got != tt.want {
-				t.Errorf("sanitizeServerIdentification(%q) = %q, want %q", tt.in, got, tt.want)
+			rfcConformant, err := parseServerIdentification([]byte(tt.in))
+			if rfcConformant != tt.wantRFCConformant || (err != nil) != tt.wantErr {
+				t.Errorf("parseServerIdentification(%q) = %t, %v, want %t, error %t", tt.in, rfcConformant, err, tt.wantRFCConformant, tt.wantErr)
 			}
 		})
 	}
@@ -64,16 +66,16 @@ func TestStripServerIdentificationComments(t *testing.T) {
 	}
 }
 
-func TestSanitizeServerIdentificationLengthLimit(t *testing.T) {
+func TestParseServerIdentificationLengthLimit(t *testing.T) {
 	const maxLen = 255
 
 	atLimit := "SSH-2.0-" + strings.Repeat("a", maxLen-len("SSH-2.0-"))
-	if got := sanitizeServerIdentification([]byte(atLimit)); got != atLimit {
-		t.Errorf("a %d byte banner was rejected", len(atLimit))
+	if _, err := parseServerIdentification([]byte(atLimit)); err != nil {
+		t.Errorf("a %d byte identification string was rejected: %v", len(atLimit), err)
 	}
 
-	if got := sanitizeServerIdentification([]byte(atLimit + "a")); got != "" {
-		t.Errorf("sanitizeServerIdentification = %q, want %q for an overlong banner", got, "")
+	if _, err := parseServerIdentification([]byte(atLimit + "a")); err == nil {
+		t.Error("an overlong identification string was parsed, want an error")
 	}
 }
 

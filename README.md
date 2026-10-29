@@ -302,13 +302,13 @@ ssh_transport_server_host_key_algorithm_info{algorithm="ssh-ed25519"} 1
 # TYPE ssh_transport_server_host_key_verify_success gauge
 ssh_transport_server_host_key_verify_success 1
 
-# HELP ssh_transport_server_identification_info Identification string sent by the server (RFC 4253 section 4.2). Absent if not observed.
+# HELP ssh_transport_server_identification_info Identification string sent by the server (RFC 4253 section 4.2). Absent if none was received or it could not be parsed.
 # TYPE ssh_transport_server_identification_info gauge
 ssh_transport_server_identification_info{version="SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10"} 1
 
-# HELP ssh_transport_server_identification_valid Whether the server's identification string conformed to RFC 4253 section 4.2. Absent if none was presented.
-# TYPE ssh_transport_server_identification_valid gauge
-ssh_transport_server_identification_valid 1
+# HELP ssh_transport_server_identification_rfc_conformant Whether the server's identification string conforms to RFC 4253 section 4.2. Absent if none was received.
+# TYPE ssh_transport_server_identification_rfc_conformant gauge
+ssh_transport_server_identification_rfc_conformant 1
 
 # HELP ssh_transport_success Whether the probe succeeded: every phase completed and the server host key was verified.
 # TYPE ssh_transport_success gauge

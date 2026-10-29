@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -54,10 +55,10 @@ type Result struct {
 	TCPConnectDuration time.Duration
 	TCPMSS             int
 
-	ServerIdentification string
-	// ServerIdentificationMalformed records that a banner was presented but did not
-	// conform, which ServerIdentification alone cannot express once it is dropped.
-	ServerIdentificationMalformed bool
+	// ServerIdentification is empty if none was received or it could not be parsed.
+	ServerIdentification              string
+	ServerIdentificationReceived      bool
+	ServerIdentificationRFCConformant bool
 
 	KeyExchangeSuccess  bool
 	KeyExchangeDuration time.Duration
@@ -232,15 +233,18 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 			return nil
 		},
 		TransportReadyCallback: func(tc *ssh.ClientTransportReadyContext) error {
-			rawVersion := tc.Metadata.ServerVersion()
-			version := sanitizeServerIdentification(rawVersion)
-			if version == "" {
-				result.ServerIdentificationMalformed = true
-				logger.Debug("dropping malformed server identification string", "target", target, "banner", string(rawVersion))
-			} else if opts.StripServerIdentificationComments {
-				version = stripServerIdentificationComments(version)
+			rawIdent := tc.Metadata.ServerVersion()
+			rfcConformant, err := parseServerIdentification(rawIdent)
+			result.ServerIdentificationReceived = true
+			result.ServerIdentificationRFCConformant = rfcConformant
+			switch {
+			case err != nil:
+				logger.Debug("dropping unparsable server identification string", "target", target, "identification", string(rawIdent), "error", err)
+			case opts.StripServerIdentificationComments:
+				result.ServerIdentification = stripServerIdentificationComments(string(rawIdent))
+			default:
+				result.ServerIdentification = string(rawIdent)
 			}
-			result.ServerIdentification = version
 			result.KeyExchangeDuration = time.Since(kexStart)
 			result.KEXAlgorithm = tc.Algorithms.KeyExchange
 			result.ServerHostKeyAlgorithm = tc.Algorithms.HostKey
@@ -366,13 +370,14 @@ func classifyKexError(ctx context.Context, err error) string {
 	return ErrReasonOther
 }
 
-// sanitizeServerIdentification drops a malformed banner rather than repairing it, since
-// the banner is untrusted input that ends up in a label value.
-func sanitizeServerIdentification(raw []byte) string {
+// parseServerIdentification reports whether raw conforms to RFC 4253, section
+// 4.2. An error means raw cannot be parsed and must not be exported, since it
+// is untrusted input that ends up in a label value.
+func parseServerIdentification(raw []byte) (rfcConformant bool, err error) {
 	const maxLen = 255 // see RFC 4253, section 4.2
 
 	if len(raw) > maxLen {
-		return ""
+		return false, fmt.Errorf("longer than %d characters", maxLen)
 	}
 
 	// RFC 4253, section 5.1 defines 2.0 and 1.99 as the only protoversions.
@@ -381,19 +386,24 @@ func sanitizeServerIdentification(raw []byte) string {
 		rest, ok = bytes.CutPrefix(raw, []byte("SSH-1.99-"))
 	}
 	if !ok {
-		return ""
+		return false, errors.New(`does not start with "SSH-2.0-" or "SSH-1.99-"`)
+	}
+
+	for _, c := range rest {
+		if c < 0x20 || c > 0x7e {
+			return false, errors.New("contains characters other than printable US-ASCII")
+		}
 	}
 
 	// softwareversion runs up to the optional comments, and must be present.
-	if software, _, _ := bytes.Cut(rest, []byte{' '}); len(software) == 0 {
-		return ""
+	software, _, _ := bytes.Cut(rest, []byte{' '})
+	if len(software) == 0 {
+		return false, errors.New("softwareversion is empty")
 	}
-	for _, c := range rest {
-		if c < 0x20 || c > 0x7e {
-			return ""
-		}
-	}
-	return string(raw)
+
+	// Servers in the wild put a minus in softwareversion (e.g. "Cisco-1.25"),
+	// so it is parsed and exported, just not RFC conformant.
+	return !bytes.Contains(software, []byte{'-'}), nil
 }
 
 func stripServerIdentificationComments(version string) string {
