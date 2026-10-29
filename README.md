@@ -392,15 +392,15 @@ identifies *how far* the probe got before failing; the `reason` label explains
 ### Stages
 
 The stage reflects the last phase the probe reached. Probing proceeds strictly
-in this order: *DNS lookup*, *TCP connect*, *key exchange*, *host key
-verification*.
+in this order: *DNS lookup*, *TCP connect*, *key exchange*. The server's host
+key is verified within the key exchange, before it completes.
 
 | Stage | Description |
 | --- | --- |
 | `dns_lookup` | Failure while resolving the target hostname, before any connection attempt. IP literal targets skip this stage. |
 | `tcp_connect` | Failure while establishing the underlying TCP connection to the target (before anything SSH). |
 | `kex` | Failure during the SSH transport-layer key exchange (RFC 4253), after the TCP connection was established. |
-| `host_key_verify` | The transport-layer handshake completed, but verification of the server's host key against the configured `known_hosts` failed. |
+| `host_key_verify` | Verification of the server's host key against the configured `known_hosts` failed. Takes precedence over a key exchange that fails after the check. |
 
 ### Reasons
 

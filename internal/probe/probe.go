@@ -123,7 +123,6 @@ var defaultHostKeyAlgorithms = []string{
 // hostKeyResult moves the verification result off the goroutine that runs
 // HostKeyCallback; only the first key exchange is recorded.
 type hostKeyResult struct {
-	kexDuration time.Duration
 	verified    bool
 	errorReason string
 }
@@ -218,7 +217,7 @@ func Run(ctx context.Context, target string, opts Options) Result {
 		},
 		HostKeyAlgorithms: hostKeyAlgorithms,
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			hk := hostKeyResult{kexDuration: time.Since(kexStart), verified: true}
+			hk := hostKeyResult{verified: true}
 			if err := hostKeyCallback(hostname, remote, key); err != nil {
 				hk.verified = false
 				hk.errorReason = classifyHostKeyVerifyError(err)
@@ -242,6 +241,7 @@ func Run(ctx context.Context, target string, opts Options) Result {
 				version = stripServerVersionComment(version)
 			}
 			result.ServerVersion = version
+			result.KEXDuration = time.Since(kexStart)
 			result.KEXAlgorithm = tc.Algorithms.KeyExchange
 			result.HostKeyAlgorithm = tc.Algorithms.HostKey
 			result.CipherRead = tc.Algorithms.Read.Cipher
@@ -255,29 +255,29 @@ func Run(ctx context.Context, target string, opts Options) Result {
 
 	_, _, _, handshakeErr := ssh.NewClientConn(rawConn, target, clientConfig)
 
+	switch {
+	case errors.Is(handshakeErr, errAbort):
+		result.KEXSuccess = true
+	case handshakeErr == nil:
+		// Should be unreachable, since TransportReadyCallback always returns
+		// errAbort, so we log this explicitly. Probe itself was successful, so
+		// neither ErrorStage nor ErrorReason are set here.
+		logger.Warn("SSH handshake completed without hitting abort sentinel; x/crypto/ssh behavior may have changed", "target", target)
+		result.KEXSuccess = true
+	default:
+		result.ErrorStage = ErrStageKeyExchange
+		result.ErrorReason = classifyKexError(ctx, handshakeErr)
+	}
+
+	// A failed host key check outranks a key exchange that failed after it.
 	select {
 	case hk := <-hostKeyResultCh:
-		result.KEXSuccess = true
-		result.KEXDuration = hk.kexDuration
 		result.HostKeyVerifySuccess = hk.verified
 		if !hk.verified {
 			result.ErrorStage = ErrStageHostKeyVerify
 			result.ErrorReason = hk.errorReason
 		}
 	default:
-	}
-
-	switch {
-	case errors.Is(handshakeErr, errAbort):
-		// "Successful" probe, since we got the sentinel error
-	case handshakeErr == nil:
-		// Should be unreachable, since TransportReadyCallback always returns
-		// errAbort, so we log this explicitly. Probe itself was successful, so
-		// neither ErrorStage nor ErrorReason are set here.
-		logger.Warn("SSH handshake completed without hitting abort sentinel; x/crypto/ssh behavior may have changed", "target", target)
-	default:
-		result.ErrorStage = ErrStageKeyExchange
-		result.ErrorReason = classifyKexError(ctx, handshakeErr)
 	}
 
 	return result

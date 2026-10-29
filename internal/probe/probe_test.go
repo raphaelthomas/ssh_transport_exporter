@@ -474,6 +474,57 @@ func TestRunPeerHangup(t *testing.T) {
 	}
 }
 
+func slowHostKeyCallback(delay time.Duration, cb ssh.HostKeyCallback) ssh.HostKeyCallback {
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		time.Sleep(delay)
+		return cb(hostname, remote, key)
+	}
+}
+
+func TestRunKexFailsAfterHostKeyAccepted(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{HostKeyCallback: slowHostKeyCallback(500*time.Millisecond, acceptKey(srv.HostKey))})
+
+	if result.KEXSuccess {
+		t.Error("KEXSuccess = true, want false when NEWKEYS never completed")
+	}
+	if result.KEXDuration != 0 {
+		t.Errorf("KEXDuration = %s, want 0", result.KEXDuration)
+	}
+	if !result.HostKeyVerifySuccess {
+		t.Error("HostKeyVerifySuccess = false, want true")
+	}
+	if result.ErrorStage != ErrStageKeyExchange || result.ErrorReason != ErrReasonTimeout {
+		t.Errorf("error = %s/%s, want %s/%s", result.ErrorStage, result.ErrorReason, ErrStageKeyExchange, ErrReasonTimeout)
+	}
+}
+
+func TestRunHostKeyFailureOutranksLaterKexFailure(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+	otherSrv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	result := Run(ctx, srv.Addr, Options{HostKeyCallback: slowHostKeyCallback(500*time.Millisecond, acceptKey(otherSrv.HostKey))})
+
+	if result.KEXSuccess {
+		t.Error("KEXSuccess = true, want false when NEWKEYS never completed")
+	}
+	if result.HostKeyVerifySuccess {
+		t.Error("HostKeyVerifySuccess = true, want false")
+	}
+	if result.ErrorStage != ErrStageHostKeyVerify || result.ErrorReason != ErrReasonOther {
+		t.Errorf("error = %s/%s, want %s/%s", result.ErrorStage, result.ErrorReason, ErrStageHostKeyVerify, ErrReasonOther)
+	}
+}
+
 func TestRunKexTimeout(t *testing.T) {
 	t.Parallel()
 	addr := sshtest.SilentServer(t)
