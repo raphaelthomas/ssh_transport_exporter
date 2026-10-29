@@ -120,7 +120,7 @@ var (
 	kexAlgorithmInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemKEX, "algorithm_info"),
-			"Negotiated key exchange algorithm. Absent unless key exchange completed.",
+			"Negotiated key exchange algorithm (RFC 4253 section 7.1). Absent unless key exchange completed.",
 			[]string{"algorithm"},
 			nil,
 		),
