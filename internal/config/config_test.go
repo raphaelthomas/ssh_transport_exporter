@@ -58,6 +58,49 @@ func TestLoadRawConfigFileErrors(t *testing.T) {
 	})
 }
 
+// Unknown keys fail the load rather than being dropped, so a typo or a removed
+// option cannot silently change what a module does.
+func TestLoadRawConfigRejectsUnknownKeys(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		contains string
+	}{
+		{
+			"unknown top-level key",
+			"known_hosts_file: \"k\"\nallowed_target: [\"a.example.com\"]\n",
+			"field allowed_target not found",
+		},
+		{
+			"unknown module key",
+			"known_hosts_file: \"k\"\nmodules:\n  m:\n    cipher: [aes128-ctr]\n",
+			"field cipher not found",
+		},
+		{
+			"removed inline known_hosts",
+			"known_hosts: \"example.com ssh-ed25519 AAAA\"\n",
+			"field known_hosts not found",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := loadRaw(t, tt.content)
+			if err == nil || !strings.Contains(err.Error(), "parsing config file") || !strings.Contains(err.Error(), tt.contains) {
+				t.Errorf("err = %v, want parsing config file error containing %q", err, tt.contains)
+			}
+		})
+	}
+}
+
+// An empty file is an empty config, not a parse error, so the load fails on
+// what is actually missing.
+func TestLoadRawConfigEmptyFile(t *testing.T) {
+	_, err := loadRaw(t, "")
+	if err == nil || !strings.Contains(err.Error(), "known_hosts_file is required") {
+		t.Errorf("err = %v, want required known_hosts_file error", err)
+	}
+}
+
 func TestLoadRawConfigKnownHostsFileInheritance(t *testing.T) {
 	t.Run("module file preserved", func(t *testing.T) {
 		raw, err := loadRaw(t, `
