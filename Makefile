@@ -1,4 +1,4 @@
-.PHONY: build release lint vet test clean
+.PHONY: build release lint vet vuln test clean
 
 build:
 	go build -buildmode=pie -o ssh_transport_exporter .
@@ -16,6 +16,9 @@ lint:
 
 vet:
 	go vet ./...
+
+vuln:
+	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
 test:
 	go test -race -cover -v ./...
