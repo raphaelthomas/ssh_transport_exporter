@@ -87,7 +87,7 @@ func TestRunAbortsAtTransportReady(t *testing.T) {
 	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
 
 	if !result.KeyExchangeSuccess {
-		t.Fatalf("KeyExchangeSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
+		t.Fatalf("KeyExchangeSuccess = false, want true (error %s/%s)", result.ErrorPhase, result.ErrorReason)
 	}
 	for _, f := range []struct{ name, got string }{
 		{"ServerIdentification", result.ServerIdentification.String},
@@ -194,7 +194,7 @@ func TestRunMACsRespected(t *testing.T) {
 	})
 
 	if !result.KeyExchangeSuccess {
-		t.Fatalf("KeyExchangeSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
+		t.Fatalf("KeyExchangeSuccess = false, want true (error %s/%s)", result.ErrorPhase, result.ErrorReason)
 	}
 	if result.MACClientToServer != ssh.HMACSHA512 || result.MACServerToClient != ssh.HMACSHA512 {
 		t.Errorf("MACs client_to_server=%q server_to_client=%q, want %q", result.MACClientToServer, result.MACServerToClient, ssh.HMACSHA512)
@@ -214,7 +214,7 @@ func TestRunNonAEADCipherReportsMAC(t *testing.T) {
 	})
 
 	if !result.KeyExchangeSuccess {
-		t.Fatalf("KeyExchangeSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
+		t.Fatalf("KeyExchangeSuccess = false, want true (error %s/%s)", result.ErrorPhase, result.ErrorReason)
 	}
 	if result.MACClientToServer == "" || result.MACServerToClient == "" {
 		t.Errorf("MACs client_to_server=%q server_to_client=%q, want both set for a non-AEAD cipher", result.MACClientToServer, result.MACServerToClient)
@@ -235,7 +235,7 @@ func TestRunAEADCipherReportsNoMAC(t *testing.T) {
 	})
 
 	if !result.KeyExchangeSuccess {
-		t.Fatalf("KeyExchangeSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
+		t.Fatalf("KeyExchangeSuccess = false, want true (error %s/%s)", result.ErrorPhase, result.ErrorReason)
 	}
 	if result.MACClientToServer != "" || result.MACServerToClient != "" {
 		t.Errorf("MACs client_to_server=%q server_to_client=%q, want both empty for an AEAD cipher", result.MACClientToServer, result.MACServerToClient)
