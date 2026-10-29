@@ -240,7 +240,7 @@ func TestHandlerProbeFailureStillReturns200(t *testing.T) {
 	if !strings.Contains(body, "ssh_transport_tcp_connect_success 0") {
 		t.Errorf("body missing tcp_connect_success 0:\n%s", body)
 	}
-	if !strings.Contains(body, `stage="tcp_connect"`) || !strings.Contains(body, `reason="connection_refused"`) {
+	if !strings.Contains(body, `phase="tcp_connect"`) || !strings.Contains(body, `reason="connection_refused"`) {
 		t.Errorf("body missing error_info labels:\n%s", body)
 	}
 }

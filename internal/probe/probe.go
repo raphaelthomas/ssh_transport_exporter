@@ -18,12 +18,12 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-// Stages a probe can fail at, reported as Result.ErrorStage.
+// Phases a probe can fail at, reported as Result.ErrorPhase.
 const (
-	ErrStageDNSLookup     = "dns_lookup"
-	ErrStageTCPConnect    = "tcp_connect"
-	ErrStageKeyExchange   = "kex"
-	ErrStageHostKeyVerify = "host_key_verify"
+	ErrPhaseDNSLookup     = "dns_lookup"
+	ErrPhaseTCPConnect    = "tcp_connect"
+	ErrPhaseKeyExchange   = "key_exchange"
+	ErrPhaseHostKeyVerify = "host_key_verify"
 )
 
 // Why a probe failed, reported as Result.ErrorReason.
@@ -69,7 +69,7 @@ type Result struct {
 	MACRead  string
 	MACWrite string
 
-	ErrorStage  string
+	ErrorPhase  string
 	ErrorReason string
 }
 
@@ -165,9 +165,9 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	}
 
 	if err != nil {
-		result.ErrorStage = ErrStageTCPConnect
+		result.ErrorPhase = ErrPhaseTCPConnect
 		if lookup && attemptStart == nil {
-			result.ErrorStage = ErrStageDNSLookup
+			result.ErrorPhase = ErrPhaseDNSLookup
 		}
 		result.ErrorReason = classifyDialError(ctx, err)
 		return result
@@ -253,10 +253,10 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	case handshakeErr == nil:
 		// Unreachable while TransportReadyCallback returns errAbort.
 		logger.Error("probe reached user authentication instead of aborting; x/crypto/ssh behavior may have changed", "target", target)
-		result.ErrorStage = ErrStageKeyExchange
+		result.ErrorPhase = ErrPhaseKeyExchange
 		result.ErrorReason = ErrReasonUserAuthReached
 	default:
-		result.ErrorStage = ErrStageKeyExchange
+		result.ErrorPhase = ErrPhaseKeyExchange
 		result.ErrorReason = classifyKexError(ctx, handshakeErr)
 	}
 
@@ -265,7 +265,7 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	case hk := <-hostKeyResultCh:
 		result.HostKeyVerifySuccess = hk.verified
 		if !hk.verified {
-			result.ErrorStage = ErrStageHostKeyVerify
+			result.ErrorPhase = ErrPhaseHostKeyVerify
 			result.ErrorReason = hk.errorReason
 		}
 	default:

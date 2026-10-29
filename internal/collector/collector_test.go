@@ -181,7 +181,7 @@ func TestCollectTCPFailure(t *testing.T) {
 	t.Parallel()
 	result := probe.Result{
 		TCPConnectSuccess: false,
-		ErrorStage:        probe.ErrStageTCPConnect,
+		ErrorPhase:        probe.ErrPhaseTCPConnect,
 		ErrorReason:       probe.ErrReasonConnectionRefused,
 	}
 	mfs := collectMetrics(t, result)
@@ -212,8 +212,8 @@ func TestCollectTCPFailure(t *testing.T) {
 		}
 	}
 
-	if got := labelValue(t, mfs, "ssh_transport_error_info", "stage"); got != probe.ErrStageTCPConnect {
-		t.Errorf("error_info stage = %q, want %q", got, probe.ErrStageTCPConnect)
+	if got := labelValue(t, mfs, "ssh_transport_error_info", "phase"); got != probe.ErrPhaseTCPConnect {
+		t.Errorf("error_info phase = %q, want %q", got, probe.ErrPhaseTCPConnect)
 	}
 	if got := labelValue(t, mfs, "ssh_transport_error_info", "reason"); got != probe.ErrReasonConnectionRefused {
 		t.Errorf("error_info reason = %q, want %q", got, probe.ErrReasonConnectionRefused)

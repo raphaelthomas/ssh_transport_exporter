@@ -59,7 +59,7 @@ pointing Prometheus at it:
 curl 'localhost:10022/probe?target=bastion.example.com'
 ```
 
-A healthy probe reports all three stages:
+A healthy probe reports:
 
 ```
 ssh_transport_tcp_connect_success 1
@@ -67,9 +67,9 @@ ssh_transport_kex_success 1
 ssh_transport_host_key_verify_success 1
 ```
 
-On failure the stage-specific `_success` metric is `0` and
-`ssh_transport_error_info` carries the stage and reason, e.g.
-`{stage="host_key_verify",reason="mismatch"}`. A target outside
+On failure the matching `_success` metric is `0` and
+`ssh_transport_error_info` carries the phase and reason, e.g.
+`{phase="host_key_verify",reason="mismatch"}`. A target outside
 `allowed_targets` or `allowed_ports` is rejected with HTTP 403 before any
 connection is attempted.
 
@@ -328,13 +328,13 @@ ssh_transport_mac_info{direction="write",mac="hmac-sha2-256-etm@openssh.com"} 1
 
 An unsuccessful probe adds an `ssh_transport_error_info` metric, reports `0` for
 the `*_success` gauges, and omits the `*_duration_seconds` metrics. See [Error
-Stages and Reasons](#error-stages-and-reasons) for the label values. For a probe
+Phases and Reasons](#error-phases-and-reasons) for the label values. For a probe
 whose target failed DNS resolution:
 
 ```
-# HELP ssh_transport_error_info Stage and reason this probe failed. Absent if the probe succeeded.
+# HELP ssh_transport_error_info Phase and reason this probe failed. Absent if the probe succeeded.
 # TYPE ssh_transport_error_info gauge
-ssh_transport_error_info{reason="dns_failure",stage="dns_lookup"} 1
+ssh_transport_error_info{phase="dns_lookup",reason="dns_failure"} 1
 ```
 
 ### Exporter Metrics
@@ -381,42 +381,42 @@ series.
 `probes_in_flight` tracks probes currently running and is what to compare
 against `--probe.max-concurrent` when sizing it.
 
-## Error Stages and Reasons
+## Error Phases and Reasons
 
 When a probe does not fully succeed, the exporter emits a single
-`ssh_transport_error_info` metric (constant `1`) carrying two labels `stage`
-and `reason`, and omits the `*_duration_seconds` metrics. The `stage` label
+`ssh_transport_error_info` metric (constant `1`) carrying two labels `phase`
+and `reason`, and omits the `*_duration_seconds` metrics. The `phase` label
 identifies *how far* the probe got before failing; the `reason` label explains
-*why* it failed at that stage.
+*why* it failed in that phase.
 
-### Stages
+### Phases
 
-The stage reflects the last phase the probe reached. Probing proceeds strictly
+The phase is the last one the probe reached. Probing proceeds strictly
 in this order: *DNS lookup*, *TCP connect*, *key exchange*. The server's host
 key is verified within the key exchange, before it completes.
 
-| Stage | Description |
+| Phase | Description |
 | --- | --- |
-| `dns_lookup` | Failure while resolving the target hostname, before any connection attempt. IP literal targets skip this stage. |
+| `dns_lookup` | Failure while resolving the target hostname, before any connection attempt. IP literal targets skip this phase. |
 | `tcp_connect` | Failure while establishing the underlying TCP connection to the target (before anything SSH). |
-| `kex` | Failure during the SSH transport-layer key exchange (RFC 4253), after the TCP connection was established. |
+| `key_exchange` | Failure during the SSH transport-layer key exchange (RFC 4253), after the TCP connection was established. |
 | `host_key_verify` | Verification of the server's host key against the configured `known_hosts` failed. Takes precedence over a key exchange that fails after the check. |
 
 ### Reasons
 
-The reason narrows down the cause within a stage.
+The reason narrows down the cause within a phase.
 
-| Reason | Typical Stage(s) | Description |
+| Reason | Typical Phase(s) | Description |
 | --- | --- | --- |
 | `connection_refused` | `tcp_connect` | The target actively refused the connection (`ECONNREFUSED`), commonly because nothing is listening on the port or a firewall sent a reset. |
 | `no_route_to_host` | `tcp_connect` | The destination *network* is reachable, but the specific *host* is not (`EHOSTUNREACH`), often a down host or an ICMP host-unreachable from a router. |
 | `network_unreachable` | `tcp_connect` | There is no route to the destination *network* at all (`ENETUNREACH`), typically a missing route, an absent default gateway, or a down interface on the prober side. |
 | `dns_failure` | `dns_lookup` | The target hostname could not be resolved (DNS lookup error). |
-| `connection_reset` | `tcp_connect`, `kex` | The peer hung up unexpectedly, e.g. sshd dropping the client on `MaxStartups` or a TCP wrapper, or a firewall or load balancer in the path. Covers both a clean close (`EOF`) and a reset (`ECONNRESET`, `EPIPE`), since which one the probe sees depends on timing. |
-| `timeout` | `dns_lookup`, `tcp_connect`, `kex` | The operation exceeded its deadline (the effective probe timeout, or a network-level timeout). |
-| `canceled` | `dns_lookup`, `tcp_connect`, `kex` | The caller went away before the probe finished, typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
+| `connection_reset` | `tcp_connect`, `key_exchange` | The peer hung up unexpectedly, e.g. sshd dropping the client on `MaxStartups` or a TCP wrapper, or a firewall or load balancer in the path. Covers both a clean close (`EOF`) and a reset (`ECONNRESET`, `EPIPE`), since which one the probe sees depends on timing. |
+| `timeout` | `dns_lookup`, `tcp_connect`, `key_exchange` | The operation exceeded its deadline (the effective probe timeout, or a network-level timeout). |
+| `canceled` | `dns_lookup`, `tcp_connect`, `key_exchange` | The caller went away before the probe finished, typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
 | `unknown_host` | `host_key_verify` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
 | `mismatch` | `host_key_verify` | The server's host key did **not** match the key pinned for that host in `known_hosts`, which indicates either a man-in-the-middle or an un-rotated key. |
 | `revoked` | `host_key_verify` | The server's host key is explicitly listed as revoked in `known_hosts`. |
-| `user_auth_reached` | `kex` | The probe went on to user authentication (RFC 4252) instead of aborting once the transport layer was established. This is a bug in the exporter or its `golang.org/x/crypto` fork, not a problem with the target; please open an issue. |
+| `user_auth_reached` | `key_exchange` | The probe went on to user authentication (RFC 4252) instead of aborting once the transport layer was established. This is a bug in the exporter or its `golang.org/x/crypto` fork, not a problem with the target; please open an issue. |
 | `other` | any | The failure did not match any of the classified cases above. If you see this frequently, please open an issue with the target and (debug-level) logs so the classification can be improved. |

@@ -153,8 +153,8 @@ var (
 	errorInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemError, "info"),
-			"Stage and reason this probe failed. Absent if the probe succeeded.",
-			[]string{"stage", "reason"},
+			"Phase and reason this probe failed. Absent if the probe succeeded.",
+			[]string{"phase", "reason"},
 			nil,
 		),
 		prometheus.GaugeValue,
@@ -223,7 +223,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"host_key_verify_success", result.HostKeyVerifySuccess,
 			"kex_success", result.KEXSuccess,
 			"kex_duration", result.KEXDuration,
-			"error_stage", result.ErrorStage,
+			"error_phase", result.ErrorPhase,
 			"error_reason", result.ErrorReason,
 		)
 	}
@@ -277,8 +277,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- kexDurationDesc.mustNewConstMetric(result.KEXDuration.Seconds())
 	}
 
-	if result.ErrorStage != "" {
-		ch <- errorInfoDesc.mustNewConstMetric(1, result.ErrorStage, result.ErrorReason)
+	if result.ErrorPhase != "" {
+		ch <- errorInfoDesc.mustNewConstMetric(1, result.ErrorPhase, result.ErrorReason)
 	}
 }
 
