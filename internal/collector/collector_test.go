@@ -76,6 +76,8 @@ func directionSeries(mfs map[string]*dto.MetricFamily, name, direction string) *
 func TestCollectFullSuccess(t *testing.T) {
 	t.Parallel()
 	result := probe.Result{
+		DNSLookup:                  true,
+		DNSLookupSuccess:           true,
 		DNSLookupDuration:          250 * time.Millisecond,
 		TCPConnectSuccess:          true,
 		TCPConnectDuration:         500 * time.Millisecond,
@@ -91,6 +93,9 @@ func TestCollectFullSuccess(t *testing.T) {
 	}
 	mfs := collectMetrics(t, result)
 
+	if got := singleValue(t, mfs, "ssh_transport_dns_lookup_success"); got != 1 {
+		t.Errorf("dns_lookup_success = %v, want 1", got)
+	}
 	if got := singleValue(t, mfs, "ssh_transport_dns_lookup_duration_seconds"); got != 0.25 {
 		t.Errorf("dns_lookup_duration_seconds = %v, want 0.25", got)
 	}
@@ -177,6 +182,23 @@ func TestCollectNoServerIdentificationObserved(t *testing.T) {
 	}
 }
 
+func TestCollectDNSFailure(t *testing.T) {
+	t.Parallel()
+	result := probe.Result{
+		DNSLookup:   true,
+		ErrorPhase:  probe.ErrPhaseDNSLookup,
+		ErrorReason: probe.ErrReasonDNSFailure,
+	}
+	mfs := collectMetrics(t, result)
+
+	if got := singleValue(t, mfs, "ssh_transport_dns_lookup_success"); got != 0 {
+		t.Errorf("dns_lookup_success = %v, want 0", got)
+	}
+	if _, ok := mfs["ssh_transport_dns_lookup_duration_seconds"]; ok {
+		t.Error("dns_lookup_duration_seconds present on DNS failure, want absent")
+	}
+}
+
 func TestCollectTCPFailure(t *testing.T) {
 	t.Parallel()
 	result := probe.Result{
@@ -197,6 +219,7 @@ func TestCollectTCPFailure(t *testing.T) {
 	}
 
 	for _, name := range []string{
+		"ssh_transport_dns_lookup_success",
 		"ssh_transport_dns_lookup_duration_seconds",
 		"ssh_transport_tcp_connect_duration_seconds",
 		"ssh_transport_tcp_mss_bytes",
@@ -235,6 +258,9 @@ func TestCollectOmissionBranches(t *testing.T) {
 	}
 	mfs := collectMetrics(t, result)
 
+	if _, ok := mfs["ssh_transport_dns_lookup_success"]; ok {
+		t.Error("dns_lookup_success present without a lookup, want absent")
+	}
 	if _, ok := mfs["ssh_transport_dns_lookup_duration_seconds"]; ok {
 		t.Error("dns_lookup_duration_seconds present without a lookup, want absent")
 	}
@@ -292,8 +318,8 @@ func TestDescribeEmitsAllDescriptors(t *testing.T) {
 	ch := make(chan *prometheus.Desc, 32)
 	c.Describe(ch)
 	close(ch)
-	if got := len(ch); got != 14 {
-		t.Errorf("Describe emitted %d descriptors, want 14", got)
+	if got := len(ch); got != 15 {
+		t.Errorf("Describe emitted %d descriptors, want 15", got)
 	}
 }
 

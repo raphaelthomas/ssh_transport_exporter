@@ -34,6 +34,15 @@ func (td typedDesc) mustNewConstMetric(value float64, labelValues ...string) pro
 }
 
 var (
+	dnsLookupSuccessDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemDNS, "success"),
+			"Whether the target hostname was resolved. Absent for IP literal targets.",
+			nil,
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
 	dnsLookupDurationDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemDNS, "duration_seconds"),
@@ -185,6 +194,7 @@ func New(ctx context.Context, target, module string, opts probe.Options, logger 
 // Describe sends every possible descriptor regardless of whether a
 // given probe emits it.
 func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- dnsLookupSuccessDesc.desc
 	ch <- dnsLookupDurationDesc.desc
 	ch <- tcpConnectSuccessDesc.desc
 	ch <- tcpConnectDurationDesc.desc
@@ -209,6 +219,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		c.logger.Debug("probe result",
 			"target", c.target,
 			"module", c.module,
+			"dns_lookup", result.DNSLookup,
+			"dns_lookup_success", result.DNSLookupSuccess,
 			"dns_lookup_duration", result.DNSLookupDuration,
 			"tcp_connect_success", result.TCPConnectSuccess,
 			"tcp_connect_duration", result.TCPConnectDuration,
@@ -229,8 +241,11 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		)
 	}
 
-	if result.DNSLookupDuration > 0 {
-		ch <- dnsLookupDurationDesc.mustNewConstMetric(result.DNSLookupDuration.Seconds())
+	if result.DNSLookup {
+		ch <- dnsLookupSuccessDesc.mustNewConstMetric(boolToFloat64(result.DNSLookupSuccess))
+		if result.DNSLookupSuccess {
+			ch <- dnsLookupDurationDesc.mustNewConstMetric(result.DNSLookupDuration.Seconds())
+		}
 	}
 
 	ch <- tcpConnectSuccessDesc.mustNewConstMetric(boolToFloat64(result.TCPConnectSuccess))

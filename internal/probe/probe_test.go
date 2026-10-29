@@ -34,8 +34,8 @@ func TestRunSuccess(t *testing.T) {
 	if result.TCPConnectDuration <= 0 {
 		t.Error("TCPConnectDuration = 0, want > 0")
 	}
-	if result.DNSLookupDuration != 0 {
-		t.Errorf("DNSLookupDuration = %s, want 0 for an IP literal target", result.DNSLookupDuration)
+	if result.DNSLookup || result.DNSLookupSuccess || result.DNSLookupDuration != 0 {
+		t.Errorf("DNSLookup = %t, DNSLookupSuccess = %t, DNSLookupDuration = %s, want none for an IP literal target", result.DNSLookup, result.DNSLookupSuccess, result.DNSLookupDuration)
 	}
 	if !result.KEXSuccess {
 		t.Errorf("KEXSuccess = false, want true (error %s/%s)", result.ErrorPhase, result.ErrorReason)
@@ -351,6 +351,9 @@ func TestRunHostnameTargetTimesLookup(t *testing.T) {
 	if !result.TCPConnectSuccess {
 		t.Fatalf("TCPConnectSuccess = false, want true (error %s/%s)", result.ErrorPhase, result.ErrorReason)
 	}
+	if !result.DNSLookup || !result.DNSLookupSuccess {
+		t.Errorf("DNSLookup = %t, DNSLookupSuccess = %t, want both true for a hostname target", result.DNSLookup, result.DNSLookupSuccess)
+	}
 	if result.DNSLookupDuration <= 0 {
 		t.Error("DNSLookupDuration = 0, want > 0 for a hostname target")
 	}
@@ -377,6 +380,9 @@ func TestRunHostnameTargetConnectionRefusedKeepsLookup(t *testing.T) {
 	if result.ErrorReason != ErrReasonConnectionRefused {
 		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonConnectionRefused)
 	}
+	if !result.DNSLookupSuccess {
+		t.Error("DNSLookupSuccess = false, want true when the lookup succeeded")
+	}
 	if result.DNSLookupDuration <= 0 {
 		t.Error("DNSLookupDuration = 0, want > 0 when the lookup succeeded")
 	}
@@ -397,6 +403,9 @@ func TestRunDNSFailure(t *testing.T) {
 	}
 	if result.ErrorReason != ErrReasonDNSFailure {
 		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonDNSFailure)
+	}
+	if !result.DNSLookup || result.DNSLookupSuccess {
+		t.Errorf("DNSLookup = %t, DNSLookupSuccess = %t, want true, false when the lookup failed", result.DNSLookup, result.DNSLookupSuccess)
 	}
 	if result.DNSLookupDuration != 0 {
 		t.Errorf("DNSLookupDuration = %s, want 0 when the lookup failed", result.DNSLookupDuration)

@@ -44,7 +44,10 @@ const (
 
 // Result is the outcome of one probe against one target.
 type Result struct {
-	// Name resolution results, zero for IP literal targets and failed lookups
+	// DNSLookup reports whether the target is a hostname; IP literal targets
+	// have no DNS lookup phase.
+	DNSLookup         bool
+	DNSLookupSuccess  bool
 	DNSLookupDuration time.Duration
 
 	TCPConnectSuccess  bool
@@ -154,19 +157,20 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	rawConn, err := dialer.DialContext(ctx, "tcp", target)
 	dialEnd := time.Now()
 
-	lookup := isHostname(target)
+	result.DNSLookup = isHostname(target)
 	attemptStart := connectStart.Load()
 	connectFrom := dialStart
 	if attemptStart != nil {
 		connectFrom = *attemptStart
-		if lookup {
+		if result.DNSLookup {
+			result.DNSLookupSuccess = true
 			result.DNSLookupDuration = attemptStart.Sub(dialStart)
 		}
 	}
 
 	if err != nil {
 		result.ErrorPhase = ErrPhaseTCPConnect
-		if lookup && attemptStart == nil {
+		if result.DNSLookup && !result.DNSLookupSuccess {
 			result.ErrorPhase = ErrPhaseDNSLookup
 		}
 		result.ErrorReason = classifyDialError(ctx, err)

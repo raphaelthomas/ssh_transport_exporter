@@ -267,6 +267,10 @@ The following probe result metrics are exported by the
 # TYPE ssh_transport_dns_lookup_duration_seconds gauge
 ssh_transport_dns_lookup_duration_seconds 0.004120583
 
+# HELP ssh_transport_dns_lookup_success Whether the target hostname was resolved. Absent for IP literal targets.
+# TYPE ssh_transport_dns_lookup_success gauge
+ssh_transport_dns_lookup_success 1
+
 # HELP ssh_transport_encryption_algorithm_info Negotiated encryption algorithm per direction (RFC 4253 section 7.1). Absent unless key exchange completed.
 # TYPE ssh_transport_encryption_algorithm_info gauge
 ssh_transport_encryption_algorithm_info{algorithm="aes128-gcm@openssh.com",direction="client_to_server"} 1
