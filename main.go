@@ -156,6 +156,11 @@ func landingPageHandler(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(landingPage))
 }
 
+const (
+	readHeaderTimeout = 5 * time.Second
+	idleTimeout       = 2 * time.Minute
+)
+
 // shutdownTimeout bounds how long in-flight probes may drain on shutdown.
 const shutdownTimeout = 10 * time.Second
 
@@ -279,7 +284,8 @@ func main() {
 	srv := &http.Server{
 		Addr:              cfg.ListenAddress,
 		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 
 	sigCh := make(chan os.Signal, 1)
