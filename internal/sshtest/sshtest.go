@@ -13,9 +13,9 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// Server is an in-process SSH server that completes the transport-layer
-// handshake and then drops the connection at user authentication, which is
-// exactly how far the exporter's probe goes.
+// Server is an in-process SSH server that establishes the transport layer and
+// then drops the connection at user authentication, which is exactly how far
+// the exporter's probe goes.
 type Server struct {
 	// Addr is the "127.0.0.1:port" address the server listens on.
 	Addr    string

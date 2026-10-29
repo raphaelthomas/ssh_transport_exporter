@@ -179,7 +179,7 @@ header. When Prometheus does send that header, the effective timeout is the
 **smaller** of the two, so a per-job `scrape_timeout` is the right place to
 tune timeouts per target set.
 
-Prefer the smallest value that comfortably covers a healthy handshake: an
+Prefer the smallest value that comfortably covers a healthy probe: an
 offline or filtered target (no connection refused) holds a probe open for the
 full timeout on every scrape, so a large value multiplies resource use across a
 big fleet.
@@ -245,7 +245,7 @@ TransportReadyCallback func(*ClientTransportReadyContext) error
 The context carries the connection's `Metadata` and the negotiated
 `Algorithms`, following the shape of `ClientAuthCallback`.
 
-Called after the RFC 4253 transport handshake, before RFC 4252 auth. Returning
+Called after the RFC 4253 key exchange, before RFC 4252 user authentication. Returning
 an error aborts the connection, which is how this credential-less exporter reads
 the negotiated algorithms and then stops. No cryptographic code changed.
 
