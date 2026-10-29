@@ -18,10 +18,8 @@ type Module struct {
 	TargetPort     int
 }
 
-// Load reads, resolves, and validates the config file at path, then builds
-// all runtime resources (host key callbacks), returning ready-to-probe
-// modules keyed by name. It is the single entry point for both initial
-// startup and SIGHUP reload.
+// Load reads and validates the config file and builds ready-to-probe modules,
+// for both startup and SIGHUP reload.
 func Load(configFilePath string, allowAllTargets bool, logger *slog.Logger) (map[string]Module, error) {
 	raw, err := loadRawConfig(configFilePath, allowAllTargets)
 	if err != nil {
@@ -30,8 +28,6 @@ func Load(configFilePath string, allowAllTargets bool, logger *slog.Logger) (map
 	return build(raw, logger)
 }
 
-// build turns a resolved rawConfig into ready-to-probe modules. This is the
-// effectful step: it materializes known_hosts into ssh.HostKeyCallbacks.
 func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 	modules := make(map[string]Module, len(raw.Modules))
 	for name, mod := range raw.Modules {

@@ -22,9 +22,7 @@ import (
 )
 
 // moduleUnresolved is the module label value for requests that named no
-// configured module. Empty is collision-free: a request omitting module is
-// rewritten to config.DefaultModuleName, so no served probe ever labels itself
-// with the empty string.
+// configured module.
 const moduleUnresolved = ""
 
 // Options configures the /probe handler.
@@ -39,17 +37,12 @@ type Options struct {
 	// MaxConcurrent bounds probes running at once. Requests beyond it are
 	// rejected with 503 rather than queued. Zero disables the limit.
 	MaxConcurrent int
-	// Requests counts every probe request by module and HTTP status code, with
-	// an empty module for requests naming no configured one.
-	Requests *prometheus.CounterVec
-	// InFlight tracks probes currently running.
-	InFlight prometheus.Gauge
-	// Live is the current module set, swapped atomically on config reload.
-	Live *atomic.Pointer[map[string]config.Module]
+	Requests      *prometheus.CounterVec
+	InFlight      prometheus.Gauge
+	Live          *atomic.Pointer[map[string]config.Module]
 }
 
-// Handler returns the /probe HTTP handler. Metrics in opts must be registered
-// by the caller; nil ones are replaced with unregistered stand-ins.
+// Handler returns the /probe handler; nil metrics in opts are replaced with unregistered stand-ins.
 func Handler(opts Options) http.HandlerFunc {
 	logger := opts.Logger
 	if logger == nil {
@@ -64,7 +57,6 @@ func Handler(opts Options) http.HandlerFunc {
 		inFlight = prometheus.NewGauge(prometheus.GaugeOpts{Name: "probes_in_flight"})
 	}
 
-	// A buffered channel used as a semaphore; nil when the limit is disabled.
 	var sem chan struct{}
 	if opts.MaxConcurrent > 0 {
 		sem = make(chan struct{}, opts.MaxConcurrent)
@@ -133,16 +125,13 @@ func Handler(opts Options) http.HandlerFunc {
 	}
 }
 
-// statusRecorder wraps an http.ResponseWriter to remember the status code sent
-// to the client.
 type statusRecorder struct {
 	http.ResponseWriter
 	status      int
 	wroteHeader bool
 }
 
-// newStatusRecorder wraps w, defaulting to the 200 net/http implies for a
-// response whose header is never written explicitly.
+// newStatusRecorder defaults to 200, which net/http sends when WriteHeader is never called.
 func newStatusRecorder(w http.ResponseWriter) *statusRecorder {
 	return &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 }
@@ -163,11 +152,7 @@ func (rec *statusRecorder) Write(b []byte) (int, error) {
 // Unwrap keeps http.ResponseController able to reach the wrapped writer.
 func (rec *statusRecorder) Unwrap() http.ResponseWriter { return rec.ResponseWriter }
 
-// effectiveTimeout returns maxTimeout, shortened to the Prometheus scrape
-// timeout minus offset when the request carries a valid, shorter one via the
-// X-Prometheus-Scrape-Timeout-Seconds header, as blackbox_exporter does.
-// Malformed, NaN, zero, and negative header values are ignored, as is a scrape
-// timeout the offset would leave non-positive.
+// effectiveTimeout shortens maxTimeout to the scrape timeout minus offset; unusable header values are ignored.
 func effectiveTimeout(r *http.Request, maxTimeout, offset time.Duration) time.Duration {
 	timeoutSecs := r.Header.Get("X-Prometheus-Scrape-Timeout-Seconds")
 	if timeoutSecs == "" {
@@ -183,19 +168,13 @@ func effectiveTimeout(r *http.Request, maxTimeout, offset time.Duration) time.Du
 	return maxTimeout
 }
 
-// writeError responds with "CODE WORD: msg" (e.g. "403 Forbidden: ...") so a
-// direct browser hit shows the status inline, and counts the request by module
-// and code. It centralizes the response + metric increment for all /probe
-// error paths.
+// writeError prefixes msg with the status, so a browser shows it inline, and counts the request.
 func writeError(w http.ResponseWriter, requests *prometheus.CounterVec, moduleName string, code int, msg string) {
 	http.Error(w, fmt.Sprintf("%d %s: %s", code, http.StatusText(code), msg), code)
 	requests.WithLabelValues(moduleName, strconv.Itoa(code)).Inc()
 }
 
-// ensurePort parses target (a bare "host" or "host:port", where host may be a
-// bracketed IPv6 literal) and returns the canonical "host:port" target, the
-// bracket-free host, and the port. When target carries no port, defaultPort is
-// used. It errors on a malformed target or port.
+// ensurePort parses target as a URL authority, which handles bracketed IPv6 literals and optional ports.
 func ensurePort(target string, defaultPort int) (normalizedTarget, host string, port int, err error) {
 	u, err := url.Parse("//" + target)
 	if err != nil {
@@ -220,8 +199,6 @@ func ensurePort(target string, defaultPort int) (normalizedTarget, host string, 
 	return net.JoinHostPort(host, strconv.Itoa(port)), host, port, nil
 }
 
-// targetAllowed reports whether host matches any matcher. No matchers means
-// deny-all.
 func targetAllowed(host string, matchers []config.TargetMatcher) bool {
 	for _, m := range matchers {
 		if m.Match(host) {

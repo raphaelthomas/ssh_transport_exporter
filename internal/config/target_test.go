@@ -80,7 +80,6 @@ func TestIPMatcher(t *testing.T) {
 		}
 	}
 
-	// IPv6 literal
 	m6, err := buildTarget("2001:db8::1")
 	if err != nil {
 		t.Fatalf("buildTarget(v6): %v", err)
@@ -114,7 +113,6 @@ func TestCIDRMatcher(t *testing.T) {
 		}
 	}
 
-	// IPv6 CIDR
 	m6, err := buildTarget("2001:db8::/32")
 	if err != nil {
 		t.Fatalf("buildTarget(v6 cidr): %v", err)
@@ -128,7 +126,6 @@ func TestCIDRMatcher(t *testing.T) {
 }
 
 func TestBuildTargetClassificationAndRejections(t *testing.T) {
-	// Valid patterns classify without error and produce the right type.
 	valid := []struct {
 		pattern string
 		typ     string
@@ -149,7 +146,6 @@ func TestBuildTargetClassificationAndRejections(t *testing.T) {
 		}
 	}
 
-	// Rejected patterns.
 	rejected := []struct {
 		pattern  string
 		contains string
@@ -172,7 +168,6 @@ func TestBuildTargetClassificationAndRejections(t *testing.T) {
 }
 
 func TestResolveAllowedTargets(t *testing.T) {
-	// Empty with allowAll -> single allowAllMatcher that permits anything.
 	matchers, err := resolveAllowedTargets(nil, true)
 	if err != nil {
 		t.Fatalf("resolveAllowedTargets(nil, true): %v", err)
@@ -181,12 +176,10 @@ func TestResolveAllowedTargets(t *testing.T) {
 		t.Errorf("resolveAllowedTargets(nil, true) did not produce allow-all matcher")
 	}
 
-	// Empty without allowAll -> error (deny all).
 	if _, err := resolveAllowedTargets(nil, false); err == nil {
 		t.Error("resolveAllowedTargets(nil, false) = nil error, want error")
 	}
 
-	// Patterns compile in order.
 	matchers, err = resolveAllowedTargets([]string{"host.example.com", "192.0.2.0/24"}, false)
 	if err != nil {
 		t.Fatalf("resolveAllowedTargets(patterns): %v", err)
@@ -198,13 +191,11 @@ func TestResolveAllowedTargets(t *testing.T) {
 		t.Error("compiled matchers do not match their patterns")
 	}
 
-	// A bad pattern surfaces the error.
 	if _, err := resolveAllowedTargets([]string{"*"}, false); err == nil {
 		t.Error("resolveAllowedTargets([\"*\"]) = nil error, want error")
 	}
 }
 
-// typeName returns the concrete type name (with package) of a TargetMatcher.
 func typeName(m TargetMatcher) string {
 	switch m.(type) {
 	case hostMatcher:

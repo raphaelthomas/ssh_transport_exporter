@@ -3,10 +3,8 @@ package normalize
 
 import "strings"
 
-// Hostname lowercases (ASCII) and strips a single trailing dot, yielding the
-// canonical form used for allowed_targets matching. IP literals are unaffected
-// beyond case (a no-op for them); IP canonicalization is handled via netip in
-// the matchers.
+// Hostname returns the canonical form of h for allowed_targets matching; IP
+// literals are canonicalized by the matchers, not here.
 func Hostname(h string) string {
 	return strings.ToLower(strings.TrimSuffix(h, "."))
 }

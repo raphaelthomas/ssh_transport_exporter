@@ -260,7 +260,6 @@ func TestStatusRecorderUnwrap(t *testing.T) {
 	}
 }
 
-// A header on one request must not shorten the next one.
 func TestEffectiveTimeoutDoesNotLeakAcrossRequests(t *testing.T) {
 	const maxTimeout = 10 * time.Second
 

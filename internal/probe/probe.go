@@ -45,29 +45,29 @@ const (
 type Result struct {
 	// Name resolution results, zero for IP literal targets and failed lookups
 	DNSLookupDuration time.Duration
-	// TCP connection results
+
 	TCPConnectSuccess       bool
 	TCPConnectDuration      time.Duration
 	TCPConnectNegotiatedMSS int
-	// SSH identification string exchange results
+
 	ServerVersion string
 	// ServerVersionMalformed records that a banner was presented but did not
 	// conform, which ServerVersion alone cannot express once it is dropped.
 	ServerVersionMalformed bool
-	// Key exchange results
+
 	KEXSuccess   bool
 	KEXDuration  time.Duration
 	KEXAlgorithm string
-	// Host key verification results
+
 	HostKeyVerifySuccess bool
 	HostKeyAlgorithm     string
-	// Negotiated ciphers
+
 	CipherRead  string
 	CipherWrite string
 	// Negotiated MACs, empty for AEAD ciphers, which need none
 	MACRead  string
 	MACWrite string
-	// Error classification results
+
 	ErrorStage  string
 	ErrorReason string
 }
@@ -95,16 +95,12 @@ type Options struct {
 	// defaultHostKeyAlgorithms below, not the library's own default.
 	HostKeyAlgorithms []string
 
-	// StripServerVersionComment reduces the recorded identification string to
-	// its software version, dropping the optional comments field.
 	StripServerVersionComment bool
 
-	// Optional Logger for diagnostics (not for target health).
 	Logger *slog.Logger
 }
 
-// defaultHostKeyAlgorithms mirrors OpenSSH's client default order:
-// certificate types first, then plain key types, Ed25519 preferred.
+// defaultHostKeyAlgorithms mirrors OpenSSH's client default order.
 var defaultHostKeyAlgorithms = []string{
 	ssh.CertAlgoED25519v01,
 	ssh.CertAlgoECDSA256v01,
@@ -127,8 +123,7 @@ type hostKeyResult struct {
 	errorReason string
 }
 
-// Run probes the provided target and returns the result including a potential
-// error.
+// Run probes target and reports any failure in the returned Result.
 func Run(ctx context.Context, target string, opts Options) Result {
 	var result Result
 
@@ -144,9 +139,8 @@ func Run(ctx context.Context, target string, opts Options) Result {
 		}
 	}
 
-	// The dialer resolves the name before its first connection attempt, so the
-	// first ControlContext call splits the dial into lookup and connect time
-	// while keeping the dialer's own address fallback and dual-stack racing.
+	// ControlContext runs after name resolution, before each connect attempt. Using it
+	// instead of a separate lookup keeps the dialer's address fallback and dual-stack racing.
 	var connectStart atomic.Pointer[time.Time]
 	dialer := net.Dialer{
 		ControlContext: func(context.Context, string, string, syscall.RawConn) error {
@@ -170,8 +164,6 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	}
 
 	if err != nil {
-		// Without a connection attempt, a hostname target never got past its
-		// lookup.
 		result.ErrorStage = ErrStageTCPConnect
 		if lookup && attemptStart == nil {
 			result.ErrorStage = ErrStageDNSLookup
@@ -226,9 +218,8 @@ func Run(ctx context.Context, target string, opts Options) Result {
 			case hostKeyResultCh <- hk:
 			default:
 			}
-			// we deliberately continue here regardless of the host key verification
-			// result, so that we can record connection metadata and negotiated
-			// algorithms in TransportReadyCallback and abort therein.
+			// Continue even if verification failed, so TransportReadyCallback can record the
+			// negotiated algorithms; it aborts before authentication either way.
 			return nil
 		},
 		TransportReadyCallback: func(tc *ssh.ClientTransportReadyContext) error {
@@ -259,9 +250,7 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	case errors.Is(handshakeErr, errAbort):
 		result.KEXSuccess = true
 	case handshakeErr == nil:
-		// Should be unreachable, since TransportReadyCallback always returns
-		// errAbort, so we log this explicitly. Probe itself was successful, so
-		// neither ErrorStage nor ErrorReason are set here.
+		// Unreachable while TransportReadyCallback returns errAbort.
 		logger.Warn("SSH handshake completed without hitting abort sentinel; x/crypto/ssh behavior may have changed", "target", target)
 		result.KEXSuccess = true
 	default:
@@ -283,8 +272,6 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	return result
 }
 
-// isHostname reports whether target's host needs name resolution, i.e. is not
-// an IP literal.
 func isHostname(target string) bool {
 	host, _, err := net.SplitHostPort(target)
 	if err != nil {
@@ -309,10 +296,8 @@ func classifyHostKeyVerifyError(err error) string {
 	return ErrReasonOther
 }
 
-// classifyContextError reports the reason implied by ctx's own state, or the
-// empty string when ctx is still live. It takes precedence over the error
-// value: aborting a probe closes the connection, which is indistinguishable
-// from a peer reset by error alone.
+// classifyContextError reports the probe's own timeout or cancellation, so it is not
+// misreported as the connection error it caused.
 func classifyContextError(ctx context.Context) string {
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
@@ -370,10 +355,8 @@ func classifyKexError(ctx context.Context, err error) string {
 	return ErrReasonOther
 }
 
-// sanitizeServerVersion returns raw unchanged if it is a well-formed RFC 4253,
-// section 4.2 identification string, and "" otherwise. The banner is
-// unverified, so a malformed one is dropped rather than repaired into a label
-// value.
+// sanitizeServerVersion drops a malformed banner rather than repairing it, since
+// the banner is untrusted input that ends up in a label value.
 func sanitizeServerVersion(raw []byte) string {
 	const maxLen = 255 // see RFC 4253, section 4.2
 
@@ -402,8 +385,6 @@ func sanitizeServerVersion(raw []byte) string {
 	return string(raw)
 }
 
-// stripServerVersionComment drops the optional comments field of an already
-// validated identification string.
 func stripServerVersionComment(version string) string {
 	software, _, _ := strings.Cut(version, " ")
 	return software

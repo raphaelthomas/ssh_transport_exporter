@@ -77,14 +77,12 @@ func TestSanitizeServerVersionLengthLimit(t *testing.T) {
 	}
 }
 
-// timeoutError is a net.Error whose Timeout() reports true.
 type timeoutError struct{}
 
 func (timeoutError) Error() string   { return "i/o timeout" }
 func (timeoutError) Timeout() bool   { return true }
 func (timeoutError) Temporary() bool { return true }
 
-// expiredContext returns a context whose deadline has already passed.
 func expiredContext(t *testing.T) context.Context {
 	t.Helper()
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
@@ -92,7 +90,6 @@ func expiredContext(t *testing.T) context.Context {
 	return ctx
 }
 
-// canceledContext returns a context that has already been cancelled.
 func canceledContext(t *testing.T) context.Context {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())

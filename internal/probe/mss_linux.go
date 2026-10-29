@@ -9,9 +9,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// tcpNegotiatedMSS returns the kernel's effective negotiated MSS
-// (tp->mss_cache) for an established TCP connection, read via
-// getsockopt(TCP_MAXSEG).
+// tcpNegotiatedMSS returns the kernel's effective MSS (tp->mss_cache).
 func tcpNegotiatedMSS(conn *net.TCPConn) (int, error) {
 	rawConn, err := conn.SyscallConn()
 	if err != nil {

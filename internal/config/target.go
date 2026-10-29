@@ -8,19 +8,11 @@ import (
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/normalize"
 )
 
-// TargetMatcher reports whether a probe target host is permitted. host is the
-// target's hostname or IP literal, already normalized via normalize.Hostname
-// for name matchers.
+// TargetMatcher reports whether a target host, normalized via normalize.Hostname, is permitted.
 type TargetMatcher interface {
 	Match(host string) bool
 }
 
-// resolveAllowedTargets compiles a module's allowed_targets into matchers.
-//   - explicit patterns (already inherited from the default in loadRawConfig)
-//     compile to their matchers;
-//   - an empty list with allowAll set permits any target (--allow-all-targets
-//     with no configured default);
-//   - an empty list without allowAll denies all targets.
 func resolveAllowedTargets(patterns []string, allowAll bool) ([]TargetMatcher, error) {
 	if len(patterns) == 0 {
 		if allowAll {
@@ -40,10 +32,6 @@ func resolveAllowedTargets(patterns []string, allowAll bool) ([]TargetMatcher, e
 	return matchers, nil
 }
 
-// buildTarget classifies and compiles one allowed_targets pattern into a
-// TargetMatcher. It rejects a bare "*" (allow-all is not configurable via
-// YAML; use --allow-all-targets), "**" wildcards, apex-only wildcards, and IP
-// literals with a zone.
 func buildTarget(pattern string) (TargetMatcher, error) {
 	switch {
 	case pattern == "":
@@ -66,14 +54,11 @@ func buildTarget(pattern string) (TargetMatcher, error) {
 	}
 }
 
-// allowAllMatcher permits any host. It is never produced from a pattern; it is
-// injected in code only when --allow-all-targets is set and no allowed_targets
-// default is explicitly configured.
+// allowAllMatcher is never built from a pattern, only from --allow-all-targets.
 type allowAllMatcher struct{}
 
 func (allowAllMatcher) Match(string) bool { return true }
 
-// hostMatcher matches one exact hostname.
 type hostMatcher struct{ host string }
 
 func newHostMatcher(pattern string) (TargetMatcher, error) {
@@ -86,9 +71,8 @@ func newHostMatcher(pattern string) (TargetMatcher, error) {
 
 func (m hostMatcher) Match(host string) bool { return host == m.host }
 
-// wildcardMatcher matches "*.parent": exactly one non-empty left label
-// followed by parent. The apex (parent itself) does not match.
-type wildcardMatcher struct{ parent string } // e.g. "example.com"
+// wildcardMatcher matches exactly one label below parent, as TLS wildcards do; parent itself does not match.
+type wildcardMatcher struct{ parent string }
 
 func newWildcardMatcher(pattern string) (TargetMatcher, error) {
 	parent := normalize.Hostname(strings.TrimPrefix(pattern, "*."))
@@ -107,7 +91,6 @@ func (m wildcardMatcher) Match(host string) bool {
 	return label != "" && !strings.Contains(label, ".")
 }
 
-// ipMatcher matches one exact IP address.
 type ipMatcher struct{ addr netip.Addr }
 
 func newIPMatcher(addr netip.Addr) (TargetMatcher, error) {
@@ -125,7 +108,6 @@ func (m ipMatcher) Match(host string) bool {
 	return addr == m.addr
 }
 
-// cidrMatcher matches any IP within a prefix.
 type cidrMatcher struct{ prefix netip.Prefix }
 
 func newCIDRMatcher(pattern string) (TargetMatcher, error) {

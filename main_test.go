@@ -23,7 +23,6 @@ import (
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/config"
 )
 
-// writeFile writes content to path, failing the test on error.
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -40,7 +39,6 @@ func knownHostsFile(t *testing.T) string {
 	return path
 }
 
-// configWithModules renders a minimal valid config defining the named modules.
 func configWithModules(t *testing.T, names ...string) string {
 	t.Helper()
 	s := fmt.Sprintf("known_hosts_file: %q\nallowed_targets: [\"example.com\"]\nmodules:\n", knownHostsFile(t))
@@ -65,7 +63,6 @@ func TestReloadSwapsLiveModules(t *testing.T) {
 	var live atomic.Pointer[map[string]config.Module]
 	live.Store(&initial)
 
-	// Rewrite the config with a different module set and reload.
 	writeFile(t, path, configWithModules(t, "a", "b"))
 	reload(logger, cfg, &live, reloadMetrics)
 
@@ -101,7 +98,6 @@ func TestReloadKeepsPreviousConfigOnError(t *testing.T) {
 	live.Store(&initial)
 	before := live.Load()
 
-	// Break the config, then reload.
 	writeFile(t, path, "modules: [this is not a map\n")
 	reload(logger, cfg, &live, reloadMetrics)
 
@@ -154,7 +150,6 @@ func TestReloadHonorsAllowAllTargets(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	reloadMetrics := newConfigReloadMetrics()
 
-	// Without the flag the config is invalid, so nothing is stored.
 	var live atomic.Pointer[map[string]config.Module]
 	empty := map[string]config.Module{}
 	live.Store(&empty)
@@ -163,7 +158,6 @@ func TestReloadHonorsAllowAllTargets(t *testing.T) {
 		t.Error("reload succeeded without --allow-all-targets, want failure")
 	}
 
-	// With the flag it loads and permits any target.
 	reload(logger, &flags{ConfigFile: path, AllowAllTargets: true}, &live, reloadMetrics)
 	modules := *live.Load()
 	mod, ok := modules["a"]
@@ -175,7 +169,6 @@ func TestReloadHonorsAllowAllTargets(t *testing.T) {
 	}
 }
 
-// keys returns the module names of m, for readable failure messages.
 func keys(m map[string]config.Module) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
@@ -230,8 +223,6 @@ func TestLandingPageEscapesVersion(t *testing.T) {
 	}
 }
 
-// serveTestSetup starts serve on a random port and returns its address, the
-// signal channel, and a channel carrying serve's return value.
 func serveTestSetup(t *testing.T, handler http.Handler, cfg *flags, live *atomic.Pointer[map[string]config.Module]) (string, chan os.Signal, <-chan error) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -336,7 +327,6 @@ func TestServeStopsSignalHandlerOnListenerError(t *testing.T) {
 	}
 }
 
-// SIGHUP reloads config and leaves the server serving.
 func TestServeReloadsOnSIGHUPAndKeepsServing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	writeFile(t, path, configWithModules(t, "a"))

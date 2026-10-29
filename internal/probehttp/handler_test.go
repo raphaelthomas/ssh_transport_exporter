@@ -22,7 +22,6 @@ import (
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/sshtest"
 )
 
-// newRequests builds the probe request counter the handler expects.
 func newRequests() *prometheus.CounterVec {
 	return prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -34,19 +33,16 @@ func newRequests() *prometheus.CounterVec {
 	)
 }
 
-// testHandler builds a /probe handler with no concurrency limit.
 func testHandler(timeout time.Duration, requests *prometheus.CounterVec, live *atomic.Pointer[map[string]config.Module]) http.HandlerFunc {
 	return Handler(Options{Timeout: timeout, Requests: requests, Live: live})
 }
 
-// modulePointer wraps modules in the atomic pointer the handler reads.
 func modulePointer(modules map[string]config.Module) *atomic.Pointer[map[string]config.Module] {
 	var live atomic.Pointer[map[string]config.Module]
 	live.Store(&modules)
 	return &live
 }
 
-// testModule builds a module allowing host on the given ports.
 func testModule(host string, targetPort int, allowedPorts []int, hostKey ssh.PublicKey) config.Module {
 	ports := make(map[int]struct{}, len(allowedPorts))
 	for _, p := range allowedPorts {
@@ -64,7 +60,6 @@ func testModule(host string, targetPort int, allowedPorts []int, hostKey ssh.Pub
 	}
 }
 
-// doProbe issues a GET against the handler and returns the recorder.
 func doProbe(t *testing.T, h http.HandlerFunc, query string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/probe"+query, nil)
@@ -84,7 +79,6 @@ func doProbeCtx(ctx context.Context, h http.HandlerFunc, query string) {
 	h(rec, req)
 }
 
-// waitForGauge blocks until g reads want, failing the test if it never does.
 func waitForGauge(t *testing.T, g prometheus.Gauge, want float64) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -100,7 +94,6 @@ func waitForGauge(t *testing.T, g prometheus.Gauge, want float64) {
 // itoa is strconv.Itoa, aliased for readable metric-label assertions.
 func itoa(i int) string { return strconv.Itoa(i) }
 
-// atoiOrFatal parses a port string, failing the test on error.
 func atoiOrFatal(t *testing.T, s string) int {
 	t.Helper()
 	n, err := strconv.Atoi(s)
@@ -110,7 +103,6 @@ func atoiOrFatal(t *testing.T, s string) int {
 	return n
 }
 
-// portOf returns the port part of a "host:port" address.
 func portOf(t *testing.T, addr string) string {
 	t.Helper()
 	_, port, err := net.SplitHostPort(addr)
@@ -211,7 +203,6 @@ func TestHandlerDefaultPortApplied(t *testing.T) {
 	srv := sshtest.NewServer(t, sshtest.Options{})
 	port := atoiOrFatal(t, srv.Port(t))
 
-	// target has no port; the module's TargetPort must be used.
 	modules := map[string]config.Module{
 		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, srv.HostKey),
 	}
@@ -285,7 +276,6 @@ func TestHandlerScrapeTimeoutHeaderShortensProbe(t *testing.T) {
 		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, nil),
 	}
 	requests := newRequests()
-	// Handler timeout is long; the header must shorten it.
 	h := testHandler(30*time.Second, requests, modulePointer(modules))
 
 	start := time.Now()
@@ -337,12 +327,10 @@ func TestHandlerReadsLiveModulesOnReload(t *testing.T) {
 	})
 	h := testHandler(time.Second, requests, live)
 
-	// Initially 192.0.2.9 is not allowed.
 	if rec := doProbe(t, h, "?target=192.0.2.9", nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403 before reload", rec.Code)
 	}
 
-	// Swap in a module set that only knows a different module name.
 	swapped := map[string]config.Module{
 		"other": testModule("127.0.0.1", 22, []int{22}, nil),
 	}
@@ -469,7 +457,6 @@ func TestHandlerConcurrencyLimitShedsExcess(t *testing.T) {
 		t.Errorf("probe_requests_total{code=503} = %v, want 1", got)
 	}
 
-	// Finished probes return their slot.
 	cancel()
 	wg.Wait()
 	waitForGauge(t, inFlight, 0)
@@ -507,7 +494,6 @@ func TestHandlerConcurrencyLimitIgnoresRejectedRequests(t *testing.T) {
 	wg.Wait()
 }
 
-// A limit of zero means unlimited.
 func TestHandlerConcurrencyLimitDisabled(t *testing.T) {
 	t.Parallel()
 	const probes = 12

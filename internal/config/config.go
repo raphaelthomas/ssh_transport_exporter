@@ -53,7 +53,6 @@ func validateAlgorithms(kind string, names []string, known map[string]struct{}) 
 	return fmt.Errorf("unknown %s %q (not implemented by golang.org/x/crypto/ssh)", kind, unknown)
 }
 
-// rawConfigModule defines one named probe configuration as written in YAML.
 type rawConfigModule struct {
 	KnownHostsFile    string   `yaml:"known_hosts_file,omitempty"`
 	AllowedTargets    []string `yaml:"allowed_targets,omitempty"`
@@ -67,7 +66,6 @@ type rawConfigModule struct {
 	StripServerVersionComment bool `yaml:"strip_server_version_comment,omitempty"`
 }
 
-// rawConfig is the top-level YAML structure.
 type rawConfig struct {
 	KnownHostsFile string                     `yaml:"known_hosts_file,omitempty"`
 	AllowedTargets []string                   `yaml:"allowed_targets,omitempty"`
@@ -79,15 +77,11 @@ type rawConfig struct {
 	// enable it individually but cannot switch it back off once set here.
 	StripServerVersionComment bool `yaml:"strip_server_version_comment,omitempty"`
 
-	// allowAll is set (never from YAML) when --allow-all-targets is passed and
-	// no top-level allowed_targets default is configured. It makes modules that
-	// inherit the empty default permit any target.
 	allowAllTargets bool
 }
 
-// loadRawConfig reads, resolves defaults/inheritance, and validates the
-// config file at path. It is pure aside from reading the file itself: it
-// performs no known_hosts I/O and builds no callbacks.
+// loadRawConfig does no I/O beyond reading path; build reads known_hosts, so
+// configs can be validated without the files present.
 func loadRawConfig(path string, allowAllTargetsFlag bool) (*rawConfig, error) {
 	//nolint:gosec // G304: reading the operator-supplied config path is the point.
 	data, err := os.ReadFile(path)
@@ -95,9 +89,8 @@ func loadRawConfig(path string, allowAllTargetsFlag bool) (*rawConfig, error) {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
 
-	// Reject unknown keys, so a typo or a removed option fails loudly instead of
-	// silently falling back to a default. An empty file decodes to io.EOF and is
-	// treated as an empty config.
+	// Unknown keys are rejected so typos fail loudly; an empty file decodes to
+	// io.EOF, i.e. an empty config.
 	var cfg rawConfig
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -109,13 +102,10 @@ func loadRawConfig(path string, allowAllTargetsFlag bool) (*rawConfig, error) {
 		cfg.Modules = map[string]rawConfigModule{DefaultModuleName: {}}
 	}
 
-	// Enable allow-all only when the flag is set and the operator configured no
-	// top-level default. An explicit top-level list always wins, so the flag is
-	// inert whenever one is present.
+	// An explicit top-level allowed_targets always wins over --allow-all-targets.
 	cfg.allowAllTargets = allowAllTargetsFlag && len(cfg.AllowedTargets) == 0
 
 	for name, mod := range cfg.Modules {
-		// known_hosts_file: inherit default when the module sets none.
 		if mod.KnownHostsFile == "" {
 			mod.KnownHostsFile = cfg.KnownHostsFile
 		}
@@ -123,8 +113,6 @@ func loadRawConfig(path string, allowAllTargetsFlag bool) (*rawConfig, error) {
 			return nil, fmt.Errorf("module %q: known_hosts_file is required (not set at module level or in defaults)", name)
 		}
 
-		// allowed_targets: inherit default when the module sets none (nil and
-		// empty are treated identically).
 		if len(mod.AllowedTargets) == 0 {
 			mod.AllowedTargets = cfg.AllowedTargets
 		}

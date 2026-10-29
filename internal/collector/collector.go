@@ -168,13 +168,12 @@ type SSHCollector struct {
 	module string
 	opts   probe.Options
 	logger *slog.Logger
-	// run performs the probe. Set by New to probe.Run; overridden in tests.
+	// run is probe.Run, swapped out in tests.
 	run func(context.Context, string, probe.Options) probe.Result
 }
 
-// New builds a collector for one probe. Register it on a fresh,
-// request-scoped *prometheus.Registry per HTTP request. module is used
-// only for logging context, not for metric labels.
+// New builds a collector for one probe, to be registered on a per-request
+// registry; module is only used for logging.
 func New(ctx context.Context, target, module string, opts probe.Options, logger *slog.Logger) *SSHCollector {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)

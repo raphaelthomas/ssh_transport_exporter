@@ -38,7 +38,6 @@ import (
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/probehttp"
 )
 
-// flags holds the exporter's runtime configuration parsed from CLI flags.
 type flags struct {
 	ListenAddress      string
 	LogLevel           slog.Level
@@ -109,9 +108,8 @@ func (f *flags) validate() error {
 	return nil
 }
 
-// configReloadMetrics reports the outcome of the most recent config load, so a
-// reload that failed and left the previous config in place is visible beyond
-// the log.
+// configReloadMetrics makes a failed reload, which keeps the previous config,
+// visible beyond the log.
 type configReloadMetrics struct {
 	successful prometheus.Gauge
 	timestamp  prometheus.Gauge
@@ -132,7 +130,6 @@ func newConfigReloadMetrics() configReloadMetrics {
 	}
 }
 
-// record updates the gauges for a load that returned err.
 func (m configReloadMetrics) record(err error) {
 	if err != nil {
 		m.successful.Set(0)
@@ -142,9 +139,6 @@ func (m configReloadMetrics) record(err error) {
 	m.timestamp.SetToCurrentTime()
 }
 
-// reload re-reads the config file and atomically swaps the live module
-// set. On any error, it logs and leaves the previous (still valid)
-// module set in place.
 func reload(logger *slog.Logger, cfg *flags, live *atomic.Pointer[map[string]config.Module], metrics configReloadMetrics) {
 	modules, err := config.Load(cfg.ConfigFile, cfg.AllowAllTargets, logger)
 	metrics.record(err)
@@ -177,7 +171,6 @@ const (
 	idleTimeout       = 2 * time.Minute
 )
 
-// shutdownTimeout bounds how long in-flight probes may drain on shutdown.
 const shutdownTimeout = 10 * time.Second
 
 // probeTimeoutOffset is subtracted from the Prometheus scrape timeout, as in

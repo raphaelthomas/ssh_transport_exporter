@@ -18,8 +18,7 @@ import (
 // exactly how far the exporter's probe goes.
 type Server struct {
 	// Addr is the "127.0.0.1:port" address the server listens on.
-	Addr string
-	// HostKey is the server's public host key.
+	Addr    string
 	HostKey ssh.PublicKey
 
 	authReached atomic.Bool

@@ -15,7 +15,6 @@ import (
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/sshtest"
 )
 
-// acceptKey returns a HostKeyCallback that accepts exactly want.
 func acceptKey(want ssh.PublicKey) ssh.HostKeyCallback {
 	return ssh.FixedHostKey(want)
 }
@@ -168,7 +167,6 @@ func TestRunKeyExchangesRespected(t *testing.T) {
 	}
 }
 
-// The configured MAC list decides which MAC a non-AEAD cipher agrees.
 func TestRunMACsRespected(t *testing.T) {
 	t.Parallel()
 	srv := sshtest.NewServer(t, sshtest.Options{})
@@ -190,7 +188,6 @@ func TestRunMACsRespected(t *testing.T) {
 	}
 }
 
-// A non-AEAD cipher agrees a MAC, which is reported per direction.
 func TestRunNonAEADCipherReportsMAC(t *testing.T) {
 	t.Parallel()
 	srv := sshtest.NewServer(t, sshtest.Options{})
@@ -294,7 +291,6 @@ func TestRunHostKeyVerificationFailure(t *testing.T) {
 	if result.ErrorReason != ErrReasonOther {
 		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonOther)
 	}
-	// Metadata is still recorded despite the verification failure.
 	if result.HostKeyAlgorithm == "" || result.KEXAlgorithm == "" {
 		t.Error("expected algorithm metadata to be recorded despite verify failure")
 	}
@@ -340,7 +336,6 @@ func TestRunConnectionRefused(t *testing.T) {
 	}
 }
 
-// A hostname target splits the dial into lookup and connect time.
 func TestRunHostnameTargetTimesLookup(t *testing.T) {
 	t.Parallel()
 	srv := sshtest.NewServer(t, sshtest.Options{})
@@ -361,7 +356,6 @@ func TestRunHostnameTargetTimesLookup(t *testing.T) {
 	}
 }
 
-// A lookup that succeeded is reported even when the connection then fails.
 func TestRunHostnameTargetConnectionRefusedKeepsLookup(t *testing.T) {
 	t.Parallel()
 	_, port, err := net.SplitHostPort(sshtest.ClosedPort(t))
@@ -423,8 +417,6 @@ func TestRunContextAlreadyCanceled(t *testing.T) {
 	}
 }
 
-// A hostname target whose probe ends before any connection attempt fails at
-// the lookup stage, with the context's reason.
 func TestRunContextAlreadyCanceledHostname(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -640,7 +632,6 @@ func TestRunSanitizesServerVersion(t *testing.T) {
 	if !result.ServerVersionMalformed {
 		t.Error("ServerVersionMalformed = false, want true")
 	}
-	// The probe itself still succeeds; only the banner is withheld.
 	if !result.KEXSuccess {
 		t.Error("KEXSuccess = false, want true")
 	}

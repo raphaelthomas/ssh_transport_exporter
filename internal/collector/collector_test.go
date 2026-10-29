@@ -11,8 +11,6 @@ import (
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
 )
 
-// collectMetrics runs the collector with its probe function stubbed to return
-// result and returns the gathered metric families keyed by fully-qualified name.
 func collectMetrics(t *testing.T, result probe.Result) map[string]*dto.MetricFamily {
 	t.Helper()
 
@@ -33,7 +31,6 @@ func collectMetrics(t *testing.T, result probe.Result) map[string]*dto.MetricFam
 	return byName
 }
 
-// singleValue returns the value of a metric family that has exactly one series.
 func singleValue(t *testing.T, mfs map[string]*dto.MetricFamily, name string) float64 {
 	t.Helper()
 	mf, ok := mfs[name]
@@ -46,7 +43,6 @@ func singleValue(t *testing.T, mfs map[string]*dto.MetricFamily, name string) fl
 	return mf.GetMetric()[0].GetGauge().GetValue()
 }
 
-// labelValue returns the value of label key on the (first) series of name.
 func labelValue(t *testing.T, mfs map[string]*dto.MetricFamily, name, key string) string {
 	t.Helper()
 	mf, ok := mfs[name]
@@ -62,8 +58,6 @@ func labelValue(t *testing.T, mfs map[string]*dto.MetricFamily, name, key string
 	return ""
 }
 
-// directionSeries returns the series of metric name carrying the given
-// direction label, or nil.
 func directionSeries(mfs map[string]*dto.MetricFamily, name, direction string) *dto.Metric {
 	mf, ok := mfs[name]
 	if !ok {
@@ -202,7 +196,6 @@ func TestCollectTCPFailure(t *testing.T) {
 		t.Errorf("host_key_verify_success = %v, want 0", got)
 	}
 
-	// Omitted-on-failure metrics must be absent.
 	for _, name := range []string{
 		"ssh_transport_dns_lookup_duration_seconds",
 		"ssh_transport_tcp_connect_duration_seconds",
@@ -229,8 +222,6 @@ func TestCollectTCPFailure(t *testing.T) {
 
 func TestCollectOmissionBranches(t *testing.T) {
 	t.Parallel()
-	// TCP connected but MSS unknown; KEX succeeded but algorithm empty; only the
-	// read cipher was negotiated. Each should suppress the corresponding metric.
 	result := probe.Result{
 		TCPConnectSuccess:       true,
 		TCPConnectDuration:      time.Second,
@@ -263,7 +254,6 @@ func TestCollectOmissionBranches(t *testing.T) {
 	if got := singleValue(t, mfs, "ssh_transport_kex_duration_seconds"); got != 1 {
 		t.Errorf("kex_duration_seconds = %v, want 1", got)
 	}
-	// Only the read cipher series exists.
 	if m := directionSeries(mfs, "ssh_transport_cipher_info", "read"); m == nil {
 		t.Error("cipher_info read series missing")
 	}
@@ -328,7 +318,6 @@ func TestBoolToFloat64(t *testing.T) {
 	}
 }
 
-// labelOf returns the value of label key on m.
 func labelOf(m *dto.Metric, key string) string {
 	for _, lp := range m.GetLabel() {
 		if lp.GetName() == key {

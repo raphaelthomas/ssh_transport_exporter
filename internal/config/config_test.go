@@ -9,7 +9,6 @@ import (
 	"testing"
 )
 
-// writeConfig writes content to a temp file and returns its path.
 func writeConfig(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
@@ -19,12 +18,10 @@ func writeConfig(t *testing.T, content string) string {
 	return path
 }
 
-// discardLogger returns a logger that drops all output.
 func discardLogger() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
 }
 
-// loadRaw is a convenience wrapper for the common (no allow-all) case.
 func loadRaw(t *testing.T, content string) (*rawConfig, error) {
 	t.Helper()
 	return loadRawConfig(writeConfig(t, content), false)

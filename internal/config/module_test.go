@@ -13,7 +13,6 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-// newHostKey returns a fresh ed25519 SSH public key for use as a server host key.
 func newHostKey(t *testing.T) ssh.PublicKey {
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -27,7 +26,6 @@ func newHostKey(t *testing.T) ssh.PublicKey {
 	return signer.PublicKey()
 }
 
-// writeKnownHosts writes content to a temp known_hosts file and returns its path.
 func writeKnownHosts(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "known_hosts")
@@ -37,7 +35,6 @@ func writeKnownHosts(t *testing.T, content string) string {
 	return path
 }
 
-// exercise invokes a built HostKeyCallback for host "example.com:22".
 func exercise(cb ssh.HostKeyCallback, key ssh.PublicKey) error {
 	remote := &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 22}
 	return cb("example.com:22", remote, key)
@@ -130,7 +127,6 @@ modules:
 		t.Error("AllowedTargets[0] does not match example.com")
 	}
 
-	// Callback accepts the correct key and rejects a different one.
 	if err := exercise(mod.Options.HostKeyCallback, pub); err != nil {
 		t.Errorf("callback rejected the correct host key: %v", err)
 	}
