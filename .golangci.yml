@@ -20,6 +20,10 @@ linters:
     - wastedassign
 
   settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
     gocritic:
       enabled-checks:
         - deferInLoop

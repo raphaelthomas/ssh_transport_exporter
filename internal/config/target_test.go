@@ -176,7 +176,7 @@ func TestResolveAllowedTargets(t *testing.T) {
 		t.Errorf("resolveAllowedTargets(nil, true) did not produce allow-all matcher")
 	}
 
-	if _, err := resolveAllowedTargets(nil, false); err == nil {
+	if _, err = resolveAllowedTargets(nil, false); err == nil {
 		t.Error("resolveAllowedTargets(nil, false) = nil error, want error")
 	}
 
