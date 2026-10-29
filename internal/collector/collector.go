@@ -13,6 +13,7 @@ import (
 
 const (
 	namespace              = "ssh_transport"
+	subSystemDNS           = "dns_lookup"
 	subSystemTCP           = "tcp_connect"
 	subSystemIdent         = "identification"
 	subSystemKEX           = "kex"
@@ -32,6 +33,15 @@ func (td typedDesc) mustNewConstMetric(value float64, labelValues ...string) pro
 }
 
 var (
+	dnsLookupDurationDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemDNS, "duration_seconds"),
+			"Time taken to resolve the target hostname. Absent for IP literal targets and when the lookup fails.",
+			nil,
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
 	tcpConnectSuccessDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemTCP, "success"),
@@ -44,7 +54,7 @@ var (
 	tcpConnectDurationDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemTCP, "duration_seconds"),
-			"Time taken to establish the TCP connection. Absent on failure.",
+			"Time taken to establish the TCP connection, excluding name resolution. Absent on failure.",
 			nil,
 			nil,
 		),
@@ -175,6 +185,7 @@ func New(ctx context.Context, target, module string, opts probe.Options, logger 
 // Describe sends every possible descriptor regardless of whether a
 // given probe emits it.
 func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- dnsLookupDurationDesc.desc
 	ch <- tcpConnectSuccessDesc.desc
 	ch <- tcpConnectDurationDesc.desc
 	ch <- tcpConnectNegotiatedMSSDesc.desc
@@ -198,6 +209,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		c.logger.Debug("probe result",
 			"target", c.target,
 			"module", c.module,
+			"dns_lookup_duration", result.DNSLookupDuration,
 			"tcp_connect_success", result.TCPConnectSuccess,
 			"tcp_connect_duration", result.TCPConnectDuration,
 			"tcp_connect_negotiated_mss", result.TCPConnectNegotiatedMSS,
@@ -215,6 +227,10 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"error_stage", result.ErrorStage,
 			"error_reason", result.ErrorReason,
 		)
+	}
+
+	if result.DNSLookupDuration > 0 {
+		ch <- dnsLookupDurationDesc.mustNewConstMetric(result.DNSLookupDuration.Seconds())
 	}
 
 	ch <- tcpConnectSuccessDesc.mustNewConstMetric(boolToFloat64(result.TCPConnectSuccess))

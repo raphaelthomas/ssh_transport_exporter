@@ -82,6 +82,7 @@ func directionSeries(mfs map[string]*dto.MetricFamily, name, direction string) *
 func TestCollectFullSuccess(t *testing.T) {
 	t.Parallel()
 	result := probe.Result{
+		DNSLookupDuration:       250 * time.Millisecond,
 		TCPConnectSuccess:       true,
 		TCPConnectDuration:      500 * time.Millisecond,
 		TCPConnectNegotiatedMSS: 1448,
@@ -96,6 +97,9 @@ func TestCollectFullSuccess(t *testing.T) {
 	}
 	mfs := collectMetrics(t, result)
 
+	if got := singleValue(t, mfs, "ssh_transport_dns_lookup_duration_seconds"); got != 0.25 {
+		t.Errorf("dns_lookup_duration_seconds = %v, want 0.25", got)
+	}
 	if got := singleValue(t, mfs, "ssh_transport_tcp_connect_success"); got != 1 {
 		t.Errorf("tcp_connect_success = %v, want 1", got)
 	}
@@ -200,6 +204,7 @@ func TestCollectTCPFailure(t *testing.T) {
 
 	// Omitted-on-failure metrics must be absent.
 	for _, name := range []string{
+		"ssh_transport_dns_lookup_duration_seconds",
 		"ssh_transport_tcp_connect_duration_seconds",
 		"ssh_transport_tcp_connect_negotiated_mss_bytes",
 		"ssh_transport_identification_server_version_info",
@@ -239,6 +244,9 @@ func TestCollectOmissionBranches(t *testing.T) {
 	}
 	mfs := collectMetrics(t, result)
 
+	if _, ok := mfs["ssh_transport_dns_lookup_duration_seconds"]; ok {
+		t.Error("dns_lookup_duration_seconds present without a lookup, want absent")
+	}
 	if _, ok := mfs["ssh_transport_tcp_connect_negotiated_mss_bytes"]; ok {
 		t.Error("negotiated_mss_bytes present when MSS is 0, want absent")
 	}
@@ -294,8 +302,8 @@ func TestDescribeEmitsAllDescriptors(t *testing.T) {
 	ch := make(chan *prometheus.Desc, 32)
 	c.Describe(ch)
 	close(ch)
-	if got := len(ch); got != 13 {
-		t.Errorf("Describe emitted %d descriptors, want 13", got)
+	if got := len(ch); got != 14 {
+		t.Errorf("Describe emitted %d descriptors, want 14", got)
 	}
 }
 

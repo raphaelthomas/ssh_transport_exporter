@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"net"
 	"runtime"
 	"strings"
 	"testing"
@@ -33,6 +34,9 @@ func TestRunSuccess(t *testing.T) {
 	}
 	if result.TCPConnectDuration <= 0 {
 		t.Error("TCPConnectDuration = 0, want > 0")
+	}
+	if result.DNSLookupDuration != 0 {
+		t.Errorf("DNSLookupDuration = %s, want 0 for an IP literal target", result.DNSLookupDuration)
 	}
 	if !result.KEXSuccess {
 		t.Errorf("KEXSuccess = false, want true (error %s/%s)", result.ErrorStage, result.ErrorReason)
@@ -336,6 +340,51 @@ func TestRunConnectionRefused(t *testing.T) {
 	}
 }
 
+// A hostname target splits the dial into lookup and connect time.
+func TestRunHostnameTargetTimesLookup(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, net.JoinHostPort("localhost", srv.Port(t)), Options{HostKeyCallback: acceptKey(srv.HostKey)})
+
+	if !result.TCPConnectSuccess {
+		t.Fatalf("TCPConnectSuccess = false, want true (error %s/%s)", result.ErrorStage, result.ErrorReason)
+	}
+	if result.DNSLookupDuration <= 0 {
+		t.Error("DNSLookupDuration = 0, want > 0 for a hostname target")
+	}
+	if result.TCPConnectDuration <= 0 {
+		t.Error("TCPConnectDuration = 0, want > 0")
+	}
+}
+
+// A lookup that succeeded is reported even when the connection then fails.
+func TestRunHostnameTargetConnectionRefusedKeepsLookup(t *testing.T) {
+	t.Parallel()
+	_, port, err := net.SplitHostPort(sshtest.ClosedPort(t))
+	if err != nil {
+		t.Fatalf("SplitHostPort: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := Run(ctx, net.JoinHostPort("localhost", port), Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+
+	if result.TCPConnectSuccess {
+		t.Error("TCPConnectSuccess = true, want false")
+	}
+	if result.ErrorReason != ErrReasonConnectionRefused {
+		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonConnectionRefused)
+	}
+	if result.DNSLookupDuration <= 0 {
+		t.Error("DNSLookupDuration = 0, want > 0 when the lookup succeeded")
+	}
+}
+
 func TestRunDNSFailure(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -351,6 +400,9 @@ func TestRunDNSFailure(t *testing.T) {
 	}
 	if result.ErrorReason != ErrReasonDNSFailure {
 		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonDNSFailure)
+	}
+	if result.DNSLookupDuration != 0 {
+		t.Errorf("DNSLookupDuration = %s, want 0 when the lookup failed", result.DNSLookupDuration)
 	}
 }
 

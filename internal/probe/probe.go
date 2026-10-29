@@ -7,7 +7,9 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"net/netip"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -39,6 +41,8 @@ const (
 
 // Result is the outcome of one probe against one target.
 type Result struct {
+	// Name resolution results, zero for IP literal targets and failed lookups
+	DNSLookupDuration time.Duration
 	// TCP connection results
 	TCPConnectSuccess       bool
 	TCPConnectDuration      time.Duration
@@ -139,9 +143,29 @@ func Run(ctx context.Context, target string, opts Options) Result {
 		}
 	}
 
-	dialer := net.Dialer{}
+	// The dialer resolves the name before its first connection attempt, so the
+	// first ControlContext call splits the dial into lookup and connect time
+	// while keeping the dialer's own address fallback and dual-stack racing.
+	var connectStart atomic.Pointer[time.Time]
+	dialer := net.Dialer{
+		ControlContext: func(context.Context, string, string, syscall.RawConn) error {
+			now := time.Now()
+			connectStart.CompareAndSwap(nil, &now)
+			return nil
+		},
+	}
 	dialStart := time.Now()
 	rawConn, err := dialer.DialContext(ctx, "tcp", target)
+	dialEnd := time.Now()
+
+	connectFrom := dialStart
+	if t := connectStart.Load(); t != nil {
+		connectFrom = *t
+		if isHostname(target) {
+			result.DNSLookupDuration = t.Sub(dialStart)
+		}
+	}
+
 	if err != nil {
 		result.ErrorStage = ErrStageTCPConnect
 		result.ErrorReason = classifyDialError(ctx, err)
@@ -152,7 +176,7 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	}()
 
 	result.TCPConnectSuccess = true
-	result.TCPConnectDuration = time.Since(dialStart)
+	result.TCPConnectDuration = dialEnd.Sub(connectFrom)
 
 	if tcpConn, ok := rawConn.(*net.TCPConn); ok {
 		if mss, err := tcpNegotiatedMSS(tcpConn); err == nil {
@@ -248,6 +272,17 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	}
 
 	return result
+}
+
+// isHostname reports whether target's host needs name resolution, i.e. is not
+// an IP literal.
+func isHostname(target string) bool {
+	host, _, err := net.SplitHostPort(target)
+	if err != nil {
+		host = target
+	}
+	_, err = netip.ParseAddr(host)
+	return err != nil
 }
 
 func classifyHostKeyVerifyError(err error) string {

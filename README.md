@@ -264,6 +264,10 @@ The following probe result metrics are exported by the
 ssh_transport_cipher_info{cipher="aes128-gcm@openssh.com",direction="read"} 1
 ssh_transport_cipher_info{cipher="aes128-gcm@openssh.com",direction="write"} 1
 
+# HELP ssh_transport_dns_lookup_duration_seconds Time taken to resolve the target hostname. Absent for IP literal targets and when the lookup fails.
+# TYPE ssh_transport_dns_lookup_duration_seconds gauge
+ssh_transport_dns_lookup_duration_seconds 0.004120583
+
 # HELP ssh_transport_host_key_verify_algorithm_info Negotiated host key algorithm. Absent unless key exchange completed.
 # TYPE ssh_transport_host_key_verify_algorithm_info gauge
 ssh_transport_host_key_verify_algorithm_info{algorithm="ssh-ed25519"} 1
@@ -292,7 +296,7 @@ ssh_transport_kex_duration_seconds 0.090082416
 # TYPE ssh_transport_kex_success gauge
 ssh_transport_kex_success 1
 
-# HELP ssh_transport_tcp_connect_duration_seconds Time taken to establish the TCP connection. Absent on failure.
+# HELP ssh_transport_tcp_connect_duration_seconds Time taken to establish the TCP connection, excluding name resolution. Absent on failure.
 # TYPE ssh_transport_tcp_connect_duration_seconds gauge
 ssh_transport_tcp_connect_duration_seconds 0.026296792
 
