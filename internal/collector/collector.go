@@ -87,38 +87,11 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
-	kexSuccessDesc = typedDesc{
-		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemKEX, "success"),
-			"Whether the SSH transport layer key exchange (RFC 4253) completed successfully.",
-			nil,
-			nil,
-		),
-		prometheus.GaugeValue,
-	}
-	kexDurationDesc = typedDesc{
-		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemKEX, "duration_seconds"),
-			"Time taken for the SSH transport layer handshake. Absent on failure.",
-			nil,
-			nil,
-		),
-		prometheus.GaugeValue,
-	}
 	kexAlgorithmInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemKEX, "algorithm_info"),
 			"Negotiated key exchange algorithm. Absent unless key exchange completed.",
 			[]string{"algorithm"},
-			nil,
-		),
-		prometheus.GaugeValue,
-	}
-	hostKeyVerifySuccessDesc = typedDesc{
-		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemHostKeyVerify, "success"),
-			"Whether the server host key was successfully verified.",
-			nil,
 			nil,
 		),
 		prometheus.GaugeValue,
@@ -146,6 +119,33 @@ var (
 			prometheus.BuildFQName(namespace, subSystemMAC, "info"),
 			"Negotiated MAC algorithm per direction. Absent for AEAD ciphers, which need no separate MAC.",
 			[]string{"direction", "mac"},
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
+	hostKeyVerifySuccessDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemHostKeyVerify, "success"),
+			"Whether the server host key was successfully verified.",
+			nil,
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
+	kexSuccessDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemKEX, "success"),
+			"Whether the SSH transport layer key exchange (RFC 4253) completed successfully.",
+			nil,
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
+	kexDurationDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemKEX, "duration_seconds"),
+			"Time taken for the SSH transport layer handshake. Absent on failure.",
+			nil,
 			nil,
 		),
 		prometheus.GaugeValue,
@@ -190,13 +190,13 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- tcpConnectNegotiatedMSSDesc.desc
 	ch <- serverVersionInfoDesc.desc
 	ch <- serverVersionValidDesc.desc
-	ch <- kexSuccessDesc.desc
-	ch <- kexDurationDesc.desc
 	ch <- kexAlgorithmInfoDesc.desc
-	ch <- hostKeyVerifySuccessDesc.desc
 	ch <- hostKeyAlgorithmInfoDesc.desc
 	ch <- cipherInfoDesc.desc
 	ch <- macInfoDesc.desc
+	ch <- hostKeyVerifySuccessDesc.desc
+	ch <- kexSuccessDesc.desc
+	ch <- kexDurationDesc.desc
 	ch <- errorInfoDesc.desc
 }
 
@@ -214,15 +214,15 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"tcp_connect_negotiated_mss", result.TCPConnectNegotiatedMSS,
 			"server_version", result.ServerVersion,
 			"server_version_malformed", result.ServerVersionMalformed,
-			"kex_success", result.KEXSuccess,
-			"kex_duration", result.KEXDuration,
 			"kex_algorithm", result.KEXAlgorithm,
-			"host_key_verify_success", result.HostKeyVerifySuccess,
 			"host_key_algorithm", result.HostKeyAlgorithm,
 			"cipher_read", result.CipherRead,
 			"cipher_write", result.CipherWrite,
 			"mac_read", result.MACRead,
 			"mac_write", result.MACWrite,
+			"host_key_verify_success", result.HostKeyVerifySuccess,
+			"kex_success", result.KEXSuccess,
+			"kex_duration", result.KEXDuration,
 			"error_stage", result.ErrorStage,
 			"error_reason", result.ErrorReason,
 		)
@@ -248,15 +248,10 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- serverVersionValidDesc.mustNewConstMetric(0)
 	}
 
-	ch <- kexSuccessDesc.mustNewConstMetric(boolToFloat64(result.KEXSuccess))
-	if result.KEXSuccess {
-		ch <- kexDurationDesc.mustNewConstMetric(result.KEXDuration.Seconds())
-		if result.KEXAlgorithm != "" {
-			ch <- kexAlgorithmInfoDesc.mustNewConstMetric(1, result.KEXAlgorithm)
-		}
+	if result.KEXSuccess && result.KEXAlgorithm != "" {
+		ch <- kexAlgorithmInfoDesc.mustNewConstMetric(1, result.KEXAlgorithm)
 	}
 
-	ch <- hostKeyVerifySuccessDesc.mustNewConstMetric(boolToFloat64(result.HostKeyVerifySuccess))
 	if result.HostKeyAlgorithm != "" {
 		ch <- hostKeyAlgorithmInfoDesc.mustNewConstMetric(1, result.HostKeyAlgorithm)
 	}
@@ -273,6 +268,13 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 	if result.MACWrite != "" {
 		ch <- macInfoDesc.mustNewConstMetric(1, "write", result.MACWrite)
+	}
+
+	ch <- hostKeyVerifySuccessDesc.mustNewConstMetric(boolToFloat64(result.HostKeyVerifySuccess))
+
+	ch <- kexSuccessDesc.mustNewConstMetric(boolToFloat64(result.KEXSuccess))
+	if result.KEXSuccess {
+		ch <- kexDurationDesc.mustNewConstMetric(result.KEXDuration.Seconds())
 	}
 
 	if result.ErrorStage != "" {
