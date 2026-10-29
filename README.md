@@ -133,7 +133,7 @@ Flags:
       --version            Show application version.
       --web.listen-address=":10022"
                            Address to listen on for web interface and telemetry
-      --log-level=info     Log level (debug, info, warn, error)
+      --log.level=info     Log level (debug, info, warn, error)
       --config.file="ssh_transport_exporter.yaml"
                            Path to the exporter's YAML config file with module definitions
       --probe.timeout=5s   Hard upper bound for a single probe; Prometheus scrape timeout may shorten it.

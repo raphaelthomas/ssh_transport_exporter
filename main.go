@@ -61,8 +61,9 @@ func parseFlags() *flags {
 		Envar(envPrefix + "LISTEN_ADDRESS").
 		StringVar(&f.ListenAddress)
 
-	logLevelFlag := app.Flag("log-level", "Log level (debug, info, warn, error)").
+	logLevelFlag := app.Flag("log.level", "Log level (debug, info, warn, error)").
 		Default("info").
+		Envar(envPrefix+"LOG_LEVEL").
 		Enum("debug", "info", "warn", "error")
 
 	app.Flag("config.file", "Path to the exporter's YAML config file with module definitions").
@@ -90,9 +91,7 @@ func parseFlags() *flags {
 		app.Fatalf("%s", err)
 	}
 
-	if err := f.LogLevel.UnmarshalText([]byte(*logLevelFlag)); err != nil {
-		f.LogLevel = slog.LevelInfo
-	}
+	_ = f.LogLevel.UnmarshalText([]byte(*logLevelFlag))
 	return f
 }
 
