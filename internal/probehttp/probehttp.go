@@ -78,7 +78,7 @@ func Handler(opts Options) http.HandlerFunc {
 		modules := *opts.Live.Load()
 		mod, ok := modules[moduleName]
 		if !ok {
-			logger.Warn("probe rejected: unknown module", "module", moduleName)
+			logger.Debug("probe rejected: unknown module", "module", moduleName)
 			writeError(w, requests, moduleUnresolved, http.StatusBadRequest, fmt.Sprintf("unknown module %q", moduleName))
 			return
 		}
@@ -91,17 +91,17 @@ func Handler(opts Options) http.HandlerFunc {
 
 		target, host, port, err := ensurePort(target, mod.TargetPort)
 		if err != nil {
-			logger.Warn("probe rejected: malformed target", "module", moduleName, "target", r.URL.Query().Get("target"), "error", err)
+			logger.Debug("probe rejected: malformed target", "module", moduleName, "target", r.URL.Query().Get("target"), "error", err)
 			writeError(w, requests, moduleName, http.StatusBadRequest, err.Error())
 			return
 		}
 		if _, allowed := mod.AllowedPorts[port]; !allowed {
-			logger.Warn("probe rejected: port not allowed", "module", moduleName, "target", target, "port", port)
+			logger.Debug("probe rejected: port not allowed", "module", moduleName, "target", target, "port", port)
 			writeError(w, requests, moduleName, http.StatusForbidden, fmt.Sprintf("port %d not allowed for module %q", port, moduleName))
 			return
 		}
 		if !targetAllowed(host, mod.AllowedTargets) {
-			logger.Warn("probe rejected: target not allowed", "module", moduleName, "target", target, "host", host)
+			logger.Debug("probe rejected: target not allowed", "module", moduleName, "target", target, "host", host)
 			writeError(w, requests, moduleName, http.StatusForbidden, fmt.Sprintf("target %q not allowed for module %q", host, moduleName))
 			return
 		}
