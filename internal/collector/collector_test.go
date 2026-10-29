@@ -85,7 +85,7 @@ func TestCollectFullSuccess(t *testing.T) {
 		KEXDuration:                time.Second,
 		KEXAlgorithm:               "curve25519-sha256",
 		ServerHostKeyVerifySuccess: true,
-		HostKeyAlgorithm:           "ssh-ed25519",
+		ServerHostKeyAlgorithm:     "ssh-ed25519",
 		CipherRead:                 "aes128-gcm@openssh.com",
 		CipherWrite:                "chacha20-poly1305@openssh.com",
 	}
@@ -118,8 +118,8 @@ func TestCollectFullSuccess(t *testing.T) {
 	if got := singleValue(t, mfs, "ssh_transport_server_host_key_verify_success"); got != 1 {
 		t.Errorf("server_host_key_verify_success = %v, want 1", got)
 	}
-	if got := labelValue(t, mfs, "ssh_transport_host_key_verify_algorithm_info", "algorithm"); got != "ssh-ed25519" {
-		t.Errorf("host_key_verify_algorithm_info algorithm = %q", got)
+	if got := labelValue(t, mfs, "ssh_transport_server_host_key_algorithm_info", "algorithm"); got != "ssh-ed25519" {
+		t.Errorf("server_host_key_algorithm_info algorithm = %q", got)
 	}
 
 	if m := directionSeries(mfs, "ssh_transport_cipher_info", "read"); m == nil {
@@ -203,7 +203,7 @@ func TestCollectTCPFailure(t *testing.T) {
 		"ssh_transport_server_identification_info",
 		"ssh_transport_kex_duration_seconds",
 		"ssh_transport_kex_algorithm_info",
-		"ssh_transport_host_key_verify_algorithm_info",
+		"ssh_transport_server_host_key_algorithm_info",
 		"ssh_transport_cipher_info",
 		"ssh_transport_mac_info",
 	} {
@@ -223,15 +223,15 @@ func TestCollectTCPFailure(t *testing.T) {
 func TestCollectOmissionBranches(t *testing.T) {
 	t.Parallel()
 	result := probe.Result{
-		TCPConnectSuccess:  true,
-		TCPConnectDuration: time.Second,
-		TCPMSS:             0,
-		KEXSuccess:         true,
-		KEXDuration:        time.Second,
-		KEXAlgorithm:       "",
-		HostKeyAlgorithm:   "",
-		CipherRead:         "aes256-ctr",
-		CipherWrite:        "",
+		TCPConnectSuccess:      true,
+		TCPConnectDuration:     time.Second,
+		TCPMSS:                 0,
+		KEXSuccess:             true,
+		KEXDuration:            time.Second,
+		KEXAlgorithm:           "",
+		ServerHostKeyAlgorithm: "",
+		CipherRead:             "aes256-ctr",
+		CipherWrite:            "",
 	}
 	mfs := collectMetrics(t, result)
 
@@ -244,8 +244,8 @@ func TestCollectOmissionBranches(t *testing.T) {
 	if _, ok := mfs["ssh_transport_kex_algorithm_info"]; ok {
 		t.Error("kex_algorithm_info present when algorithm empty, want absent")
 	}
-	if _, ok := mfs["ssh_transport_host_key_verify_algorithm_info"]; ok {
-		t.Error("host_key_verify_algorithm_info present when algorithm empty, want absent")
+	if _, ok := mfs["ssh_transport_server_host_key_algorithm_info"]; ok {
+		t.Error("server_host_key_algorithm_info present when algorithm empty, want absent")
 	}
 	if _, ok := mfs["ssh_transport_server_identification_info"]; ok {
 		t.Error("server_identification_info present when version empty, want absent")

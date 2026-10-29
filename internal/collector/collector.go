@@ -18,7 +18,6 @@ const (
 	subSystemTCPConnect    = "tcp_connect"
 	subSystemServerIdent   = "server_identification"
 	subSystemKEX           = "kex"
-	subSystemHostKeyVerify = "host_key_verify"
 	subSystemServerHostKey = "server_host_key"
 	subSystemCipher        = "cipher"
 	subSystemMAC           = "mac"
@@ -98,10 +97,10 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
-	hostKeyAlgorithmInfoDesc = typedDesc{
+	serverHostKeyAlgorithmInfoDesc = typedDesc{
 		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemHostKeyVerify, "algorithm_info"),
-			"Negotiated host key algorithm. Absent unless key exchange completed.",
+			prometheus.BuildFQName(namespace, subSystemServerHostKey, "algorithm_info"),
+			"Negotiated server host key algorithm (RFC 4253 section 7.1). Absent unless key exchange completed.",
 			[]string{"algorithm"},
 			nil,
 		),
@@ -193,7 +192,7 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- serverIdentificationInfoDesc.desc
 	ch <- serverIdentificationValidDesc.desc
 	ch <- kexAlgorithmInfoDesc.desc
-	ch <- hostKeyAlgorithmInfoDesc.desc
+	ch <- serverHostKeyAlgorithmInfoDesc.desc
 	ch <- cipherInfoDesc.desc
 	ch <- macInfoDesc.desc
 	ch <- serverHostKeyVerifySuccessDesc.desc
@@ -217,7 +216,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"server_identification", result.ServerIdentification,
 			"server_identification_malformed", result.ServerIdentificationMalformed,
 			"kex_algorithm", result.KEXAlgorithm,
-			"host_key_algorithm", result.HostKeyAlgorithm,
+			"server_host_key_algorithm", result.ServerHostKeyAlgorithm,
 			"cipher_read", result.CipherRead,
 			"cipher_write", result.CipherWrite,
 			"mac_read", result.MACRead,
@@ -254,8 +253,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- kexAlgorithmInfoDesc.mustNewConstMetric(1, result.KEXAlgorithm)
 	}
 
-	if result.HostKeyAlgorithm != "" {
-		ch <- hostKeyAlgorithmInfoDesc.mustNewConstMetric(1, result.HostKeyAlgorithm)
+	if result.ServerHostKeyAlgorithm != "" {
+		ch <- serverHostKeyAlgorithmInfoDesc.mustNewConstMetric(1, result.ServerHostKeyAlgorithm)
 	}
 
 	if result.CipherRead != "" {

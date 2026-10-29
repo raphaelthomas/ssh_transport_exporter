@@ -272,10 +272,6 @@ ssh_transport_cipher_info{cipher="aes128-gcm@openssh.com",direction="write"} 1
 # TYPE ssh_transport_dns_lookup_duration_seconds gauge
 ssh_transport_dns_lookup_duration_seconds 0.004120583
 
-# HELP ssh_transport_host_key_verify_algorithm_info Negotiated host key algorithm. Absent unless key exchange completed.
-# TYPE ssh_transport_host_key_verify_algorithm_info gauge
-ssh_transport_host_key_verify_algorithm_info{algorithm="ssh-ed25519"} 1
-
 # HELP ssh_transport_kex_algorithm_info Negotiated key exchange algorithm. Absent unless key exchange completed.
 # TYPE ssh_transport_kex_algorithm_info gauge
 ssh_transport_kex_algorithm_info{algorithm="curve25519-sha256"} 1
@@ -287,6 +283,10 @@ ssh_transport_kex_duration_seconds 0.090082416
 # HELP ssh_transport_kex_success Whether the SSH transport layer key exchange (RFC 4253) completed successfully.
 # TYPE ssh_transport_kex_success gauge
 ssh_transport_kex_success 1
+
+# HELP ssh_transport_server_host_key_algorithm_info Negotiated server host key algorithm (RFC 4253 section 7.1). Absent unless key exchange completed.
+# TYPE ssh_transport_server_host_key_algorithm_info gauge
+ssh_transport_server_host_key_algorithm_info{algorithm="ssh-ed25519"} 1
 
 # HELP ssh_transport_server_host_key_verify_success Whether the server host key was verified (RFC 4253 section 8).
 # TYPE ssh_transport_server_host_key_verify_success gauge

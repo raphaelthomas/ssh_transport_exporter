@@ -49,8 +49,8 @@ func TestRunSuccess(t *testing.T) {
 	if !result.ServerHostKeyVerifySuccess {
 		t.Error("ServerHostKeyVerifySuccess = false, want true")
 	}
-	if result.HostKeyAlgorithm != ssh.KeyAlgoED25519 {
-		t.Errorf("HostKeyAlgorithm = %q, want %q", result.HostKeyAlgorithm, ssh.KeyAlgoED25519)
+	if result.ServerHostKeyAlgorithm != ssh.KeyAlgoED25519 {
+		t.Errorf("ServerHostKeyAlgorithm = %q, want %q", result.ServerHostKeyAlgorithm, ssh.KeyAlgoED25519)
 	}
 	if result.ServerIdentification != "SSH-2.0-TestServer_1.0" {
 		t.Errorf("ServerIdentification = %q, want SSH-2.0-TestServer_1.0", result.ServerIdentification)
@@ -85,7 +85,7 @@ func TestRunAbortsAtTransportReady(t *testing.T) {
 	for _, f := range []struct{ name, got string }{
 		{"ServerIdentification", result.ServerIdentification},
 		{"KEXAlgorithm", result.KEXAlgorithm},
-		{"HostKeyAlgorithm", result.HostKeyAlgorithm},
+		{"ServerHostKeyAlgorithm", result.ServerHostKeyAlgorithm},
 		{"CipherRead", result.CipherRead},
 		{"CipherWrite", result.CipherWrite},
 	} {
@@ -291,7 +291,7 @@ func TestRunHostKeyVerificationFailure(t *testing.T) {
 	if result.ErrorReason != ErrReasonServerHostKeyRejected {
 		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonServerHostKeyRejected)
 	}
-	if result.HostKeyAlgorithm == "" || result.KEXAlgorithm == "" {
+	if result.ServerHostKeyAlgorithm == "" || result.KEXAlgorithm == "" {
 		t.Error("expected algorithm metadata to be recorded despite verify failure")
 	}
 }

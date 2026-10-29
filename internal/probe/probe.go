@@ -61,7 +61,7 @@ type Result struct {
 	KEXAlgorithm string
 
 	ServerHostKeyVerifySuccess bool
-	HostKeyAlgorithm           string
+	ServerHostKeyAlgorithm     string
 
 	CipherRead  string
 	CipherWrite string
@@ -235,7 +235,7 @@ func Run(ctx context.Context, target string, opts Options) Result {
 			result.ServerIdentification = version
 			result.KEXDuration = time.Since(kexStart)
 			result.KEXAlgorithm = tc.Algorithms.KeyExchange
-			result.HostKeyAlgorithm = tc.Algorithms.HostKey
+			result.ServerHostKeyAlgorithm = tc.Algorithms.HostKey
 			result.CipherRead = tc.Algorithms.Read.Cipher
 			result.CipherWrite = tc.Algorithms.Write.Cipher
 			result.MACRead = tc.Algorithms.Read.MAC
