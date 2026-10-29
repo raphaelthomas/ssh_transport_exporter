@@ -76,24 +76,23 @@ func directionSeries(mfs map[string]*dto.MetricFamily, name, direction string) *
 func TestCollectFullSuccess(t *testing.T) {
 	t.Parallel()
 	result := probe.Result{
-		DNSLookup:                         true,
-		DNSLookupSuccess:                  true,
-		DNSLookupDuration:                 250 * time.Millisecond,
-		TCPConnectSuccess:                 true,
-		TCPConnectDuration:                500 * time.Millisecond,
-		TCPMSS:                            1448,
-		ServerIdentification:              "SSH-2.0-OpenSSH_9.6",
-		ServerIdentificationReceived:      true,
-		ServerIdentificationRFCConformant: true,
-		KeyExchangeSuccess:                true,
-		KeyExchangeDuration:               time.Second,
-		KEXAlgorithm:                      "curve25519-sha256",
-		ServerHostKeyVerifySuccess:        true,
-		ServerHostKeyAlgorithm:            "ssh-ed25519",
-		EncryptionServerToClient:          "aes128-gcm@openssh.com",
-		EncryptionClientToServer:          "chacha20-poly1305@openssh.com",
-		Duration:                          2 * time.Second,
-		Success:                           true,
+		DNSLookup:                    true,
+		DNSLookupSuccess:             true,
+		DNSLookupDuration:            250 * time.Millisecond,
+		TCPConnectSuccess:            true,
+		TCPConnectDuration:           500 * time.Millisecond,
+		TCPMSS:                       1448,
+		ServerIdentificationReceived: true,
+		ServerIdentification:         probe.ServerIdentification{String: "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3", ProtoVersion: "2.0", SoftwareVersion: "OpenSSH_9.6p1", Comments: "Ubuntu-3", RFCConformant: true},
+		KeyExchangeSuccess:           true,
+		KeyExchangeDuration:          time.Second,
+		KEXAlgorithm:                 "curve25519-sha256",
+		ServerHostKeyVerifySuccess:   true,
+		ServerHostKeyAlgorithm:       "ssh-ed25519",
+		EncryptionServerToClient:     "aes128-gcm@openssh.com",
+		EncryptionClientToServer:     "chacha20-poly1305@openssh.com",
+		Duration:                     2 * time.Second,
+		Success:                      true,
 	}
 	mfs := collectMetrics(t, result)
 
@@ -118,8 +117,15 @@ func TestCollectFullSuccess(t *testing.T) {
 	if got := singleValue(t, mfs, "ssh_transport_tcp_mss_bytes"); got != 1448 {
 		t.Errorf("tcp_mss_bytes = %v, want 1448", got)
 	}
-	if got := labelValue(t, mfs, "ssh_transport_server_identification_info", "version"); got != "SSH-2.0-OpenSSH_9.6" {
-		t.Errorf("server_identification_info version = %q", got)
+	for label, want := range map[string]string{
+		"identification_string": "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3",
+		"protoversion":          "2.0",
+		"softwareversion":       "OpenSSH_9.6p1",
+		"comments":              "Ubuntu-3",
+	} {
+		if got := labelValue(t, mfs, "ssh_transport_server_identification_info", label); got != want {
+			t.Errorf("server_identification_info %s = %q, want %q", label, got, want)
+		}
 	}
 	if got := singleValue(t, mfs, "ssh_transport_key_exchange_success"); got != 1 {
 		t.Errorf("key_exchange_success = %v, want 1", got)
@@ -168,15 +174,15 @@ func TestCollectNonConformantServerIdentification(t *testing.T) {
 	mfs := collectMetrics(t, probe.Result{
 		TCPConnectSuccess:            true,
 		KeyExchangeSuccess:           true,
-		ServerIdentification:         "SSH-2.0-Cisco-1.25",
 		ServerIdentificationReceived: true,
+		ServerIdentification:         probe.ServerIdentification{String: "SSH-2.0-Cisco-1.25", ProtoVersion: "2.0", SoftwareVersion: "Cisco-1.25"},
 	})
 
 	if got := singleValue(t, mfs, "ssh_transport_server_identification_rfc_conformant"); got != 0 {
 		t.Errorf("server_identification_rfc_conformant = %v, want 0", got)
 	}
-	if got := labelValue(t, mfs, "ssh_transport_server_identification_info", "version"); got != "SSH-2.0-Cisco-1.25" {
-		t.Errorf("server_identification_info version = %q, want SSH-2.0-Cisco-1.25", got)
+	if got := labelValue(t, mfs, "ssh_transport_server_identification_info", "softwareversion"); got != "Cisco-1.25" {
+		t.Errorf("server_identification_info softwareversion = %q, want Cisco-1.25", got)
 	}
 }
 
@@ -309,7 +315,7 @@ func TestCollectOmissionBranches(t *testing.T) {
 		t.Error("server_host_key_algorithm_info present when algorithm empty, want absent")
 	}
 	if _, ok := mfs["ssh_transport_server_identification_info"]; ok {
-		t.Error("server_identification_info present when version empty, want absent")
+		t.Error("server_identification_info present when none was received, want absent")
 	}
 	// key_exchange_duration_seconds is still emitted because the key exchange succeeded.
 	if got := singleValue(t, mfs, "ssh_transport_key_exchange_duration_seconds"); got != 1 {

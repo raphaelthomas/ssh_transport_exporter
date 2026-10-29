@@ -52,11 +52,11 @@ func TestRunSuccess(t *testing.T) {
 	if result.ServerHostKeyAlgorithm != ssh.KeyAlgoED25519 {
 		t.Errorf("ServerHostKeyAlgorithm = %q, want %q", result.ServerHostKeyAlgorithm, ssh.KeyAlgoED25519)
 	}
-	if result.ServerIdentification != "SSH-2.0-TestServer_1.0" {
-		t.Errorf("ServerIdentification = %q, want SSH-2.0-TestServer_1.0", result.ServerIdentification)
+	if want := (ServerIdentification{"SSH-2.0-TestServer_1.0", "2.0", "TestServer_1.0", "", true}); result.ServerIdentification != want {
+		t.Errorf("ServerIdentification = %+v, want %+v", result.ServerIdentification, want)
 	}
-	if !result.ServerIdentificationReceived || !result.ServerIdentificationRFCConformant {
-		t.Errorf("ServerIdentificationReceived = %t, ServerIdentificationRFCConformant = %t, want both true", result.ServerIdentificationReceived, result.ServerIdentificationRFCConformant)
+	if !result.ServerIdentificationReceived {
+		t.Error("ServerIdentificationReceived = false, want true")
 	}
 	if result.EncryptionClientToServer == "" || result.EncryptionServerToClient == "" {
 		t.Errorf("encryption client_to_server=%q server_to_client=%q, want both set", result.EncryptionClientToServer, result.EncryptionServerToClient)
@@ -89,7 +89,7 @@ func TestRunAbortsAtTransportReady(t *testing.T) {
 		t.Fatalf("KeyExchangeSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
 	}
 	for _, f := range []struct{ name, got string }{
-		{"ServerIdentification", result.ServerIdentification},
+		{"ServerIdentification", result.ServerIdentification.String},
 		{"KEXAlgorithm", result.KEXAlgorithm},
 		{"ServerHostKeyAlgorithm", result.ServerHostKeyAlgorithm},
 		{"EncryptionClientToServer", result.EncryptionClientToServer},
@@ -240,12 +240,13 @@ func TestRunStripsServerIdentificationComments(t *testing.T) {
 	const banner = "SSH-2.0-TestServer_1.0 Debian-2+deb12u10"
 
 	for _, tt := range []struct {
-		name  string
-		strip bool
-		want  string
+		name         string
+		strip        bool
+		want         string
+		wantComments string
 	}{
-		{"off keeps the comment", false, banner},
-		{"on drops the comment", true, "SSH-2.0-TestServer_1.0"},
+		{"off keeps the comments", false, banner, "Debian-2+deb12u10"},
+		{"on drops the comments", true, "SSH-2.0-TestServer_1.0", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -259,8 +260,8 @@ func TestRunStripsServerIdentificationComments(t *testing.T) {
 				StripServerIdentificationComments: tt.strip,
 			})
 
-			if result.ServerIdentification != tt.want {
-				t.Errorf("ServerIdentification = %q, want %q", result.ServerIdentification, tt.want)
+			if got := result.ServerIdentification; got.String != tt.want || got.Comments != tt.wantComments {
+				t.Errorf("ServerIdentification = %q, comments %q, want %q, comments %q", got.String, got.Comments, tt.want, tt.wantComments)
 			}
 		})
 	}
@@ -650,11 +651,11 @@ func TestRunDropsUnparsableServerIdentification(t *testing.T) {
 	defer cancel()
 
 	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
-	if result.ServerIdentification != "" {
-		t.Errorf("ServerIdentification = %q, want it dropped as unparsable", result.ServerIdentification)
+	if result.ServerIdentification != (ServerIdentification{}) {
+		t.Errorf("ServerIdentification = %+v, want it dropped as unparsable", result.ServerIdentification)
 	}
-	if !result.ServerIdentificationReceived || result.ServerIdentificationRFCConformant {
-		t.Errorf("ServerIdentificationReceived = %t, ServerIdentificationRFCConformant = %t, want true, false", result.ServerIdentificationReceived, result.ServerIdentificationRFCConformant)
+	if !result.ServerIdentificationReceived {
+		t.Error("ServerIdentificationReceived = false, want true")
 	}
 	if !result.KeyExchangeSuccess {
 		t.Error("KeyExchangeSuccess = false, want true")

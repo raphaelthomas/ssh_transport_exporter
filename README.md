@@ -221,11 +221,11 @@ The exporter holds no credentials and never authenticates, so a probed host
 cannot obtain anything from it. Data coming back from a target is treated as
 untrusted and never reaches a Prometheus label unvalidated.
 
-The one label a target still controls is the identification string on
-`ssh_transport_server_identification_info`, so a host that varies its banner
-varies the series. Setting `strip_server_identification_comments` on a module
-reduces the label to the software version, and dropping the metric at scrape
-time bounds it entirely:
+The labels a target still controls are the identification string and its
+fields on `ssh_transport_server_identification_info`, so a host that varies its
+identification string varies the series. Setting
+`strip_server_identification_comments` on a module drops the comments from these
+labels, and dropping the metric at scrape time bounds it entirely:
 
 ```yaml
     metric_relabel_configs:
@@ -304,7 +304,7 @@ ssh_transport_server_host_key_verify_success 1
 
 # HELP ssh_transport_server_identification_info Identification string sent by the server (RFC 4253 section 4.2). Absent if none was received or it could not be parsed.
 # TYPE ssh_transport_server_identification_info gauge
-ssh_transport_server_identification_info{version="SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10"} 1
+ssh_transport_server_identification_info{comments="Debian-2+deb12u10",identification_string="SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10",protoversion="2.0",softwareversion="OpenSSH_9.2p1"} 1
 
 # HELP ssh_transport_server_identification_rfc_conformant Whether the server's identification string conforms to RFC 4253 section 4.2. Absent if none was received.
 # TYPE ssh_transport_server_identification_rfc_conformant gauge

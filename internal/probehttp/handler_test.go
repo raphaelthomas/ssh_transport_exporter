@@ -183,7 +183,8 @@ func TestHandlerSuccess(t *testing.T) {
 		"ssh_transport_server_host_key_verify_success 1",
 		"ssh_transport_tcp_connect_duration_seconds",
 		"ssh_transport_key_exchange_duration_seconds",
-		`ssh_transport_server_identification_info{version="SSH-2.0-TestServer_1.0"} 1`,
+		`identification_string="SSH-2.0-TestServer_1.0"`,
+		`softwareversion="TestServer_1.0"`,
 		`ssh_transport_encryption_algorithm_info{algorithm=`,
 	} {
 		if !strings.Contains(body, want) {

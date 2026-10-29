@@ -84,7 +84,7 @@ var (
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemServerIdent, "info"),
 			"Identification string sent by the server (RFC 4253 section 4.2). Absent if none was received or it could not be parsed.",
-			[]string{"version"},
+			[]string{"identification_string", "protoversion", "softwareversion", "comments"},
 			nil,
 		),
 		prometheus.GaugeValue,
@@ -246,9 +246,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"tcp_connect_success", result.TCPConnectSuccess,
 			"tcp_connect_duration", result.TCPConnectDuration,
 			"tcp_mss", result.TCPMSS,
-			"server_identification", result.ServerIdentification,
 			"server_identification_received", result.ServerIdentificationReceived,
-			"server_identification_rfc_conformant", result.ServerIdentificationRFCConformant,
+			"server_identification", result.ServerIdentification,
 			"kex_algorithm", result.KEXAlgorithm,
 			"server_host_key_algorithm", result.ServerHostKeyAlgorithm,
 			"encryption_client_to_server", result.EncryptionClientToServer,
@@ -281,10 +280,11 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	if result.ServerIdentificationReceived {
-		if result.ServerIdentification != "" {
-			ch <- serverIdentificationInfoDesc.mustNewConstMetric(1, result.ServerIdentification)
+		id := result.ServerIdentification
+		if id.String != "" {
+			ch <- serverIdentificationInfoDesc.mustNewConstMetric(1, id.String, id.ProtoVersion, id.SoftwareVersion, id.Comments)
 		}
-		ch <- serverIdentificationRFCConformantDesc.mustNewConstMetric(boolToFloat64(result.ServerIdentificationRFCConformant))
+		ch <- serverIdentificationRFCConformantDesc.mustNewConstMetric(boolToFloat64(id.RFCConformant))
 	}
 
 	if result.KeyExchangeSuccess && result.KEXAlgorithm != "" {

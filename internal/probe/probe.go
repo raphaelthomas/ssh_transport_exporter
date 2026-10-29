@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
-	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -55,10 +54,9 @@ type Result struct {
 	TCPConnectDuration time.Duration
 	TCPMSS             int
 
-	// ServerIdentification is empty if none was received or it could not be parsed.
-	ServerIdentification              string
-	ServerIdentificationReceived      bool
-	ServerIdentificationRFCConformant bool
+	ServerIdentificationReceived bool
+	// ServerIdentification is zero if none was received or it could not be parsed.
+	ServerIdentification ServerIdentification
 
 	KeyExchangeSuccess  bool
 	KeyExchangeDuration time.Duration
@@ -234,16 +232,15 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		},
 		TransportReadyCallback: func(tc *ssh.ClientTransportReadyContext) error {
 			rawIdent := tc.Metadata.ServerVersion()
-			rfcConformant, err := parseServerIdentification(rawIdent)
+			ident, err := parseServerIdentification(rawIdent)
 			result.ServerIdentificationReceived = true
-			result.ServerIdentificationRFCConformant = rfcConformant
 			switch {
 			case err != nil:
 				logger.Debug("dropping unparsable server identification string", "target", target, "identification", string(rawIdent), "error", err)
 			case opts.StripServerIdentificationComments:
-				result.ServerIdentification = stripServerIdentificationComments(string(rawIdent))
+				result.ServerIdentification = ident.withoutComments()
 			default:
-				result.ServerIdentification = string(rawIdent)
+				result.ServerIdentification = ident
 			}
 			result.KeyExchangeDuration = time.Since(kexStart)
 			result.KEXAlgorithm = tc.Algorithms.KeyExchange
@@ -370,48 +367,65 @@ func classifyKexError(ctx context.Context, err error) string {
 	return ErrReasonOther
 }
 
-// parseServerIdentification reports whether raw conforms to RFC 4253, section
-// 4.2. An error means raw cannot be parsed and must not be exported, since it
-// is untrusted input that ends up in a label value.
-func parseServerIdentification(raw []byte) (rfcConformant bool, err error) {
+// ServerIdentification is the server's identification string, split into its
+// RFC 4253, section 4.2 fields.
+type ServerIdentification struct {
+	String          string
+	ProtoVersion    string
+	SoftwareVersion string
+	Comments        string
+	RFCConformant   bool
+}
+
+// parseServerIdentification splits raw into its fields. An error means raw
+// cannot be parsed and must not be exported, since it is untrusted input that
+// ends up in label values.
+func parseServerIdentification(raw []byte) (ServerIdentification, error) {
 	const maxLen = 255 // see RFC 4253, section 4.2
 
 	if len(raw) > maxLen {
-		return false, fmt.Errorf("longer than %d characters", maxLen)
+		return ServerIdentification{}, fmt.Errorf("longer than %d characters", maxLen)
 	}
 
 	// RFC 4253, section 5.1 defines 2.0 and 1.99 as the only protoversions.
-	rest, ok := bytes.CutPrefix(raw, []byte("SSH-2.0-"))
-	if !ok {
-		rest, ok = bytes.CutPrefix(raw, []byte("SSH-1.99-"))
+	var proto string
+	var rest []byte
+	for _, v := range []string{"2.0", "1.99"} {
+		if r, ok := bytes.CutPrefix(raw, []byte("SSH-"+v+"-")); ok {
+			proto, rest = v, r
+			break
+		}
 	}
-	if !ok {
-		return false, errors.New(`does not start with "SSH-2.0-" or "SSH-1.99-"`)
+	if proto == "" {
+		return ServerIdentification{}, errors.New(`does not start with "SSH-2.0-" or "SSH-1.99-"`)
 	}
 
 	for _, c := range rest {
 		if c < 0x20 || c > 0x7e {
-			return false, errors.New("contains characters other than printable US-ASCII")
+			return ServerIdentification{}, errors.New("contains characters other than printable US-ASCII")
 		}
 	}
 
 	// softwareversion runs up to the optional comments, and must be present.
-	software, _, _ := bytes.Cut(rest, []byte{' '})
+	software, comments, _ := bytes.Cut(rest, []byte{' '})
 	if len(software) == 0 {
-		return false, errors.New("softwareversion is empty")
+		return ServerIdentification{}, errors.New("softwareversion is empty")
 	}
 
-	// The limit includes the CR LF, which x/crypto has already stripped.
-	if len(raw) > maxLen-len("\r\n") {
-		return false, nil
-	}
-
-	// Servers in the wild put a minus in softwareversion (e.g. "Cisco-1.25"),
-	// so it is parsed and exported, just not RFC conformant.
-	return !bytes.Contains(software, []byte{'-'}), nil
+	return ServerIdentification{
+		String:          string(raw),
+		ProtoVersion:    proto,
+		SoftwareVersion: string(software),
+		Comments:        string(comments),
+		// The length limit includes the CR LF, which x/crypto has already
+		// stripped. Servers in the wild put a minus in softwareversion (e.g.
+		// "Cisco-1.25"), so it is parsed and exported, just not RFC conformant.
+		RFCConformant: len(raw) <= maxLen-len("\r\n") && !bytes.ContainsRune(software, '-'),
+	}, nil
 }
 
-func stripServerIdentificationComments(version string) string {
-	software, _, _ := strings.Cut(version, " ")
-	return software
+func (s ServerIdentification) withoutComments() ServerIdentification {
+	s.String = "SSH-" + s.ProtoVersion + "-" + s.SoftwareVersion
+	s.Comments = ""
+	return s
 }
