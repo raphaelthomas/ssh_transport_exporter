@@ -4,7 +4,6 @@ package config
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"slices"
 
@@ -53,7 +52,6 @@ func validateAlgorithms(kind string, names []string, known map[string]struct{}) 
 
 // rawConfigModule defines one named probe configuration as written in YAML.
 type rawConfigModule struct {
-	KnownHosts        string   `yaml:"known_hosts,omitempty"`
 	KnownHostsFile    string   `yaml:"known_hosts_file,omitempty"`
 	AllowedTargets    []string `yaml:"allowed_targets,omitempty"`
 	AllowedPorts      []int    `yaml:"allowed_ports,omitempty"`
@@ -68,7 +66,6 @@ type rawConfigModule struct {
 
 // rawConfig is the top-level YAML structure.
 type rawConfig struct {
-	KnownHosts     string                     `yaml:"known_hosts,omitempty"`
 	KnownHostsFile string                     `yaml:"known_hosts_file,omitempty"`
 	AllowedTargets []string                   `yaml:"allowed_targets,omitempty"`
 	AllowedPorts   []int                      `yaml:"allowed_ports,omitempty"`
@@ -88,7 +85,7 @@ type rawConfig struct {
 // loadRawConfig reads, resolves defaults/inheritance, and validates the
 // config file at path. It is pure aside from reading the file itself: it
 // performs no known_hosts I/O and builds no callbacks.
-func loadRawConfig(path string, allowAllTargetsFlag bool, logger *slog.Logger) (*rawConfig, error) {
+func loadRawConfig(path string, allowAllTargetsFlag bool) (*rawConfig, error) {
 	//nolint:gosec // G304: reading the operator-supplied config path is the point.
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -110,27 +107,12 @@ func loadRawConfig(path string, allowAllTargetsFlag bool, logger *slog.Logger) (
 	cfg.allowAllTargets = allowAllTargetsFlag && len(cfg.AllowedTargets) == 0
 
 	for name, mod := range cfg.Modules {
-		// known_hosts resolution, most to least specific:
-		//   1. module known_hosts (inline)
-		//   2. module known_hosts_file
-		//   3. default known_hosts (inline)
-		//   4. default known_hosts_file
-		switch {
-		case mod.KnownHosts != "":
-			if mod.KnownHostsFile != "" {
-				logger.Warn("module sets both known_hosts and known_hosts_file; known_hosts (inline) takes precedence and known_hosts_file is ignored", "module", name, "known_hosts_file", mod.KnownHostsFile)
-			}
-			mod.KnownHostsFile = ""
-		case mod.KnownHostsFile != "":
-			// Module explicitly set a file, claim this case so we don't fall to the
-			// branch below and wrongly override the file.
-		case cfg.KnownHosts != "":
-			mod.KnownHosts = cfg.KnownHosts
-		default:
+		// known_hosts_file: inherit default when the module sets none.
+		if mod.KnownHostsFile == "" {
 			mod.KnownHostsFile = cfg.KnownHostsFile
 		}
-		if mod.KnownHosts == "" && mod.KnownHostsFile == "" {
-			return nil, fmt.Errorf("module %q: known_hosts or known_hosts_file is required (neither set at module level nor in defaults)", name)
+		if mod.KnownHostsFile == "" {
+			return nil, fmt.Errorf("module %q: known_hosts_file is required (not set at module level or in defaults)", name)
 		}
 
 		// allowed_targets: inherit default when the module sets none (nil and

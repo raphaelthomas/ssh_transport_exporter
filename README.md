@@ -30,7 +30,7 @@ alternative that provides these capabilities is the
 
 ## Quick Start
 
-Create `ssh_transport_exporter.yaml` with a `known_hosts` source to verify
+Create `ssh_transport_exporter.yaml` with a `known_hosts` file to verify
 targets against, and the targets and ports the exporter is allowed to probe:
 
 ```yaml

@@ -31,11 +31,19 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+// knownHostsFile writes a syntactically valid known_hosts file, which a config
+// needs in order to build, and returns its path.
+func knownHostsFile(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	writeFile(t, path, "example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ1PBHkQPBnPqJ8pI8Fzq1RJgSJRfCLYVOJyGvVJZ8Nq\n")
+	return path
+}
+
 // configWithModules renders a minimal valid config defining the named modules.
-func configWithModules(names ...string) string {
-	// A syntactically valid known_hosts line is required for the config to build.
-	const knownHosts = "example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ1PBHkQPBnPqJ8pI8Fzq1RJgSJRfCLYVOJyGvVJZ8Nq"
-	s := fmt.Sprintf("known_hosts: %q\nallowed_targets: [\"example.com\"]\nmodules:\n", knownHosts)
+func configWithModules(t *testing.T, names ...string) string {
+	t.Helper()
+	s := fmt.Sprintf("known_hosts_file: %q\nallowed_targets: [\"example.com\"]\nmodules:\n", knownHostsFile(t))
 	for _, n := range names {
 		s += "  " + n + ": {}\n"
 	}
@@ -44,7 +52,7 @@ func configWithModules(names ...string) string {
 
 func TestReloadSwapsLiveModules(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	writeFile(t, path, configWithModules("a"))
+	writeFile(t, path, configWithModules(t, "a"))
 
 	logger := slog.New(slog.DiscardHandler)
 	cfg := &flags{ConfigFile: path}
@@ -58,7 +66,7 @@ func TestReloadSwapsLiveModules(t *testing.T) {
 	live.Store(&initial)
 
 	// Rewrite the config with a different module set and reload.
-	writeFile(t, path, configWithModules("a", "b"))
+	writeFile(t, path, configWithModules(t, "a", "b"))
 	reload(logger, cfg, &live, reloadMetrics)
 
 	got := *live.Load()
@@ -78,7 +86,7 @@ func TestReloadSwapsLiveModules(t *testing.T) {
 
 func TestReloadKeepsPreviousConfigOnError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	writeFile(t, path, configWithModules("a"))
+	writeFile(t, path, configWithModules(t, "a"))
 
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
@@ -114,7 +122,7 @@ func TestReloadKeepsPreviousConfigOnError(t *testing.T) {
 func TestReloadMissingFileKeepsPreviousConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	writeFile(t, path, configWithModules("a"))
+	writeFile(t, path, configWithModules(t, "a"))
 
 	logger := slog.New(slog.DiscardHandler)
 	cfg := &flags{ConfigFile: path}
@@ -141,8 +149,7 @@ func TestReloadMissingFileKeepsPreviousConfig(t *testing.T) {
 func TestReloadHonorsAllowAllTargets(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	// No allowed_targets: only valid when allow-all is enabled.
-	const knownHosts = "example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ1PBHkQPBnPqJ8pI8Fzq1RJgSJRfCLYVOJyGvVJZ8Nq"
-	writeFile(t, path, fmt.Sprintf("known_hosts: %q\nmodules:\n  a: {}\n", knownHosts))
+	writeFile(t, path, fmt.Sprintf("known_hosts_file: %q\nmodules:\n  a: {}\n", knownHostsFile(t)))
 
 	logger := slog.New(slog.DiscardHandler)
 	reloadMetrics := newConfigReloadMetrics()
@@ -332,7 +339,7 @@ func TestServeStopsSignalHandlerOnListenerError(t *testing.T) {
 // SIGHUP reloads config and leaves the server serving.
 func TestServeReloadsOnSIGHUPAndKeepsServing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	writeFile(t, path, configWithModules("a"))
+	writeFile(t, path, configWithModules(t, "a"))
 
 	initial, err := config.Load(path, false, slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -346,7 +353,7 @@ func TestServeReloadsOnSIGHUPAndKeepsServing(t *testing.T) {
 	})
 	addr, sigCh, errCh := serveTestSetup(t, handler, &flags{ConfigFile: path}, &live)
 
-	writeFile(t, path, configWithModules("a", "b"))
+	writeFile(t, path, configWithModules(t, "a", "b"))
 	sigCh <- syscall.SIGHUP
 
 	// Poll until the reload lands; the signal is handled asynchronously.

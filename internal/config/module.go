@@ -3,9 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
-	"os"
 
-	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
@@ -25,7 +23,7 @@ type Module struct {
 // modules keyed by name. It is the single entry point for both initial
 // startup and SIGHUP reload.
 func Load(configFilePath string, allowAllTargets bool, logger *slog.Logger) (map[string]Module, error) {
-	raw, err := loadRawConfig(configFilePath, allowAllTargets, logger)
+	raw, err := loadRawConfig(configFilePath, allowAllTargets)
 	if err != nil {
 		return nil, fmt.Errorf("loading config file: %w", err)
 	}
@@ -37,7 +35,7 @@ func Load(configFilePath string, allowAllTargets bool, logger *slog.Logger) (map
 func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 	modules := make(map[string]Module, len(raw.Modules))
 	for name, mod := range raw.Modules {
-		hostKeyCallback, err := buildHostKeyCallback(logger, mod)
+		hostKeyCallback, err := knownhosts.New(mod.KnownHostsFile)
 		if err != nil {
 			return nil, fmt.Errorf("module %q: loading known_hosts: %w", name, err)
 		}
@@ -81,35 +79,4 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 		)
 	}
 	return modules, nil
-}
-
-// buildHostKeyCallback builds an ssh.HostKeyCallback for a module. Inline
-// known_hosts is written to a temp file that is removed immediately;
-// knownhosts.New parses eagerly, so removal after construction is safe.
-func buildHostKeyCallback(logger *slog.Logger, mod rawConfigModule) (ssh.HostKeyCallback, error) {
-	if mod.KnownHosts == "" {
-		return knownhosts.New(mod.KnownHostsFile)
-	}
-
-	f, err := os.CreateTemp("", "ssh_transport_exporter-known_hosts-*")
-	if err != nil {
-		return nil, fmt.Errorf("creating temp known_hosts file: %w", err)
-	}
-	defer func() {
-		if err := os.Remove(f.Name()); err != nil {
-			logger.Warn("failed to remove temp known_hosts file", "path", f.Name(), "error", err)
-		}
-	}()
-
-	if _, err := f.WriteString(mod.KnownHosts); err != nil {
-		if closeErr := f.Close(); closeErr != nil {
-			logger.Warn("failed to close temp known_hosts file after write error", "path", f.Name(), "error", closeErr)
-		}
-		return nil, fmt.Errorf("writing temp known_hosts file: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return nil, fmt.Errorf("closing temp known_hosts file: %w", err)
-	}
-
-	return knownhosts.New(f.Name())
 }

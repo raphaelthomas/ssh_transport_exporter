@@ -27,6 +27,16 @@ func newHostKey(t *testing.T) ssh.PublicKey {
 	return signer.PublicKey()
 }
 
+// writeKnownHosts writes content to a temp known_hosts file and returns its path.
+func writeKnownHosts(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(path, []byte(content+"\n"), 0o600); err != nil {
+		t.Fatalf("writing known_hosts: %v", err)
+	}
+	return path
+}
+
 // exercise invokes a built HostKeyCallback for host "example.com:22".
 func exercise(cb ssh.HostKeyCallback, key ssh.PublicKey) error {
 	remote := &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 22}
@@ -35,13 +45,13 @@ func exercise(cb ssh.HostKeyCallback, key ssh.PublicKey) error {
 
 func TestLoadStripServerVersionComment(t *testing.T) {
 	content := fmt.Sprintf(`
-known_hosts: %q
+known_hosts_file: %q
 allowed_targets: ["example.com"]
 modules:
   keeps: {}
   strips:
     strip_server_version_comment: true
-`, knownhosts.Line([]string{"example.com:22"}, newHostKey(t)))
+`, writeKnownHosts(t, knownhosts.Line([]string{"example.com:22"}, newHostKey(t))))
 
 	modules, err := Load(writeConfig(t, content), false, discardLogger())
 	if err != nil {
@@ -59,14 +69,14 @@ modules:
 // it back off.
 func TestLoadStripServerVersionCommentDefault(t *testing.T) {
 	content := fmt.Sprintf(`
-known_hosts: %q
+known_hosts_file: %q
 allowed_targets: ["example.com"]
 strip_server_version_comment: true
 modules:
   inherits: {}
   cannot_opt_out:
     strip_server_version_comment: false
-`, knownhosts.Line([]string{"example.com:22"}, newHostKey(t)))
+`, writeKnownHosts(t, knownhosts.Line([]string{"example.com:22"}, newHostKey(t))))
 
 	modules, err := Load(writeConfig(t, content), false, discardLogger())
 	if err != nil {
@@ -79,18 +89,18 @@ modules:
 	}
 }
 
-func TestLoadInlineKnownHosts(t *testing.T) {
+func TestLoadKnownHostsFile(t *testing.T) {
 	pub := newHostKey(t)
 	line := knownhosts.Line([]string{"example.com:22"}, pub)
 
 	content := fmt.Sprintf(`
-known_hosts: %q
+known_hosts_file: %q
 allowed_targets: ["example.com"]
 target_port: 22
 allowed_ports: [22, 2222]
 modules:
   default: {}
-`, line)
+`, writeKnownHosts(t, line))
 
 	modules, err := Load(writeConfig(t, content), false, discardLogger())
 	if err != nil {
@@ -129,47 +139,18 @@ modules:
 	}
 }
 
-func TestLoadKnownHostsFile(t *testing.T) {
-	pub := newHostKey(t)
-	line := knownhosts.Line([]string{"example.com:22"}, pub)
-
-	khPath := filepath.Join(t.TempDir(), "known_hosts")
-	if err := os.WriteFile(khPath, []byte(line+"\n"), 0o600); err != nil {
-		t.Fatalf("writing known_hosts: %v", err)
-	}
-
-	content := fmt.Sprintf(`
-known_hosts_file: %q
-allowed_targets: ["example.com"]
-modules:
-  default: {}
-`, khPath)
-
-	modules, err := Load(writeConfig(t, content), false, discardLogger())
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	mod := modules[DefaultModuleName]
-	if mod.Options.HostKeyCallback == nil {
-		t.Fatal("HostKeyCallback is nil")
-	}
-	if err := exercise(mod.Options.HostKeyCallback, pub); err != nil {
-		t.Errorf("callback rejected the correct host key: %v", err)
-	}
-}
-
 func TestLoadCiphersAndAlgorithmsPassThrough(t *testing.T) {
 	pub := newHostKey(t)
 	line := knownhosts.Line([]string{"example.com:22"}, pub)
 
 	content := fmt.Sprintf(`
-known_hosts: %q
+known_hosts_file: %q
 allowed_targets: ["example.com"]
 modules:
   default:
     ciphers: ["aes128-gcm@openssh.com"]
     host_key_algorithms: ["ssh-ed25519"]
-`, line)
+`, writeKnownHosts(t, line))
 
 	modules, err := Load(writeConfig(t, content), false, discardLogger())
 	if err != nil {
@@ -189,10 +170,10 @@ func TestLoadAllowAllTargets(t *testing.T) {
 	line := knownhosts.Line([]string{"example.com:22"}, pub)
 
 	content := fmt.Sprintf(`
-known_hosts: %q
+known_hosts_file: %q
 modules:
   default: {}
-`, line)
+`, writeKnownHosts(t, line))
 
 	modules, err := Load(writeConfig(t, content), true, discardLogger())
 	if err != nil {
@@ -206,12 +187,12 @@ modules:
 
 func TestLoadErrors(t *testing.T) {
 	t.Run("bad known_hosts", func(t *testing.T) {
-		content := `
-known_hosts: "this is not a valid known_hosts entry"
+		content := fmt.Sprintf(`
+known_hosts_file: %q
 allowed_targets: ["example.com"]
 modules:
   default: {}
-`
+`, writeKnownHosts(t, "this is not a valid known_hosts entry"))
 		_, err := Load(writeConfig(t, content), false, discardLogger())
 		if err == nil {
 			t.Fatal("Load = nil error, want error for invalid known_hosts")
@@ -222,10 +203,10 @@ modules:
 		pub := newHostKey(t)
 		line := knownhosts.Line([]string{"example.com:22"}, pub)
 		content := fmt.Sprintf(`
-known_hosts: %q
+known_hosts_file: %q
 modules:
   default: {}
-`, line)
+`, writeKnownHosts(t, line))
 		_, err := Load(writeConfig(t, content), false, discardLogger())
 		if err == nil {
 			t.Fatal("Load = nil error, want error for missing allowed_targets")
