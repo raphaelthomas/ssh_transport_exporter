@@ -253,13 +253,11 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 	}
 
 	clientConfig := &ssh.ClientConfig{
-		User: "ssh_transport_exporter",
-		Auth: nil,
-		Config: ssh.Config{
-			Ciphers:      opts.Ciphers,
-			KeyExchanges: opts.KeyExchanges,
-			MACs:         opts.MACs,
-		},
+		User:              "ssh_transport_exporter",
+		Auth:              nil,
+		Ciphers:           opts.Ciphers,
+		KeyExchanges:      opts.KeyExchanges,
+		MACs:              opts.MACs,
 		HostKeyAlgorithms: hostKeyAlgorithms,
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			hk := hostKeyResult{verified: true}

@@ -67,7 +67,7 @@ func NewServer(t *testing.T, opts Options) *Server {
 			return nil, nil
 		},
 		ServerVersion: opts.ServerVersion,
-		Config:        ssh.Config{Ciphers: opts.Ciphers},
+		Ciphers:       opts.Ciphers,
 	}
 	cfg.AddHostKey(signer)
 
