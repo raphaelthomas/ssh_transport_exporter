@@ -58,8 +58,8 @@ func TestRunSuccess(t *testing.T) {
 	if result.ServerIdentificationMalformed {
 		t.Error("ServerIdentificationMalformed = true, want false for a conforming banner")
 	}
-	if result.CipherRead == "" || result.CipherWrite == "" {
-		t.Errorf("ciphers read=%q write=%q, want both set", result.CipherRead, result.CipherWrite)
+	if result.EncryptionClientToServer == "" || result.EncryptionServerToClient == "" {
+		t.Errorf("encryption client_to_server=%q server_to_client=%q, want both set", result.EncryptionClientToServer, result.EncryptionServerToClient)
 	}
 	if result.ErrorPhase != "" || result.ErrorReason != "" {
 		t.Errorf("error = %s/%s, want none", result.ErrorPhase, result.ErrorReason)
@@ -86,8 +86,8 @@ func TestRunAbortsAtTransportReady(t *testing.T) {
 		{"ServerIdentification", result.ServerIdentification},
 		{"KEXAlgorithm", result.KEXAlgorithm},
 		{"ServerHostKeyAlgorithm", result.ServerHostKeyAlgorithm},
-		{"CipherRead", result.CipherRead},
-		{"CipherWrite", result.CipherWrite},
+		{"EncryptionClientToServer", result.EncryptionClientToServer},
+		{"EncryptionServerToClient", result.EncryptionServerToClient},
 	} {
 		if f.got == "" {
 			t.Errorf("%s is empty, want it recorded by TransportReadyCallback", f.name)
@@ -114,8 +114,8 @@ func TestRunNegotiatesRequestedCipher(t *testing.T) {
 	if !result.KEXSuccess {
 		t.Fatalf("KEXSuccess = false (error %s/%s)", result.ErrorPhase, result.ErrorReason)
 	}
-	if result.CipherRead != cipher || result.CipherWrite != cipher {
-		t.Errorf("ciphers read=%q write=%q, want %q", result.CipherRead, result.CipherWrite, cipher)
+	if result.EncryptionClientToServer != cipher || result.EncryptionServerToClient != cipher {
+		t.Errorf("encryption client_to_server=%q server_to_client=%q, want %q", result.EncryptionClientToServer, result.EncryptionServerToClient, cipher)
 	}
 }
 

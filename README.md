@@ -263,14 +263,14 @@ The following probe result metrics are exported by the
 `ssh_transport_exporter`'s `/probe` endpoint for a successful probe:
 
 ```
-# HELP ssh_transport_cipher_info Negotiated cipher per direction. Absent unless key exchange completed.
-# TYPE ssh_transport_cipher_info gauge
-ssh_transport_cipher_info{cipher="aes128-gcm@openssh.com",direction="read"} 1
-ssh_transport_cipher_info{cipher="aes128-gcm@openssh.com",direction="write"} 1
-
 # HELP ssh_transport_dns_lookup_duration_seconds Time taken to resolve the target hostname. Absent for IP literal targets and when the lookup fails.
 # TYPE ssh_transport_dns_lookup_duration_seconds gauge
 ssh_transport_dns_lookup_duration_seconds 0.004120583
+
+# HELP ssh_transport_encryption_algorithm_info Negotiated encryption algorithm per direction (RFC 4253 section 7.1). Absent unless key exchange completed.
+# TYPE ssh_transport_encryption_algorithm_info gauge
+ssh_transport_encryption_algorithm_info{algorithm="aes128-gcm@openssh.com",direction="client_to_server"} 1
+ssh_transport_encryption_algorithm_info{algorithm="aes128-gcm@openssh.com",direction="server_to_client"} 1
 
 # HELP ssh_transport_kex_algorithm_info Negotiated key exchange algorithm. Absent unless key exchange completed.
 # TYPE ssh_transport_kex_algorithm_info gauge

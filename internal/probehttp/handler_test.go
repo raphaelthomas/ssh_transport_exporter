@@ -184,7 +184,7 @@ func TestHandlerSuccess(t *testing.T) {
 		"ssh_transport_tcp_connect_duration_seconds",
 		"ssh_transport_kex_duration_seconds",
 		`ssh_transport_server_identification_info{version="SSH-2.0-TestServer_1.0"} 1`,
-		`ssh_transport_cipher_info{cipher=`,
+		`ssh_transport_encryption_algorithm_info{algorithm=`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("response body missing %q\nbody:\n%s", want, body)

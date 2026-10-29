@@ -86,8 +86,8 @@ func TestCollectFullSuccess(t *testing.T) {
 		KEXAlgorithm:               "curve25519-sha256",
 		ServerHostKeyVerifySuccess: true,
 		ServerHostKeyAlgorithm:     "ssh-ed25519",
-		CipherRead:                 "aes128-gcm@openssh.com",
-		CipherWrite:                "chacha20-poly1305@openssh.com",
+		EncryptionServerToClient:   "aes128-gcm@openssh.com",
+		EncryptionClientToServer:   "chacha20-poly1305@openssh.com",
 	}
 	mfs := collectMetrics(t, result)
 
@@ -122,15 +122,15 @@ func TestCollectFullSuccess(t *testing.T) {
 		t.Errorf("server_host_key_algorithm_info algorithm = %q", got)
 	}
 
-	if m := directionSeries(mfs, "ssh_transport_cipher_info", "read"); m == nil {
-		t.Error("cipher_info read series missing")
-	} else if got := labelOf(m, "cipher"); got != "aes128-gcm@openssh.com" {
-		t.Errorf("cipher_info read cipher = %q", got)
+	if m := directionSeries(mfs, "ssh_transport_encryption_algorithm_info", "server_to_client"); m == nil {
+		t.Error("encryption_algorithm_info server_to_client series missing")
+	} else if got := labelOf(m, "algorithm"); got != "aes128-gcm@openssh.com" {
+		t.Errorf("encryption_algorithm_info server_to_client algorithm = %q", got)
 	}
-	if m := directionSeries(mfs, "ssh_transport_cipher_info", "write"); m == nil {
-		t.Error("cipher_info write series missing")
-	} else if got := labelOf(m, "cipher"); got != "chacha20-poly1305@openssh.com" {
-		t.Errorf("cipher_info write cipher = %q", got)
+	if m := directionSeries(mfs, "ssh_transport_encryption_algorithm_info", "client_to_server"); m == nil {
+		t.Error("encryption_algorithm_info client_to_server series missing")
+	} else if got := labelOf(m, "algorithm"); got != "chacha20-poly1305@openssh.com" {
+		t.Errorf("encryption_algorithm_info client_to_server algorithm = %q", got)
 	}
 
 	// The sample negotiates AEAD ciphers, so no separate MAC is agreed.
@@ -204,7 +204,7 @@ func TestCollectTCPFailure(t *testing.T) {
 		"ssh_transport_kex_duration_seconds",
 		"ssh_transport_kex_algorithm_info",
 		"ssh_transport_server_host_key_algorithm_info",
-		"ssh_transport_cipher_info",
+		"ssh_transport_encryption_algorithm_info",
 		"ssh_transport_mac_info",
 	} {
 		if _, ok := mfs[name]; ok {
@@ -223,15 +223,15 @@ func TestCollectTCPFailure(t *testing.T) {
 func TestCollectOmissionBranches(t *testing.T) {
 	t.Parallel()
 	result := probe.Result{
-		TCPConnectSuccess:      true,
-		TCPConnectDuration:     time.Second,
-		TCPMSS:                 0,
-		KEXSuccess:             true,
-		KEXDuration:            time.Second,
-		KEXAlgorithm:           "",
-		ServerHostKeyAlgorithm: "",
-		CipherRead:             "aes256-ctr",
-		CipherWrite:            "",
+		TCPConnectSuccess:        true,
+		TCPConnectDuration:       time.Second,
+		TCPMSS:                   0,
+		KEXSuccess:               true,
+		KEXDuration:              time.Second,
+		KEXAlgorithm:             "",
+		ServerHostKeyAlgorithm:   "",
+		EncryptionServerToClient: "aes256-ctr",
+		EncryptionClientToServer: "",
 	}
 	mfs := collectMetrics(t, result)
 
@@ -254,11 +254,11 @@ func TestCollectOmissionBranches(t *testing.T) {
 	if got := singleValue(t, mfs, "ssh_transport_kex_duration_seconds"); got != 1 {
 		t.Errorf("kex_duration_seconds = %v, want 1", got)
 	}
-	if m := directionSeries(mfs, "ssh_transport_cipher_info", "read"); m == nil {
-		t.Error("cipher_info read series missing")
+	if m := directionSeries(mfs, "ssh_transport_encryption_algorithm_info", "server_to_client"); m == nil {
+		t.Error("encryption_algorithm_info server_to_client series missing")
 	}
-	if m := directionSeries(mfs, "ssh_transport_cipher_info", "write"); m != nil {
-		t.Error("cipher_info write series present, want absent")
+	if m := directionSeries(mfs, "ssh_transport_encryption_algorithm_info", "client_to_server"); m != nil {
+		t.Error("encryption_algorithm_info client_to_server series present, want absent")
 	}
 }
 
@@ -266,12 +266,12 @@ func TestCollectOmissionBranches(t *testing.T) {
 func TestCollectMACInfo(t *testing.T) {
 	t.Parallel()
 	mfs := collectMetrics(t, probe.Result{
-		TCPConnectSuccess: true,
-		KEXSuccess:        true,
-		CipherRead:        "aes128-cbc",
-		CipherWrite:       "aes128-cbc",
-		MACRead:           "hmac-sha1",
-		MACWrite:          "hmac-sha2-256",
+		TCPConnectSuccess:        true,
+		KEXSuccess:               true,
+		EncryptionServerToClient: "aes128-cbc",
+		EncryptionClientToServer: "aes128-cbc",
+		MACRead:                  "hmac-sha1",
+		MACWrite:                 "hmac-sha2-256",
 	})
 
 	if m := directionSeries(mfs, "ssh_transport_mac_info", "read"); m == nil {

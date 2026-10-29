@@ -19,7 +19,7 @@ const (
 	subSystemServerIdent   = "server_identification"
 	subSystemKEX           = "kex"
 	subSystemServerHostKey = "server_host_key"
-	subSystemCipher        = "cipher"
+	subSystemEncryption    = "encryption"
 	subSystemMAC           = "mac"
 	subSystemError         = "error"
 )
@@ -106,11 +106,11 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
-	cipherInfoDesc = typedDesc{
+	encryptionAlgorithmInfoDesc = typedDesc{
 		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemCipher, "info"),
-			"Negotiated cipher per direction. Absent unless key exchange completed.",
-			[]string{"direction", "cipher"},
+			prometheus.BuildFQName(namespace, subSystemEncryption, "algorithm_info"),
+			"Negotiated encryption algorithm per direction (RFC 4253 section 7.1). Absent unless key exchange completed.",
+			[]string{"direction", "algorithm"},
 			nil,
 		),
 		prometheus.GaugeValue,
@@ -193,7 +193,7 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- serverIdentificationValidDesc.desc
 	ch <- kexAlgorithmInfoDesc.desc
 	ch <- serverHostKeyAlgorithmInfoDesc.desc
-	ch <- cipherInfoDesc.desc
+	ch <- encryptionAlgorithmInfoDesc.desc
 	ch <- macInfoDesc.desc
 	ch <- serverHostKeyVerifySuccessDesc.desc
 	ch <- kexSuccessDesc.desc
@@ -217,8 +217,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"server_identification_malformed", result.ServerIdentificationMalformed,
 			"kex_algorithm", result.KEXAlgorithm,
 			"server_host_key_algorithm", result.ServerHostKeyAlgorithm,
-			"cipher_read", result.CipherRead,
-			"cipher_write", result.CipherWrite,
+			"encryption_client_to_server", result.EncryptionClientToServer,
+			"encryption_server_to_client", result.EncryptionServerToClient,
 			"mac_read", result.MACRead,
 			"mac_write", result.MACWrite,
 			"server_host_key_verify_success", result.ServerHostKeyVerifySuccess,
@@ -257,11 +257,11 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- serverHostKeyAlgorithmInfoDesc.mustNewConstMetric(1, result.ServerHostKeyAlgorithm)
 	}
 
-	if result.CipherRead != "" {
-		ch <- cipherInfoDesc.mustNewConstMetric(1, "read", result.CipherRead)
+	if result.EncryptionClientToServer != "" {
+		ch <- encryptionAlgorithmInfoDesc.mustNewConstMetric(1, "client_to_server", result.EncryptionClientToServer)
 	}
-	if result.CipherWrite != "" {
-		ch <- cipherInfoDesc.mustNewConstMetric(1, "write", result.CipherWrite)
+	if result.EncryptionServerToClient != "" {
+		ch <- encryptionAlgorithmInfoDesc.mustNewConstMetric(1, "server_to_client", result.EncryptionServerToClient)
 	}
 
 	if result.MACRead != "" {

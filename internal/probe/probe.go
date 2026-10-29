@@ -63,8 +63,8 @@ type Result struct {
 	ServerHostKeyVerifySuccess bool
 	ServerHostKeyAlgorithm     string
 
-	CipherRead  string
-	CipherWrite string
+	EncryptionClientToServer string
+	EncryptionServerToClient string
 	// Negotiated MACs, empty for AEAD ciphers, which need none
 	MACRead  string
 	MACWrite string
@@ -236,8 +236,8 @@ func Run(ctx context.Context, target string, opts Options) Result {
 			result.KEXDuration = time.Since(kexStart)
 			result.KEXAlgorithm = tc.Algorithms.KeyExchange
 			result.ServerHostKeyAlgorithm = tc.Algorithms.HostKey
-			result.CipherRead = tc.Algorithms.Read.Cipher
-			result.CipherWrite = tc.Algorithms.Write.Cipher
+			result.EncryptionClientToServer = tc.Algorithms.Write.Cipher
+			result.EncryptionServerToClient = tc.Algorithms.Read.Cipher
 			result.MACRead = tc.Algorithms.Read.MAC
 			result.MACWrite = tc.Algorithms.Write.MAC
 
