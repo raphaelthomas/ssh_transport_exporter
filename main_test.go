@@ -332,7 +332,7 @@ func serveTestSetup(t *testing.T, handler http.Handler, rl *reloader) (string, c
 	sigCh := make(chan os.Signal, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- serve(slog.New(slog.DiscardHandler), srv, ln, sigCh, rl)
+		errCh <- serve(slog.New(slog.DiscardHandler), srv, func() error { return srv.Serve(ln) }, sigCh, rl)
 	}()
 	return "http://" + ln.Addr().String(), sigCh, errCh
 }
@@ -399,7 +399,7 @@ func TestServeStopsSignalHandlerOnListenerError(t *testing.T) {
 	errCh := make(chan error, 1)
 
 	go func() {
-		errCh <- serve(slog.New(slog.DiscardHandler), srv, ln, sigCh, &reloader{})
+		errCh <- serve(slog.New(slog.DiscardHandler), srv, func() error { return srv.Serve(ln) }, sigCh, &reloader{})
 	}()
 
 	// Break Accept so Serve fails with something other than ErrServerClosed.

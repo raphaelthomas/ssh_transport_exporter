@@ -217,10 +217,10 @@ const shutdownTimeout = 10 * time.Second
 // blackbox_exporter, so a probe times out and reports it before the scrape does.
 const probeTimeoutOffset = 500 * time.Millisecond
 
-// serve runs srv on ln until a termination signal arrives on sigCh, reloading
-// config on SIGHUP. It returns once in-flight requests have drained, so the
-// caller must not exit before it does.
-func serve(logger *slog.Logger, srv *http.Server, ln net.Listener, sigCh chan os.Signal, rl *reloader) error {
+// serve runs listenAndServe, which serves srv, until a termination signal
+// arrives on sigCh, reloading config on SIGHUP. It returns once in-flight
+// requests have drained, so the caller must not exit before it does.
+func serve(logger *slog.Logger, srv *http.Server, listenAndServe func() error, sigCh chan os.Signal, rl *reloader) error {
 	stop := make(chan struct{})
 	shutdownDone := make(chan struct{})
 
@@ -250,10 +250,10 @@ func serve(logger *slog.Logger, srv *http.Server, ln net.Listener, sigCh chan os
 		}
 	}()
 
-	err := srv.Serve(ln)
+	err := listenAndServe()
 	close(stop)
 
-	// Serve returns as soon as the listener closes; wait for the drain.
+	// listenAndServe returns as soon as the listener closes; wait for the drain.
 	<-shutdownDone
 
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -359,7 +359,7 @@ func main() {
 	}
 	logger.Info("HTTP server listening", "address", ln.Addr().String())
 
-	if err := serve(logger, srv, ln, sigCh, rl); err != nil {
+	if err := serve(logger, srv, func() error { return srv.Serve(ln) }, sigCh, rl); err != nil {
 		logger.Error("HTTP server error", "error", err)
 		os.Exit(1)
 	}
