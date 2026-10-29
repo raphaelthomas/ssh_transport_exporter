@@ -214,6 +214,31 @@ func TestLandingPage(t *testing.T) {
 	}
 }
 
+func TestHealthEndpoints(t *testing.T) {
+	mux := http.NewServeMux()
+	addHealthHandlers(mux)
+
+	for _, path := range []string{"/-/healthy", "/-/ready"} {
+		for _, tt := range []struct {
+			method   string
+			wantCode int
+		}{
+			{http.MethodGet, http.StatusOK},
+			{http.MethodHead, http.StatusOK},
+			{http.MethodPost, http.StatusMethodNotAllowed},
+		} {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest(tt.method, path, nil))
+			if rec.Code != tt.wantCode {
+				t.Errorf("%s %s = %d, want %d", tt.method, path, rec.Code, tt.wantCode)
+			}
+			if tt.method == http.MethodGet && rec.Body.String() != "OK\n" {
+				t.Errorf("GET %s body = %q, want %q", path, rec.Body.String(), "OK\n")
+			}
+		}
+	}
+}
+
 func TestLandingPageEscapesVersion(t *testing.T) {
 	if got := html.EscapeString(`1.0<script>`); strings.Contains(got, "<script>") {
 		t.Errorf("EscapeString(%q) = %q, want the tag escaped", `1.0<script>`, got)

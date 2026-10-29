@@ -166,6 +166,18 @@ func landingPageHandler(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(landingPage))
 }
 
+// The listener only opens once the config has loaded, and a failed reload keeps
+// the previous one, so the exporter is ready whenever it is healthy.
+func addHealthHandlers(mux *http.ServeMux) {
+	mux.HandleFunc("GET /-/healthy", healthHandler)
+	mux.HandleFunc("GET /-/ready", healthHandler)
+}
+
+func healthHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte("OK\n"))
+}
+
 const (
 	readHeaderTimeout = 5 * time.Second
 	idleTimeout       = 2 * time.Minute
@@ -283,6 +295,7 @@ func main() {
 	mux := http.NewServeMux()
 	// {$} matches only the root, so any other unrouted path still 404s.
 	mux.HandleFunc("GET /{$}", landingPageHandler)
+	addHealthHandlers(mux)
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/probe", probehttp.Handler(probehttp.Options{
 		Logger:        logger,

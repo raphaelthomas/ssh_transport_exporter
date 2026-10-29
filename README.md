@@ -172,6 +172,12 @@ The new configuration is validated before it is swapped in. If it is rejected,
 the error is logged and the previous configuration stays active, so a bad edit
 cannot take the exporter down.
 
+## Health Checks
+
+`/-/healthy` and `/-/ready` answer `200 OK` while the exporter runs. They are
+identical: the exporter only listens once its configuration has loaded, and a
+failed reload keeps the previous configuration.
+
 ## Tuning
 
 ### Probe timeout
