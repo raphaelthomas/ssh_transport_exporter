@@ -56,9 +56,6 @@ func TestRunSuccess(t *testing.T) {
 	if want := (ServerIdentification{"SSH-2.0-TestServer_1.0", "2.0", "TestServer_1.0", "", true}); result.ServerIdentification != want {
 		t.Errorf("ServerIdentification = %+v, want %+v", result.ServerIdentification, want)
 	}
-	if !result.ServerIdentificationReceived {
-		t.Error("ServerIdentificationReceived = false, want true")
-	}
 	if result.EncryptionClientToServer == "" || result.EncryptionServerToClient == "" {
 		t.Errorf("encryption client_to_server=%q server_to_client=%q, want both set", result.EncryptionClientToServer, result.EncryptionServerToClient)
 	}
@@ -155,7 +152,7 @@ func TestRunHostKeyAlgorithmsRespected(t *testing.T) {
 
 func TestRunKeyExchangesRespected(t *testing.T) {
 	t.Parallel()
-	srv := sshtest.NewServer(t, sshtest.Options{})
+	srv := sshtest.NewServer(t, sshtest.Options{ServerVersion: "SSH-2.0-TestServer_1.0"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -171,6 +168,9 @@ func TestRunKeyExchangesRespected(t *testing.T) {
 	}
 	if !result.VersionExchangeSuccess {
 		t.Error("VersionExchangeSuccess = false, want true before the key exchange fails")
+	}
+	if got := result.ServerIdentification.String; got != "SSH-2.0-TestServer_1.0" {
+		t.Errorf("ServerIdentification = %q, want SSH-2.0-TestServer_1.0 although the key exchange failed", got)
 	}
 	if result.KeyExchangeSuccess {
 		t.Error("KeyExchangeSuccess = true, want false when no common key exchange")
@@ -661,8 +661,8 @@ func TestRunDropsUnparsableServerIdentification(t *testing.T) {
 	if result.ServerIdentification != (ServerIdentification{}) {
 		t.Errorf("ServerIdentification = %+v, want it dropped as unparsable", result.ServerIdentification)
 	}
-	if !result.ServerIdentificationReceived {
-		t.Error("ServerIdentificationReceived = false, want true")
+	if !result.VersionExchangeSuccess {
+		t.Error("VersionExchangeSuccess = false, want true")
 	}
 	if !result.KeyExchangeSuccess {
 		t.Error("KeyExchangeSuccess = false, want true")
@@ -700,6 +700,9 @@ func TestIdentificationWatcher(t *testing.T) {
 			if !strings.HasPrefix(string(read), want) || len(read) >= len(want)+size {
 				t.Errorf("detected after %q, want after %q", read, want)
 			}
+			if got := string(w.identification); got != "SSH-2.0-Foo_1.0" {
+				t.Errorf("identification = %q, want SSH-2.0-Foo_1.0 without CR LF", got)
+			}
 		})
 	}
 }
@@ -710,5 +713,17 @@ func TestIdentificationWatcherIgnoresOtherLines(t *testing.T) {
 	w.scan([]byte("Hello\r\nSSH\r\nNot SSH-2.0-Foo\r\n"))
 	if w.received.Load() != nil {
 		t.Error("identification string detected in lines not starting with SSH-")
+	}
+}
+
+func TestIdentificationWatcherCapsLongLines(t *testing.T) {
+	t.Parallel()
+	w := &identificationWatcher{}
+	w.scan([]byte("SSH-2.0-" + strings.Repeat("a", 1000) + "\r\n"))
+	if w.received.Load() == nil {
+		t.Fatal("identification string not detected")
+	}
+	if _, err := parseServerIdentification(w.identification); err == nil {
+		t.Errorf("capped %d byte identification string was parsed, want an error", len(w.identification))
 	}
 }

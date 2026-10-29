@@ -76,25 +76,24 @@ func directionSeries(mfs map[string]*dto.MetricFamily, name, direction string) *
 func TestCollectFullSuccess(t *testing.T) {
 	t.Parallel()
 	result := probe.Result{
-		DNSLookup:                    true,
-		DNSLookupSuccess:             true,
-		DNSLookupDuration:            250 * time.Millisecond,
-		TCPConnectSuccess:            true,
-		TCPConnectDuration:           500 * time.Millisecond,
-		TCPMSS:                       1448,
-		ServerIdentificationReceived: true,
-		ServerIdentification:         probe.ServerIdentification{String: "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3", ProtoVersion: "2.0", SoftwareVersion: "OpenSSH_9.6p1", Comments: "Ubuntu-3", RFCConformant: true},
-		VersionExchangeSuccess:       true,
-		VersionExchangeDuration:      100 * time.Millisecond,
-		KeyExchangeSuccess:           true,
-		KeyExchangeDuration:          time.Second,
-		KEXAlgorithm:                 "curve25519-sha256",
-		ServerHostKeyVerifySuccess:   true,
-		ServerHostKeyAlgorithm:       "ssh-ed25519",
-		EncryptionServerToClient:     "aes128-gcm@openssh.com",
-		EncryptionClientToServer:     "chacha20-poly1305@openssh.com",
-		Duration:                     2 * time.Second,
-		Success:                      true,
+		DNSLookup:                  true,
+		DNSLookupSuccess:           true,
+		DNSLookupDuration:          250 * time.Millisecond,
+		TCPConnectSuccess:          true,
+		TCPConnectDuration:         500 * time.Millisecond,
+		TCPMSS:                     1448,
+		ServerIdentification:       probe.ServerIdentification{String: "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3", ProtoVersion: "2.0", SoftwareVersion: "OpenSSH_9.6p1", Comments: "Ubuntu-3", RFCConformant: true},
+		VersionExchangeSuccess:     true,
+		VersionExchangeDuration:    100 * time.Millisecond,
+		KeyExchangeSuccess:         true,
+		KeyExchangeDuration:        time.Second,
+		KEXAlgorithm:               "curve25519-sha256",
+		ServerHostKeyVerifySuccess: true,
+		ServerHostKeyAlgorithm:     "ssh-ed25519",
+		EncryptionServerToClient:   "aes128-gcm@openssh.com",
+		EncryptionClientToServer:   "chacha20-poly1305@openssh.com",
+		Duration:                   2 * time.Second,
+		Success:                    true,
 	}
 	mfs := collectMetrics(t, result)
 
@@ -180,10 +179,10 @@ func TestCollectFullSuccess(t *testing.T) {
 func TestCollectNonConformantServerIdentification(t *testing.T) {
 	t.Parallel()
 	mfs := collectMetrics(t, probe.Result{
-		TCPConnectSuccess:            true,
-		KeyExchangeSuccess:           true,
-		ServerIdentificationReceived: true,
-		ServerIdentification:         probe.ServerIdentification{String: "SSH-2.0-Cisco-1.25", ProtoVersion: "2.0", SoftwareVersion: "Cisco-1.25"},
+		TCPConnectSuccess:      true,
+		KeyExchangeSuccess:     true,
+		VersionExchangeSuccess: true,
+		ServerIdentification:   probe.ServerIdentification{String: "SSH-2.0-Cisco-1.25", ProtoVersion: "2.0", SoftwareVersion: "Cisco-1.25"},
 	})
 
 	if got := singleValue(t, mfs, "ssh_transport_server_identification_rfc_conformant"); got != 0 {
@@ -198,9 +197,9 @@ func TestCollectNonConformantServerIdentification(t *testing.T) {
 func TestCollectUnparsableServerIdentification(t *testing.T) {
 	t.Parallel()
 	mfs := collectMetrics(t, probe.Result{
-		TCPConnectSuccess:            true,
-		KeyExchangeSuccess:           true,
-		ServerIdentificationReceived: true,
+		TCPConnectSuccess:      true,
+		KeyExchangeSuccess:     true,
+		VersionExchangeSuccess: true,
 	})
 
 	if got := singleValue(t, mfs, "ssh_transport_server_identification_rfc_conformant"); got != 0 {

@@ -55,8 +55,8 @@ type Result struct {
 	TCPConnectDuration time.Duration
 	TCPMSS             int
 
-	ServerIdentificationReceived bool
-	// ServerIdentification is zero if none was received or it could not be parsed.
+	// ServerIdentification is zero unless the version exchange succeeded and the
+	// string could be parsed.
 	ServerIdentification ServerIdentification
 
 	VersionExchangeSuccess  bool
@@ -133,12 +133,14 @@ type hostKeyResult struct {
 	errorReason string
 }
 
-// identificationWatcher records when the server's identification string has
-// been read, which ends the version exchange (RFC 4253, section 4.2).
+// identificationWatcher records the server's identification string and when it
+// was read, which ends the version exchange (RFC 4253, section 4.2). It sees the
+// string even when the key exchange fails afterwards.
 type identificationWatcher struct {
 	net.Conn
-	line     []byte // start of the current line, enough to spot "SSH-"
-	received atomic.Pointer[time.Time]
+	line           []byte
+	identification []byte // without the CR LF
+	received       atomic.Pointer[time.Time]
 }
 
 func (w *identificationWatcher) Read(p []byte) (int, error) {
@@ -154,7 +156,8 @@ func (w *identificationWatcher) Read(p []byte) (int, error) {
 func (w *identificationWatcher) scan(b []byte) {
 	for _, c := range b {
 		if c == '\n' {
-			if string(w.line) == "SSH-" {
+			if bytes.HasPrefix(w.line, []byte("SSH-")) {
+				w.identification = bytes.TrimSuffix(w.line, []byte{'\r'})
 				now := time.Now()
 				w.received.Store(&now)
 				return
@@ -162,7 +165,9 @@ func (w *identificationWatcher) scan(b []byte) {
 			w.line = w.line[:0]
 			continue
 		}
-		if len(w.line) < len("SSH-") {
+		// Capped past the limit, so an overlong line still fails parsing once
+		// the CR is trimmed.
+		if len(w.line) < maxIdentificationLen+len("\r\n") {
 			w.line = append(w.line, c)
 		}
 	}
@@ -271,17 +276,6 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 			return nil
 		},
 		TransportReadyCallback: func(tc *ssh.ClientTransportReadyContext) error {
-			rawIdent := tc.Metadata.ServerVersion()
-			ident, err := parseServerIdentification(rawIdent)
-			result.ServerIdentificationReceived = true
-			switch {
-			case err != nil:
-				logger.Debug("dropping unparsable server identification string", "target", target, "identification", string(rawIdent), "error", err)
-			case opts.StripServerIdentificationComments:
-				result.ServerIdentification = ident.withoutComments()
-			default:
-				result.ServerIdentification = ident
-			}
 			if received := conn.received.Load(); received != nil {
 				result.KeyExchangeDuration = time.Since(*received)
 			}
@@ -301,6 +295,16 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 	if received := conn.received.Load(); received != nil {
 		result.VersionExchangeSuccess = true
 		result.VersionExchangeDuration = received.Sub(versionExchangeStart)
+
+		ident, err := parseServerIdentification(conn.identification)
+		switch {
+		case err != nil:
+			logger.Debug("dropping unparsable server identification string", "target", target, "identification", string(conn.identification), "error", err)
+		case opts.StripServerIdentificationComments:
+			result.ServerIdentification = ident.withoutComments()
+		default:
+			result.ServerIdentification = ident
+		}
 	}
 
 	switch {
@@ -417,6 +421,9 @@ func classifyKexError(ctx context.Context, err error) string {
 	return ErrReasonOther
 }
 
+// maxIdentificationLen is the RFC 4253, section 4.2 limit, including the CR LF.
+const maxIdentificationLen = 255
+
 // ServerIdentification is the server's identification string, split into its
 // RFC 4253, section 4.2 fields.
 type ServerIdentification struct {
@@ -431,10 +438,8 @@ type ServerIdentification struct {
 // cannot be parsed and must not be exported, since it is untrusted input that
 // ends up in label values.
 func parseServerIdentification(raw []byte) (ServerIdentification, error) {
-	const maxLen = 255 // see RFC 4253, section 4.2
-
-	if len(raw) > maxLen {
-		return ServerIdentification{}, fmt.Errorf("longer than %d characters", maxLen)
+	if len(raw) > maxIdentificationLen {
+		return ServerIdentification{}, fmt.Errorf("longer than %d characters", maxIdentificationLen)
 	}
 
 	// RFC 4253, section 5.1 defines 2.0 and 1.99 as the only protoversions.
@@ -467,10 +472,10 @@ func parseServerIdentification(raw []byte) (ServerIdentification, error) {
 		ProtoVersion:    proto,
 		SoftwareVersion: string(software),
 		Comments:        string(comments),
-		// The length limit includes the CR LF, which x/crypto has already
-		// stripped. Servers in the wild put a minus in softwareversion (e.g.
-		// "Cisco-1.25"), so it is parsed and exported, just not RFC conformant.
-		RFCConformant: len(raw) <= maxLen-len("\r\n") && !bytes.ContainsRune(software, '-'),
+		// raw comes without the CR LF the length limit includes. Servers in the
+		// wild put a minus in softwareversion (e.g. "Cisco-1.25"), so it is
+		// parsed and exported, just not RFC conformant.
+		RFCConformant: len(raw) <= maxIdentificationLen-len("\r\n") && !bytes.ContainsRune(software, '-'),
 	}, nil
 }
 

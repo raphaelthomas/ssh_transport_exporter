@@ -84,7 +84,7 @@ var (
 	serverIdentificationInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemServerIdent, "info"),
-			"Identification string sent by the server (RFC 4253 section 4.2). Absent if none was received or it could not be parsed.",
+			"Identification string sent by the server (RFC 4253 section 4.2). Absent unless the version exchange succeeded, or if it could not be parsed.",
 			[]string{"identification_string", "protoversion", "softwareversion", "comments"},
 			nil,
 		),
@@ -93,7 +93,7 @@ var (
 	serverIdentificationRFCConformantDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemServerIdent, "rfc_conformant"),
-			"Whether the server's identification string conforms to RFC 4253 section 4.2. Absent if none was received.",
+			"Whether the server's identification string conforms to RFC 4253 section 4.2. Absent unless the version exchange succeeded.",
 			nil,
 			nil,
 		),
@@ -267,7 +267,6 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"tcp_connect_success", result.TCPConnectSuccess,
 			"tcp_connect_duration", result.TCPConnectDuration,
 			"tcp_mss", result.TCPMSS,
-			"server_identification_received", result.ServerIdentificationReceived,
 			"server_identification", result.ServerIdentification,
 			"version_exchange_success", result.VersionExchangeSuccess,
 			"version_exchange_duration", result.VersionExchangeDuration,
@@ -302,7 +301,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 	}
 
-	if result.ServerIdentificationReceived {
+	if result.VersionExchangeSuccess {
 		id := result.ServerIdentification
 		if id.String != "" {
 			ch <- serverIdentificationInfoDesc.mustNewConstMetric(1, id.String, id.ProtoVersion, id.SoftwareVersion, id.Comments)

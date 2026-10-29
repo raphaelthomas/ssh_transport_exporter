@@ -303,11 +303,11 @@ ssh_transport_server_host_key_algorithm_info{algorithm="ssh-ed25519"} 1
 # TYPE ssh_transport_server_host_key_verify_success gauge
 ssh_transport_server_host_key_verify_success 1
 
-# HELP ssh_transport_server_identification_info Identification string sent by the server (RFC 4253 section 4.2). Absent if none was received or it could not be parsed.
+# HELP ssh_transport_server_identification_info Identification string sent by the server (RFC 4253 section 4.2). Absent unless the version exchange succeeded, or if it could not be parsed.
 # TYPE ssh_transport_server_identification_info gauge
 ssh_transport_server_identification_info{comments="Debian-2+deb12u10",identification_string="SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10",protoversion="2.0",softwareversion="OpenSSH_9.2p1"} 1
 
-# HELP ssh_transport_server_identification_rfc_conformant Whether the server's identification string conforms to RFC 4253 section 4.2. Absent if none was received.
+# HELP ssh_transport_server_identification_rfc_conformant Whether the server's identification string conforms to RFC 4253 section 4.2. Absent unless the version exchange succeeded.
 # TYPE ssh_transport_server_identification_rfc_conformant gauge
 ssh_transport_server_identification_rfc_conformant 1
 
