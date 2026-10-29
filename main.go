@@ -140,35 +140,41 @@ func (m configReloadMetrics) record(err error) {
 	m.timestamp.SetToCurrentTime()
 }
 
-// reloadMu serializes reloads from SIGHUP and /-/reload, so an older config
-// cannot be stored after a newer one.
-var reloadMu sync.Mutex
+// reloader swaps in a freshly loaded config on SIGHUP and POST /-/reload.
+type reloader struct {
+	logger          *slog.Logger
+	configFile      string
+	allowAllTargets bool
+	live            *atomic.Pointer[map[string]config.Module]
+	metrics         configReloadMetrics
 
-func reload(logger *slog.Logger, cfg *flags, live *atomic.Pointer[map[string]config.Module], metrics configReloadMetrics) error {
-	reloadMu.Lock()
-	defer reloadMu.Unlock()
+	// mu serializes reloads, so an older config never replaces a newer one.
+	mu sync.Mutex
+}
 
-	modules, err := config.Load(cfg.ConfigFile, cfg.AllowAllTargets, logger)
-	metrics.record(err)
+func (rl *reloader) reload() error {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	modules, err := config.Load(rl.configFile, rl.allowAllTargets, rl.logger)
+	rl.metrics.record(err)
 	if err != nil {
-		logger.Error("config reload failed, keeping previous config", "path", cfg.ConfigFile, "error", err)
+		rl.logger.Error("config reload failed, keeping previous config", "path", rl.configFile, "error", err)
 		return err
 	}
-	live.Store(&modules)
-	logger.Info("config reloaded", "module_count", len(modules))
+	rl.live.Store(&modules)
+	rl.logger.Info("config reloaded", "module_count", len(modules))
 	return nil
 }
 
-func reloadHandler(logger *slog.Logger, cfg *flags, live *atomic.Pointer[map[string]config.Module], metrics configReloadMetrics) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		logger.Info("received reload request, reloading config")
-		if err := reload(logger, cfg, live, metrics); err != nil {
-			http.Error(w, "config reload failed, keeping previous config", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("OK\n"))
+func (rl *reloader) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
+	rl.logger.Info("received reload request, reloading config")
+	if err := rl.reload(); err != nil {
+		http.Error(w, "config reload failed, keeping previous config", http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte("OK\n"))
 }
 
 var landingPage = fmt.Sprintf(`<html>
@@ -187,11 +193,12 @@ func landingPageHandler(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(landingPage))
 }
 
-// The listener only opens once the config has loaded, and a failed reload keeps
-// the previous one, so the exporter is ready whenever it is healthy.
-func addHealthHandlers(mux *http.ServeMux) {
+func addLifecycleHandlers(mux *http.ServeMux, rl *reloader) {
+	// The listener only opens once the config has loaded, and a failed reload
+	// keeps the previous one, so the exporter is ready whenever it is healthy.
 	mux.HandleFunc("GET /-/healthy", healthHandler)
 	mux.HandleFunc("GET /-/ready", healthHandler)
+	mux.Handle("POST /-/reload", rl)
 }
 
 func healthHandler(w http.ResponseWriter, _ *http.Request) {
@@ -213,7 +220,7 @@ const probeTimeoutOffset = 500 * time.Millisecond
 // serve runs srv on ln until a termination signal arrives on sigCh, reloading
 // config on SIGHUP. It returns once in-flight requests have drained, so the
 // caller must not exit before it does.
-func serve(logger *slog.Logger, cfg *flags, srv *http.Server, live *atomic.Pointer[map[string]config.Module], ln net.Listener, sigCh chan os.Signal, reloadMetrics configReloadMetrics) error {
+func serve(logger *slog.Logger, srv *http.Server, ln net.Listener, sigCh chan os.Signal, rl *reloader) error {
 	stop := make(chan struct{})
 	shutdownDone := make(chan struct{})
 
@@ -226,7 +233,7 @@ func serve(logger *slog.Logger, cfg *flags, srv *http.Server, live *atomic.Point
 			case sig := <-sigCh:
 				if sig == syscall.SIGHUP {
 					logger.Info("received SIGHUP, reloading config")
-					_ = reload(logger, cfg, live, reloadMetrics)
+					_ = rl.reload()
 					continue
 				}
 				// Restore default handling so a second signal terminates the
@@ -279,6 +286,13 @@ func main() {
 
 	var live atomic.Pointer[map[string]config.Module]
 	live.Store(&modules)
+	rl := &reloader{
+		logger:          logger,
+		configFile:      cfg.ConfigFile,
+		allowAllTargets: cfg.AllowAllTargets,
+		live:            &live,
+		metrics:         reloadMetrics,
+	}
 
 	logger.Info("Starting SSH Transport Exporter",
 		"version", buildinfo.Version,
@@ -316,8 +330,7 @@ func main() {
 	mux := http.NewServeMux()
 	// {$} matches only the root, so any other unrouted path still 404s.
 	mux.HandleFunc("GET /{$}", landingPageHandler)
-	addHealthHandlers(mux)
-	mux.Handle("POST /-/reload", reloadHandler(logger, cfg, &live, reloadMetrics))
+	addLifecycleHandlers(mux, rl)
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/probe", probehttp.Handler(probehttp.Options{
 		Logger:        logger,
@@ -346,7 +359,7 @@ func main() {
 	}
 	logger.Info("HTTP server listening", "address", ln.Addr().String())
 
-	if err := serve(logger, cfg, srv, &live, ln, sigCh, reloadMetrics); err != nil {
+	if err := serve(logger, srv, ln, sigCh, rl); err != nil {
 		logger.Error("HTTP server error", "error", err)
 		os.Exit(1)
 	}

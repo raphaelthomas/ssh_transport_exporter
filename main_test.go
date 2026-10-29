@@ -53,7 +53,6 @@ func TestReloadSwapsLiveModules(t *testing.T) {
 	writeFile(t, path, configWithModules(t, "a"))
 
 	logger := slog.New(slog.DiscardHandler)
-	cfg := &flags{ConfigFile: path}
 	reloadMetrics := newConfigReloadMetrics()
 
 	initial, err := config.Load(path, false, logger)
@@ -64,7 +63,7 @@ func TestReloadSwapsLiveModules(t *testing.T) {
 	live.Store(&initial)
 
 	writeFile(t, path, configWithModules(t, "a", "b"))
-	if err := reload(logger, cfg, &live, reloadMetrics); err != nil {
+	if err := testReloader(logger, path, &live, reloadMetrics).reload(); err != nil {
 		t.Fatalf("reload: %v", err)
 	}
 
@@ -89,7 +88,6 @@ func TestReloadKeepsPreviousConfigOnError(t *testing.T) {
 
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
-	cfg := &flags{ConfigFile: path}
 	reloadMetrics := newConfigReloadMetrics()
 
 	initial, err := config.Load(path, false, logger)
@@ -101,7 +99,7 @@ func TestReloadKeepsPreviousConfigOnError(t *testing.T) {
 	before := live.Load()
 
 	writeFile(t, path, "modules: [this is not a map\n")
-	if err := reload(logger, cfg, &live, reloadMetrics); err == nil {
+	if err := testReloader(logger, path, &live, reloadMetrics).reload(); err == nil {
 		t.Error("reload succeeded on a broken config, want an error")
 	}
 
@@ -125,7 +123,6 @@ func TestReloadMissingFileKeepsPreviousConfig(t *testing.T) {
 	writeFile(t, path, configWithModules(t, "a"))
 
 	logger := slog.New(slog.DiscardHandler)
-	cfg := &flags{ConfigFile: path}
 	reloadMetrics := newConfigReloadMetrics()
 
 	initial, err := config.Load(path, false, logger)
@@ -139,7 +136,7 @@ func TestReloadMissingFileKeepsPreviousConfig(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("removing config: %v", err)
 	}
-	if err := reload(logger, cfg, &live, reloadMetrics); err == nil {
+	if err := testReloader(logger, path, &live, reloadMetrics).reload(); err == nil {
 		t.Error("reload succeeded without a config file, want an error")
 	}
 
@@ -159,11 +156,11 @@ func TestReloadHonorsAllowAllTargets(t *testing.T) {
 	var live atomic.Pointer[map[string]config.Module]
 	empty := map[string]config.Module{}
 	live.Store(&empty)
-	if err := reload(logger, &flags{ConfigFile: path, AllowAllTargets: false}, &live, reloadMetrics); err == nil || len(*live.Load()) != 0 {
+	if err := testReloader(logger, path, &live, reloadMetrics).reload(); err == nil || len(*live.Load()) != 0 {
 		t.Error("reload succeeded without --allow-all-targets, want failure")
 	}
 
-	if err := reload(logger, &flags{ConfigFile: path, AllowAllTargets: true}, &live, reloadMetrics); err != nil {
+	if err := (&reloader{logger: logger, configFile: path, allowAllTargets: true, live: &live, metrics: reloadMetrics}).reload(); err != nil {
 		t.Fatalf("reload with --allow-all-targets: %v", err)
 	}
 	modules := *live.Load()
@@ -189,7 +186,7 @@ func TestReloadHandler(t *testing.T) {
 	live.Store(&initial)
 
 	mux := http.NewServeMux()
-	mux.Handle("POST /-/reload", reloadHandler(logger, &flags{ConfigFile: path}, &live, newConfigReloadMetrics()))
+	addLifecycleHandlers(mux, testReloader(logger, path, &live, newConfigReloadMetrics()))
 	do := func(method string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(method, "/-/reload", nil))
@@ -227,11 +224,12 @@ func TestReloadsAreSerialized(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	var live atomic.Pointer[map[string]config.Module]
 
-	reloadMu.Lock()
+	rl := testReloader(logger, path, &live, newConfigReloadMetrics())
+	rl.mu.Lock()
 	done := make(chan error)
-	go func() { done <- reload(logger, &flags{ConfigFile: path}, &live, newConfigReloadMetrics()) }()
+	go func() { done <- rl.reload() }()
 	writeFile(t, path, configWithModules(t, "a", "b"))
-	reloadMu.Unlock()
+	rl.mu.Unlock()
 
 	if err := <-done; err != nil {
 		t.Fatalf("reload: %v", err)
@@ -239,6 +237,10 @@ func TestReloadsAreSerialized(t *testing.T) {
 	if _, ok := (*live.Load())["b"]; !ok {
 		t.Errorf("module %q missing, want the newest config; modules = %v", "b", keys(*live.Load()))
 	}
+}
+
+func testReloader(logger *slog.Logger, path string, live *atomic.Pointer[map[string]config.Module], metrics configReloadMetrics) *reloader {
+	return &reloader{logger: logger, configFile: path, live: live, metrics: metrics}
 }
 
 func keys(m map[string]config.Module) []string {
@@ -288,7 +290,7 @@ func TestLandingPage(t *testing.T) {
 
 func TestHealthEndpoints(t *testing.T) {
 	mux := http.NewServeMux()
-	addHealthHandlers(mux)
+	addLifecycleHandlers(mux, &reloader{})
 
 	for _, path := range []string{"/-/healthy", "/-/ready"} {
 		for _, tt := range []struct {
@@ -320,7 +322,7 @@ func TestLandingPageEscapesVersion(t *testing.T) {
 	}
 }
 
-func serveTestSetup(t *testing.T, handler http.Handler, cfg *flags, live *atomic.Pointer[map[string]config.Module]) (string, chan os.Signal, <-chan error) {
+func serveTestSetup(t *testing.T, handler http.Handler, rl *reloader) (string, chan os.Signal, <-chan error) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -330,7 +332,7 @@ func serveTestSetup(t *testing.T, handler http.Handler, cfg *flags, live *atomic
 	sigCh := make(chan os.Signal, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- serve(slog.New(slog.DiscardHandler), cfg, srv, live, ln, sigCh, newConfigReloadMetrics())
+		errCh <- serve(slog.New(slog.DiscardHandler), srv, ln, sigCh, rl)
 	}()
 	return "http://" + ln.Addr().String(), sigCh, errCh
 }
@@ -348,8 +350,7 @@ func TestServeDrainsInFlightRequests(t *testing.T) {
 		_, _ = w.Write([]byte("drained"))
 	})
 
-	var live atomic.Pointer[map[string]config.Module]
-	addr, sigCh, errCh := serveTestSetup(t, handler, &flags{}, &live)
+	addr, sigCh, errCh := serveTestSetup(t, handler, &reloader{})
 
 	type result struct {
 		body string
@@ -397,9 +398,8 @@ func TestServeStopsSignalHandlerOnListenerError(t *testing.T) {
 	sigCh := make(chan os.Signal, 1)
 	errCh := make(chan error, 1)
 
-	var live atomic.Pointer[map[string]config.Module]
 	go func() {
-		errCh <- serve(slog.New(slog.DiscardHandler), &flags{}, srv, &live, ln, sigCh, newConfigReloadMetrics())
+		errCh <- serve(slog.New(slog.DiscardHandler), srv, ln, sigCh, &reloader{})
 	}()
 
 	// Break Accept so Serve fails with something other than ErrServerClosed.
@@ -438,7 +438,7 @@ func TestServeReloadsOnSIGHUPAndKeepsServing(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
-	addr, sigCh, errCh := serveTestSetup(t, handler, &flags{ConfigFile: path}, &live)
+	addr, sigCh, errCh := serveTestSetup(t, handler, testReloader(slog.New(slog.DiscardHandler), path, &live, newConfigReloadMetrics()))
 
 	writeFile(t, path, configWithModules(t, "a", "b"))
 	sigCh <- syscall.SIGHUP
