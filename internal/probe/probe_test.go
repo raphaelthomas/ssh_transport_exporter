@@ -229,7 +229,7 @@ func TestRunAEADCipherReportsNoMAC(t *testing.T) {
 	}
 }
 
-func TestRunStripsServerVersionComment(t *testing.T) {
+func TestRunStripsServerIdentificationComments(t *testing.T) {
 	t.Parallel()
 	const banner = "SSH-2.0-TestServer_1.0 Debian-2+deb12u10"
 
@@ -249,8 +249,8 @@ func TestRunStripsServerVersionComment(t *testing.T) {
 			defer cancel()
 
 			result := Run(ctx, srv.Addr, Options{
-				HostKeyCallback:           acceptKey(srv.HostKey),
-				StripServerVersionComment: tt.strip,
+				HostKeyCallback:                   acceptKey(srv.HostKey),
+				StripServerIdentificationComments: tt.strip,
 			})
 
 			if result.ServerIdentificationMalformed {

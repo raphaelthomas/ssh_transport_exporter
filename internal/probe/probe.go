@@ -96,7 +96,7 @@ type Options struct {
 	// defaultHostKeyAlgorithms below, not the library's own default.
 	HostKeyAlgorithms []string
 
-	StripServerVersionComment bool
+	StripServerIdentificationComments bool
 
 	Logger *slog.Logger
 }
@@ -229,8 +229,8 @@ func Run(ctx context.Context, target string, opts Options) Result {
 			if version == "" {
 				result.ServerIdentificationMalformed = true
 				logger.Debug("dropping malformed server identification string", "target", target, "banner", string(rawVersion))
-			} else if opts.StripServerVersionComment {
-				version = stripServerVersionComment(version)
+			} else if opts.StripServerIdentificationComments {
+				version = stripServerIdentificationComments(version)
 			}
 			result.ServerIdentification = version
 			result.KEXDuration = time.Since(kexStart)
@@ -387,7 +387,7 @@ func sanitizeServerIdentification(raw []byte) string {
 	return string(raw)
 }
 
-func stripServerVersionComment(version string) string {
+func stripServerIdentificationComments(version string) string {
 	software, _, _ := strings.Cut(version, " ")
 	return software
 }

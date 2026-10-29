@@ -63,7 +63,7 @@ type rawConfigModule struct {
 	MACs              []string `yaml:"macs,omitempty"`
 	HostKeyAlgorithms []string `yaml:"host_key_algorithms,omitempty"`
 
-	StripServerVersionComment bool `yaml:"strip_server_version_comment,omitempty"`
+	StripServerIdentificationComments bool `yaml:"strip_server_identification_comments,omitempty"`
 }
 
 type rawConfig struct {
@@ -73,9 +73,10 @@ type rawConfig struct {
 	TargetPort     int                        `yaml:"target_port,omitempty"`
 	Modules        map[string]rawConfigModule `yaml:"modules,omitempty"`
 
-	// StripServerVersionComment enables stripping for every module. Modules can
-	// enable it individually but cannot switch it back off once set here.
-	StripServerVersionComment bool `yaml:"strip_server_version_comment,omitempty"`
+	// StripServerIdentificationComments enables stripping for every module.
+	// Modules can enable it individually but cannot switch it back off once set
+	// here.
+	StripServerIdentificationComments bool `yaml:"strip_server_identification_comments,omitempty"`
 
 	allowAllTargets bool
 }
@@ -117,7 +118,7 @@ func loadRawConfig(path string, allowAllTargetsFlag bool) (*rawConfig, error) {
 			mod.AllowedTargets = cfg.AllowedTargets
 		}
 
-		mod.StripServerVersionComment = mod.StripServerVersionComment || cfg.StripServerVersionComment
+		mod.StripServerIdentificationComments = mod.StripServerIdentificationComments || cfg.StripServerIdentificationComments
 
 		if mod.TargetPort == 0 {
 			mod.TargetPort = cfg.TargetPort

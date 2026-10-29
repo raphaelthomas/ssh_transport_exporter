@@ -40,39 +40,39 @@ func exercise(cb ssh.HostKeyCallback, key ssh.PublicKey) error {
 	return cb("example.com:22", remote, key)
 }
 
-func TestLoadStripServerVersionComment(t *testing.T) {
+func TestLoadStripServerIdentificationComments(t *testing.T) {
 	content := fmt.Sprintf(`
 known_hosts_file: %q
 allowed_targets: ["example.com"]
 modules:
   keeps: {}
   strips:
-    strip_server_version_comment: true
+    strip_server_identification_comments: true
 `, writeKnownHosts(t, knownhosts.Line([]string{"example.com:22"}, newHostKey(t))))
 
 	modules, err := Load(writeConfig(t, content), false, discardLogger())
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got := modules["keeps"].Options.StripServerVersionComment; got {
-		t.Error("keeps: StripServerVersionComment = true, want false by default")
+	if got := modules["keeps"].Options.StripServerIdentificationComments; got {
+		t.Error("keeps: StripServerIdentificationComments = true, want false by default")
 	}
-	if got := modules["strips"].Options.StripServerVersionComment; !got {
-		t.Error("strips: StripServerVersionComment = false, want true")
+	if got := modules["strips"].Options.StripServerIdentificationComments; !got {
+		t.Error("strips: StripServerIdentificationComments = false, want true")
 	}
 }
 
 // The top-level default enables stripping everywhere, and a module cannot turn
 // it back off.
-func TestLoadStripServerVersionCommentDefault(t *testing.T) {
+func TestLoadStripServerIdentificationCommentsDefault(t *testing.T) {
 	content := fmt.Sprintf(`
 known_hosts_file: %q
 allowed_targets: ["example.com"]
-strip_server_version_comment: true
+strip_server_identification_comments: true
 modules:
   inherits: {}
   cannot_opt_out:
-    strip_server_version_comment: false
+    strip_server_identification_comments: false
 `, writeKnownHosts(t, knownhosts.Line([]string{"example.com:22"}, newHostKey(t))))
 
 	modules, err := Load(writeConfig(t, content), false, discardLogger())
@@ -80,8 +80,8 @@ modules:
 		t.Fatalf("Load: %v", err)
 	}
 	for _, name := range []string{"inherits", "cannot_opt_out"} {
-		if got := modules[name].Options.StripServerVersionComment; !got {
-			t.Errorf("%s: StripServerVersionComment = false, want true", name)
+		if got := modules[name].Options.StripServerIdentificationComments; !got {
+			t.Errorf("%s: StripServerIdentificationComments = false, want true", name)
 		}
 	}
 }

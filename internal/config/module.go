@@ -54,8 +54,8 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 				MACs:              mod.MACs,
 				HostKeyAlgorithms: mod.HostKeyAlgorithms,
 
-				StripServerVersionComment: mod.StripServerVersionComment,
-				Logger:                    logger,
+				StripServerIdentificationComments: mod.StripServerIdentificationComments,
+				Logger:                            logger,
 			},
 			AllowedTargets: allowedTargets,
 			AllowedPorts:   allowedPorts,
@@ -71,7 +71,7 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			"kex_algorithms", mod.KeyExchanges,
 			"macs", mod.MACs,
 			"host_key_algorithms", mod.HostKeyAlgorithms,
-			"strip_server_version_comment", mod.StripServerVersionComment,
+			"strip_server_identification_comments", mod.StripServerIdentificationComments,
 		)
 	}
 	return modules, nil

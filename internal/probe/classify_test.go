@@ -44,7 +44,7 @@ func TestSanitizeServerIdentification(t *testing.T) {
 	}
 }
 
-func TestStripServerVersionComment(t *testing.T) {
+func TestStripServerIdentificationComments(t *testing.T) {
 	tests := []struct {
 		name string
 		in   string
@@ -57,8 +57,8 @@ func TestStripServerVersionComment(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := stripServerVersionComment(tt.in); got != tt.want {
-				t.Errorf("stripServerVersionComment(%q) = %q, want %q", tt.in, got, tt.want)
+			if got := stripServerIdentificationComments(tt.in); got != tt.want {
+				t.Errorf("stripServerIdentificationComments(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}
