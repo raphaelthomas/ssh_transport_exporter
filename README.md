@@ -330,7 +330,7 @@ whose target failed DNS resolution:
 ```
 # HELP ssh_transport_error_info Stage and reason this probe failed. Absent if the probe succeeded.
 # TYPE ssh_transport_error_info gauge
-ssh_transport_error_info{reason="dns_failure",stage="tcp_connect"} 1
+ssh_transport_error_info{reason="dns_failure",stage="dns_lookup"} 1
 ```
 
 ### Exporter Metrics
@@ -388,10 +388,12 @@ identifies *how far* the probe got before failing; the `reason` label explains
 ### Stages
 
 The stage reflects the last phase the probe reached. Probing proceeds strictly
-in this order: *TCP connect*, *key exchange*, *host key verification*.
+in this order: *DNS lookup*, *TCP connect*, *key exchange*, *host key
+verification*.
 
 | Stage | Description |
 | --- | --- |
+| `dns_lookup` | Failure while resolving the target hostname, before any connection attempt. IP literal targets skip this stage. |
 | `tcp_connect` | Failure while establishing the underlying TCP connection to the target (before anything SSH). |
 | `kex` | Failure during the SSH transport-layer key exchange (RFC 4253), after the TCP connection was established. |
 | `host_key_verify` | The transport-layer handshake completed, but verification of the server's host key against the configured `known_hosts` failed. |
@@ -405,10 +407,10 @@ The reason narrows down the cause within a stage.
 | `connection_refused` | `tcp_connect` | The target actively refused the connection (`ECONNREFUSED`), commonly because nothing is listening on the port or a firewall sent a reset. |
 | `no_route_to_host` | `tcp_connect` | The destination *network* is reachable, but the specific *host* is not (`EHOSTUNREACH`), often a down host or an ICMP host-unreachable from a router. |
 | `network_unreachable` | `tcp_connect` | There is no route to the destination *network* at all (`ENETUNREACH`), typically a missing route, an absent default gateway, or a down interface on the prober side. |
-| `dns_failure` | `tcp_connect` | The target hostname could not be resolved (DNS lookup error). |
+| `dns_failure` | `dns_lookup` | The target hostname could not be resolved (DNS lookup error). |
 | `connection_reset` | `kex` | The connection was closed unexpectedly by the peer during key exchange, with the probe deadline still unexpired. |
-| `timeout` | `tcp_connect`, `kex` | The operation exceeded its deadline (the effective probe timeout, or a network-level timeout). |
-| `canceled` | `tcp_connect`, `kex` | The caller went away before the probe finished, typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
+| `timeout` | `dns_lookup`, `tcp_connect`, `kex` | The operation exceeded its deadline (the effective probe timeout, or a network-level timeout). |
+| `canceled` | `dns_lookup`, `tcp_connect`, `kex` | The caller went away before the probe finished, typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
 | `unknown_host` | `host_key_verify` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
 | `mismatch` | `host_key_verify` | The server's host key did **not** match the key pinned for that host in `known_hosts`, which indicates either a man-in-the-middle or an un-rotated key. |
 | `revoked` | `host_key_verify` | The server's host key is explicitly listed as revoked in `known_hosts`. |

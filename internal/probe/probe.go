@@ -19,6 +19,7 @@ import (
 
 // Stages a probe can fail at, reported as Result.ErrorStage.
 const (
+	ErrStageDNSLookup     = "dns_lookup"
 	ErrStageTCPConnect    = "tcp_connect"
 	ErrStageKeyExchange   = "kex"
 	ErrStageHostKeyVerify = "host_key_verify"
@@ -158,16 +159,23 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	rawConn, err := dialer.DialContext(ctx, "tcp", target)
 	dialEnd := time.Now()
 
+	lookup := isHostname(target)
+	attemptStart := connectStart.Load()
 	connectFrom := dialStart
-	if t := connectStart.Load(); t != nil {
-		connectFrom = *t
-		if isHostname(target) {
-			result.DNSLookupDuration = t.Sub(dialStart)
+	if attemptStart != nil {
+		connectFrom = *attemptStart
+		if lookup {
+			result.DNSLookupDuration = attemptStart.Sub(dialStart)
 		}
 	}
 
 	if err != nil {
+		// Without a connection attempt, a hostname target never got past its
+		// lookup.
 		result.ErrorStage = ErrStageTCPConnect
+		if lookup && attemptStart == nil {
+			result.ErrorStage = ErrStageDNSLookup
+		}
 		result.ErrorReason = classifyDialError(ctx, err)
 		return result
 	}

@@ -395,8 +395,8 @@ func TestRunDNSFailure(t *testing.T) {
 	if result.TCPConnectSuccess {
 		t.Error("TCPConnectSuccess = true, want false")
 	}
-	if result.ErrorStage != ErrStageTCPConnect {
-		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageTCPConnect)
+	if result.ErrorStage != ErrStageDNSLookup {
+		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageDNSLookup)
 	}
 	if result.ErrorReason != ErrReasonDNSFailure {
 		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonDNSFailure)
@@ -420,6 +420,23 @@ func TestRunContextAlreadyCanceled(t *testing.T) {
 	}
 	if result.ErrorStage != ErrStageTCPConnect {
 		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageTCPConnect)
+	}
+}
+
+// A hostname target whose probe ends before any connection attempt fails at
+// the lookup stage, with the context's reason.
+func TestRunContextAlreadyCanceledHostname(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // canceled before the lookup
+
+	result := Run(ctx, "localhost:22", Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+
+	if result.ErrorStage != ErrStageDNSLookup {
+		t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageDNSLookup)
+	}
+	if result.ErrorReason != ErrReasonCanceled {
+		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonCanceled)
 	}
 }
 
