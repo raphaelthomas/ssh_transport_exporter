@@ -115,11 +115,11 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
-	macInfoDesc = typedDesc{
+	macAlgorithmInfoDesc = typedDesc{
 		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemMAC, "info"),
-			"Negotiated MAC algorithm per direction. Absent for AEAD ciphers, which need no separate MAC.",
-			[]string{"direction", "mac"},
+			prometheus.BuildFQName(namespace, subSystemMAC, "algorithm_info"),
+			"Negotiated MAC algorithm per direction (RFC 4253 section 7.1). Absent for AEAD ciphers, which need no separate MAC.",
+			[]string{"direction", "algorithm"},
 			nil,
 		),
 		prometheus.GaugeValue,
@@ -194,7 +194,7 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- kexAlgorithmInfoDesc.desc
 	ch <- serverHostKeyAlgorithmInfoDesc.desc
 	ch <- encryptionAlgorithmInfoDesc.desc
-	ch <- macInfoDesc.desc
+	ch <- macAlgorithmInfoDesc.desc
 	ch <- serverHostKeyVerifySuccessDesc.desc
 	ch <- kexSuccessDesc.desc
 	ch <- kexDurationDesc.desc
@@ -219,8 +219,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"server_host_key_algorithm", result.ServerHostKeyAlgorithm,
 			"encryption_client_to_server", result.EncryptionClientToServer,
 			"encryption_server_to_client", result.EncryptionServerToClient,
-			"mac_read", result.MACRead,
-			"mac_write", result.MACWrite,
+			"mac_client_to_server", result.MACClientToServer,
+			"mac_server_to_client", result.MACServerToClient,
 			"server_host_key_verify_success", result.ServerHostKeyVerifySuccess,
 			"kex_success", result.KEXSuccess,
 			"kex_duration", result.KEXDuration,
@@ -264,11 +264,11 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- encryptionAlgorithmInfoDesc.mustNewConstMetric(1, "server_to_client", result.EncryptionServerToClient)
 	}
 
-	if result.MACRead != "" {
-		ch <- macInfoDesc.mustNewConstMetric(1, "read", result.MACRead)
+	if result.MACClientToServer != "" {
+		ch <- macAlgorithmInfoDesc.mustNewConstMetric(1, "client_to_server", result.MACClientToServer)
 	}
-	if result.MACWrite != "" {
-		ch <- macInfoDesc.mustNewConstMetric(1, "write", result.MACWrite)
+	if result.MACServerToClient != "" {
+		ch <- macAlgorithmInfoDesc.mustNewConstMetric(1, "server_to_client", result.MACServerToClient)
 	}
 
 	ch <- serverHostKeyVerifySuccessDesc.mustNewConstMetric(boolToFloat64(result.ServerHostKeyVerifySuccess))

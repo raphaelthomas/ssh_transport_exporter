@@ -124,18 +124,18 @@ func TestCollectFullSuccess(t *testing.T) {
 
 	if m := directionSeries(mfs, "ssh_transport_encryption_algorithm_info", "server_to_client"); m == nil {
 		t.Error("encryption_algorithm_info server_to_client series missing")
-	} else if got := labelOf(m, "algorithm"); got != "aes128-gcm@openssh.com" {
+	} else if got := algorithmOf(m); got != "aes128-gcm@openssh.com" {
 		t.Errorf("encryption_algorithm_info server_to_client algorithm = %q", got)
 	}
 	if m := directionSeries(mfs, "ssh_transport_encryption_algorithm_info", "client_to_server"); m == nil {
 		t.Error("encryption_algorithm_info client_to_server series missing")
-	} else if got := labelOf(m, "algorithm"); got != "chacha20-poly1305@openssh.com" {
+	} else if got := algorithmOf(m); got != "chacha20-poly1305@openssh.com" {
 		t.Errorf("encryption_algorithm_info client_to_server algorithm = %q", got)
 	}
 
 	// The sample negotiates AEAD ciphers, so no separate MAC is agreed.
-	if _, ok := mfs["ssh_transport_mac_info"]; ok {
-		t.Error("mac_info present for AEAD ciphers, want absent")
+	if _, ok := mfs["ssh_transport_mac_algorithm_info"]; ok {
+		t.Error("mac_algorithm_info present for AEAD ciphers, want absent")
 	}
 
 	if got := singleValue(t, mfs, "ssh_transport_server_identification_valid"); got != 1 {
@@ -205,7 +205,7 @@ func TestCollectTCPFailure(t *testing.T) {
 		"ssh_transport_kex_algorithm_info",
 		"ssh_transport_server_host_key_algorithm_info",
 		"ssh_transport_encryption_algorithm_info",
-		"ssh_transport_mac_info",
+		"ssh_transport_mac_algorithm_info",
 	} {
 		if _, ok := mfs[name]; ok {
 			t.Errorf("metric %q present on TCP failure, want absent", name)
@@ -270,19 +270,19 @@ func TestCollectMACInfo(t *testing.T) {
 		KEXSuccess:               true,
 		EncryptionServerToClient: "aes128-cbc",
 		EncryptionClientToServer: "aes128-cbc",
-		MACRead:                  "hmac-sha1",
-		MACWrite:                 "hmac-sha2-256",
+		MACServerToClient:        "hmac-sha1",
+		MACClientToServer:        "hmac-sha2-256",
 	})
 
-	if m := directionSeries(mfs, "ssh_transport_mac_info", "read"); m == nil {
-		t.Error("mac_info read series missing")
-	} else if got := labelOf(m, "mac"); got != "hmac-sha1" {
-		t.Errorf("mac_info read mac = %q, want hmac-sha1", got)
+	if m := directionSeries(mfs, "ssh_transport_mac_algorithm_info", "server_to_client"); m == nil {
+		t.Error("mac_algorithm_info server_to_client series missing")
+	} else if got := algorithmOf(m); got != "hmac-sha1" {
+		t.Errorf("mac_algorithm_info server_to_client algorithm = %q, want hmac-sha1", got)
 	}
-	if m := directionSeries(mfs, "ssh_transport_mac_info", "write"); m == nil {
-		t.Error("mac_info write series missing")
-	} else if got := labelOf(m, "mac"); got != "hmac-sha2-256" {
-		t.Errorf("mac_info write mac = %q, want hmac-sha2-256", got)
+	if m := directionSeries(mfs, "ssh_transport_mac_algorithm_info", "client_to_server"); m == nil {
+		t.Error("mac_algorithm_info client_to_server series missing")
+	} else if got := algorithmOf(m); got != "hmac-sha2-256" {
+		t.Errorf("mac_algorithm_info client_to_server algorithm = %q, want hmac-sha2-256", got)
 	}
 }
 
@@ -318,9 +318,9 @@ func TestBoolToFloat64(t *testing.T) {
 	}
 }
 
-func labelOf(m *dto.Metric, key string) string {
+func algorithmOf(m *dto.Metric) string {
 	for _, lp := range m.GetLabel() {
-		if lp.GetName() == key {
+		if lp.GetName() == "algorithm" {
 			return lp.GetValue()
 		}
 	}

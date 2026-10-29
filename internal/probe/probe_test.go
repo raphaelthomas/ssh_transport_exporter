@@ -183,8 +183,8 @@ func TestRunMACsRespected(t *testing.T) {
 	if !result.KEXSuccess {
 		t.Fatalf("KEXSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
 	}
-	if result.MACRead != ssh.HMACSHA512 || result.MACWrite != ssh.HMACSHA512 {
-		t.Errorf("MACs read=%q write=%q, want %q", result.MACRead, result.MACWrite, ssh.HMACSHA512)
+	if result.MACClientToServer != ssh.HMACSHA512 || result.MACServerToClient != ssh.HMACSHA512 {
+		t.Errorf("MACs client_to_server=%q server_to_client=%q, want %q", result.MACClientToServer, result.MACServerToClient, ssh.HMACSHA512)
 	}
 }
 
@@ -203,8 +203,8 @@ func TestRunNonAEADCipherReportsMAC(t *testing.T) {
 	if !result.KEXSuccess {
 		t.Fatalf("KEXSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
 	}
-	if result.MACRead == "" || result.MACWrite == "" {
-		t.Errorf("MACs read=%q write=%q, want both set for a non-AEAD cipher", result.MACRead, result.MACWrite)
+	if result.MACClientToServer == "" || result.MACServerToClient == "" {
+		t.Errorf("MACs client_to_server=%q server_to_client=%q, want both set for a non-AEAD cipher", result.MACClientToServer, result.MACServerToClient)
 	}
 }
 
@@ -224,8 +224,8 @@ func TestRunAEADCipherReportsNoMAC(t *testing.T) {
 	if !result.KEXSuccess {
 		t.Fatalf("KEXSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
 	}
-	if result.MACRead != "" || result.MACWrite != "" {
-		t.Errorf("MACs read=%q write=%q, want both empty for an AEAD cipher", result.MACRead, result.MACWrite)
+	if result.MACClientToServer != "" || result.MACServerToClient != "" {
+		t.Errorf("MACs client_to_server=%q server_to_client=%q, want both empty for an AEAD cipher", result.MACClientToServer, result.MACServerToClient)
 	}
 }
 

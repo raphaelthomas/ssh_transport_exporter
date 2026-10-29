@@ -320,10 +320,10 @@ appears whenever a non-AEAD cipher is agreed, which is what makes a module
 restricted to CBC or RC4 ciphers able to audit MAC choice:
 
 ```
-# HELP ssh_transport_mac_info Negotiated MAC algorithm per direction. Absent for AEAD ciphers, which need no separate MAC.
-# TYPE ssh_transport_mac_info gauge
-ssh_transport_mac_info{direction="read",mac="hmac-sha2-256-etm@openssh.com"} 1
-ssh_transport_mac_info{direction="write",mac="hmac-sha2-256-etm@openssh.com"} 1
+# HELP ssh_transport_mac_algorithm_info Negotiated MAC algorithm per direction (RFC 4253 section 7.1). Absent for AEAD ciphers, which need no separate MAC.
+# TYPE ssh_transport_mac_algorithm_info gauge
+ssh_transport_mac_algorithm_info{algorithm="hmac-sha2-256-etm@openssh.com",direction="client_to_server"} 1
+ssh_transport_mac_algorithm_info{algorithm="hmac-sha2-256-etm@openssh.com",direction="server_to_client"} 1
 ```
 
 An unsuccessful probe adds an `ssh_transport_error_info` metric, reports `0` for

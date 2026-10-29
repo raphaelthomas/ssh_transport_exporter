@@ -102,7 +102,7 @@ modules:
       - diffie-hellman-group14-sha1         # SHA-1
       - diffie-hellman-group-exchange-sha1  # SHA-1
     # None of the ciphers above are AEAD, so a MAC is always negotiated here and
-    # ssh_transport_mac_info reports which one the target accepted.
+    # ssh_transport_mac_algorithm_info reports which one the target accepted.
     macs:
       - hmac-sha1      # SHA-1
       - hmac-sha1-96   # SHA-1, truncated to 96 bits

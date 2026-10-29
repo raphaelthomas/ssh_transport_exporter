@@ -66,8 +66,8 @@ type Result struct {
 	EncryptionClientToServer string
 	EncryptionServerToClient string
 	// Negotiated MACs, empty for AEAD ciphers, which need none
-	MACRead  string
-	MACWrite string
+	MACClientToServer string
+	MACServerToClient string
 
 	ErrorPhase  string
 	ErrorReason string
@@ -238,8 +238,8 @@ func Run(ctx context.Context, target string, opts Options) Result {
 			result.ServerHostKeyAlgorithm = tc.Algorithms.HostKey
 			result.EncryptionClientToServer = tc.Algorithms.Write.Cipher
 			result.EncryptionServerToClient = tc.Algorithms.Read.Cipher
-			result.MACRead = tc.Algorithms.Read.MAC
-			result.MACWrite = tc.Algorithms.Write.MAC
+			result.MACClientToServer = tc.Algorithms.Write.MAC
+			result.MACServerToClient = tc.Algorithms.Read.MAC
 
 			return errAbort
 		},
