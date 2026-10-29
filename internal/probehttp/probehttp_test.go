@@ -110,6 +110,11 @@ func TestEffectiveTimeout(t *testing.T) {
 		{name: "zero header ignored", header: "0", want: maxTimeout},
 		{name: "negative header ignored", header: "-1", want: maxTimeout},
 		{name: "empty header value ignored", header: `""`, want: maxTimeout},
+		{name: "NaN header ignored", header: "NaN", want: maxTimeout},
+		{name: "infinite header capped", header: "Inf", want: maxTimeout},
+		{name: "negative infinite header ignored", header: "-Inf", want: maxTimeout},
+		{name: "header overflowing a duration capped", header: "1e300", want: maxTimeout},
+		{name: "header overflowing a float ignored", header: "1e400", want: maxTimeout},
 	}
 
 	for _, tt := range tests {
@@ -145,6 +150,11 @@ func TestEffectiveTimeoutOffset(t *testing.T) {
 		{name: "header beyond hard bound plus offset is capped", header: "30", want: maxTimeout},
 		{name: "header equal to the offset ignored", header: "0.5", want: maxTimeout},
 		{name: "header below the offset ignored", header: "0.2", want: maxTimeout},
+		{name: "NaN header ignored", header: "NaN", want: maxTimeout},
+		{name: "infinite header capped", header: "Inf", want: maxTimeout},
+		{name: "negative infinite header ignored", header: "-Inf", want: maxTimeout},
+		{name: "header overflowing a duration capped", header: "1e300", want: maxTimeout},
+		{name: "header overflowing a float ignored", header: "1e400", want: maxTimeout},
 	}
 
 	for _, tt := range tests {

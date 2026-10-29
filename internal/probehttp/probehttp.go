@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -165,7 +166,7 @@ func (rec *statusRecorder) Unwrap() http.ResponseWriter { return rec.ResponseWri
 // effectiveTimeout returns maxTimeout, shortened to the Prometheus scrape
 // timeout minus offset when the request carries a valid, shorter one via the
 // X-Prometheus-Scrape-Timeout-Seconds header, as blackbox_exporter does.
-// Malformed, zero, and negative header values are ignored, as is a scrape
+// Malformed, NaN, zero, and negative header values are ignored, as is a scrape
 // timeout the offset would leave non-positive.
 func effectiveTimeout(r *http.Request, maxTimeout, offset time.Duration) time.Duration {
 	timeoutSecs := r.Header.Get("X-Prometheus-Scrape-Timeout-Seconds")
@@ -173,11 +174,10 @@ func effectiveTimeout(r *http.Request, maxTimeout, offset time.Duration) time.Du
 		return maxTimeout
 	}
 	s, err := strconv.ParseFloat(timeoutSecs, 64)
-	if err != nil || s <= 0 {
+	if err != nil || math.IsNaN(s) || s <= 0 || s >= (maxTimeout+offset).Seconds() {
 		return maxTimeout
 	}
-	scrapeTimeout := time.Duration(s*float64(time.Second)) - offset
-	if scrapeTimeout > 0 && scrapeTimeout < maxTimeout {
+	if scrapeTimeout := time.Duration(s*float64(time.Second)) - offset; scrapeTimeout > 0 {
 		return scrapeTimeout
 	}
 	return maxTimeout
