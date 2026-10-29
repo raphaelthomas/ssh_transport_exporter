@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -339,6 +340,8 @@ func classifyDialError(ctx context.Context, err error) string {
 		return ErrReasonNoRouteToHost
 	case errors.Is(err, syscall.ENETUNREACH):
 		return ErrReasonNetworkUnreachable
+	case errors.Is(err, syscall.ECONNRESET):
+		return ErrReasonConnectionReset
 	}
 
 	if _, ok := errors.AsType[*net.DNSError](err); ok {
@@ -356,7 +359,12 @@ func classifyKexError(ctx context.Context, err error) string {
 	if netErr, ok := errors.AsType[net.Error](err); ok && netErr.Timeout() {
 		return ErrReasonTimeout
 	}
-	if errors.Is(err, net.ErrClosed) {
+	// EOF and RST are not told apart: which one arrives depends on timing.
+	switch {
+	case errors.Is(err, io.EOF),
+		errors.Is(err, io.ErrUnexpectedEOF),
+		errors.Is(err, syscall.ECONNRESET),
+		errors.Is(err, syscall.EPIPE):
 		return ErrReasonConnectionReset
 	}
 	return ErrReasonOther

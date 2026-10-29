@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"syscall"
@@ -110,6 +111,7 @@ func TestClassifyDialError(t *testing.T) {
 		{"connection refused", nil, syscall.ECONNREFUSED, ErrReasonConnectionRefused},
 		{"no route to host", nil, syscall.EHOSTUNREACH, ErrReasonNoRouteToHost},
 		{"network unreachable", nil, syscall.ENETUNREACH, ErrReasonNetworkUnreachable},
+		{"reset before connect completed", nil, syscall.ECONNRESET, ErrReasonConnectionReset},
 		{"dns failure", nil, &net.DNSError{Err: "no such host", Name: "nope"}, ErrReasonDNSFailure},
 		{"wrapped connection refused", nil, fmt.Errorf("dial: %w", syscall.ECONNREFUSED), ErrReasonConnectionRefused},
 		{"other", nil, errors.New("boom"), ErrReasonOther},
@@ -139,8 +141,13 @@ func TestClassifyKexError(t *testing.T) {
 		want string
 	}{
 		{"timeout", nil, timeoutError{}, ErrReasonTimeout},
-		{"connection reset via ErrClosed", nil, net.ErrClosed, ErrReasonConnectionReset},
-		{"wrapped ErrClosed", nil, fmt.Errorf("read: %w", net.ErrClosed), ErrReasonConnectionReset},
+		{"peer closed", nil, io.EOF, ErrReasonConnectionReset},
+		{"peer closed mid-packet", nil, io.ErrUnexpectedEOF, ErrReasonConnectionReset},
+		{"wrapped as by NewClientConn", nil, fmt.Errorf("ssh: handshake failed: %w", io.EOF), ErrReasonConnectionReset},
+		{"peer reset", nil, syscall.ECONNRESET, ErrReasonConnectionReset},
+		{"peer reset seen on write", nil, syscall.EPIPE, ErrReasonConnectionReset},
+		{"peer reset in a net.OpError", nil, &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}, ErrReasonConnectionReset},
+		{"own close without an expired context", nil, net.ErrClosed, ErrReasonOther},
 		{"other", nil, errors.New("kex exploded"), ErrReasonOther},
 		{"expired context reports timeout", expiredContext, net.ErrClosed, ErrReasonTimeout},
 		{"expired context outranks a generic error", expiredContext, errors.New("kex exploded"), ErrReasonTimeout},

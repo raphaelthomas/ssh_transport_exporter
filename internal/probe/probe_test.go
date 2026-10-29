@@ -440,6 +440,40 @@ func TestRunContextAlreadyCanceledHostname(t *testing.T) {
 	}
 }
 
+func TestRunPeerHangup(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name  string
+		reset bool
+	}{
+		{"clean close", false},
+		{"reset", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			addr := sshtest.HangupServer(t, tt.reset)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			result := Run(ctx, addr, Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+
+			if !result.TCPConnectSuccess {
+				t.Fatalf("TCPConnectSuccess = false, want true (error %s/%s)", result.ErrorStage, result.ErrorReason)
+			}
+			if result.KEXSuccess {
+				t.Error("KEXSuccess = true, want false")
+			}
+			if result.ErrorStage != ErrStageKeyExchange {
+				t.Errorf("ErrorStage = %q, want %q", result.ErrorStage, ErrStageKeyExchange)
+			}
+			if result.ErrorReason != ErrReasonConnectionReset {
+				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonConnectionReset)
+			}
+		})
+	}
+}
+
 func TestRunKexTimeout(t *testing.T) {
 	t.Parallel()
 	addr := sshtest.SilentServer(t)

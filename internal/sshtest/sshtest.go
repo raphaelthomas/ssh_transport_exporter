@@ -2,11 +2,13 @@
 package sshtest
 
 import (
+	"bufio"
 	"crypto/ed25519"
 	"crypto/rand"
 	"net"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -118,6 +120,33 @@ func ClosedPort(t *testing.T) string {
 		t.Fatalf("sshtest: close: %v", err)
 	}
 	return addr
+}
+
+// HangupServer reads the client's version line, so the hangup is
+// deterministic, then closes the connection, or resets it with reset.
+func HangupServer(t *testing.T, reset bool) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("sshtest: listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			_, _ = bufio.NewReader(conn).ReadString('\n')
+			if tcpConn, ok := conn.(*net.TCPConn); ok && reset {
+				_ = tcpConn.SetLinger(0)
+			}
+			_ = conn.Close()
+		}
+	}()
+	return ln.Addr().String()
 }
 
 // SilentServer starts a TCP listener that accepts connections but never speaks

@@ -408,7 +408,7 @@ The reason narrows down the cause within a stage.
 | `no_route_to_host` | `tcp_connect` | The destination *network* is reachable, but the specific *host* is not (`EHOSTUNREACH`), often a down host or an ICMP host-unreachable from a router. |
 | `network_unreachable` | `tcp_connect` | There is no route to the destination *network* at all (`ENETUNREACH`), typically a missing route, an absent default gateway, or a down interface on the prober side. |
 | `dns_failure` | `dns_lookup` | The target hostname could not be resolved (DNS lookup error). |
-| `connection_reset` | `kex` | The connection was closed unexpectedly by the peer during key exchange, with the probe deadline still unexpired. |
+| `connection_reset` | `tcp_connect`, `kex` | The peer hung up unexpectedly, e.g. sshd dropping the client on `MaxStartups` or a TCP wrapper, or a firewall or load balancer in the path. Covers both a clean close (`EOF`) and a reset (`ECONNRESET`, `EPIPE`), since which one the probe sees depends on timing. |
 | `timeout` | `dns_lookup`, `tcp_connect`, `kex` | The operation exceeded its deadline (the effective probe timeout, or a network-level timeout). |
 | `canceled` | `dns_lookup`, `tcp_connect`, `kex` | The caller went away before the probe finished, typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
 | `unknown_host` | `host_key_verify` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
