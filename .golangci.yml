@@ -12,6 +12,7 @@ linters:
     - misspell
     - modernize
     - nilerr
+    - nolintlint
     - predeclared
     - revive
     - sloglint
@@ -31,6 +32,9 @@ linters:
         - style
       enabled-checks:
         - deferInLoop
+    nolintlint:
+      require-explanation: true
+      require-specific: true
 
   exclusions:
     rules:
