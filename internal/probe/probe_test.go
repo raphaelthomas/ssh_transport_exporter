@@ -46,8 +46,8 @@ func TestRunSuccess(t *testing.T) {
 	if result.KEXAlgorithm == "" {
 		t.Error("KEXAlgorithm is empty")
 	}
-	if !result.HostKeyVerifySuccess {
-		t.Error("HostKeyVerifySuccess = false, want true")
+	if !result.ServerHostKeyVerifySuccess {
+		t.Error("ServerHostKeyVerifySuccess = false, want true")
 	}
 	if result.HostKeyAlgorithm != ssh.KeyAlgoED25519 {
 		t.Errorf("HostKeyAlgorithm = %q, want %q", result.HostKeyAlgorithm, ssh.KeyAlgoED25519)
@@ -281,15 +281,15 @@ func TestRunHostKeyVerificationFailure(t *testing.T) {
 	if !result.KEXSuccess {
 		t.Error("KEXSuccess = false, want true (KEX completes before verification)")
 	}
-	if result.HostKeyVerifySuccess {
-		t.Error("HostKeyVerifySuccess = true, want false")
+	if result.ServerHostKeyVerifySuccess {
+		t.Error("ServerHostKeyVerifySuccess = true, want false")
 	}
-	if result.ErrorPhase != ErrPhaseHostKeyVerify {
-		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseHostKeyVerify)
+	if result.ErrorPhase != ErrPhaseKeyExchange {
+		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseKeyExchange)
 	}
-	// ssh.FixedHostKey returns a plain error, so it classifies as "other".
-	if result.ErrorReason != ErrReasonOther {
-		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonOther)
+	// ssh.FixedHostKey returns a plain error rather than a knownhosts one.
+	if result.ErrorReason != ErrReasonServerHostKeyRejected {
+		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonServerHostKeyRejected)
 	}
 	if result.HostKeyAlgorithm == "" || result.KEXAlgorithm == "" {
 		t.Error("expected algorithm metadata to be recorded despite verify failure")
@@ -305,11 +305,14 @@ func TestRunNilHostKeyCallback(t *testing.T) {
 
 	result := Run(ctx, srv.Addr, Options{})
 
-	if result.HostKeyVerifySuccess {
-		t.Error("HostKeyVerifySuccess = true, want false without a callback")
+	if result.ServerHostKeyVerifySuccess {
+		t.Error("ServerHostKeyVerifySuccess = true, want false without a callback")
 	}
-	if result.ErrorPhase != ErrPhaseHostKeyVerify {
-		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseHostKeyVerify)
+	if result.ErrorPhase != ErrPhaseKeyExchange {
+		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseKeyExchange)
+	}
+	if result.ErrorReason != ErrReasonServerHostKeyRejected {
+		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonServerHostKeyRejected)
 	}
 }
 
@@ -331,7 +334,7 @@ func TestRunConnectionRefused(t *testing.T) {
 	if result.ErrorReason != ErrReasonConnectionRefused {
 		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonConnectionRefused)
 	}
-	if result.KEXSuccess || result.HostKeyVerifySuccess {
+	if result.KEXSuccess || result.ServerHostKeyVerifySuccess {
 		t.Error("KEX/host key reported success on a refused connection")
 	}
 }
@@ -488,8 +491,8 @@ func TestRunKexFailsAfterHostKeyAccepted(t *testing.T) {
 	if result.KEXDuration != 0 {
 		t.Errorf("KEXDuration = %s, want 0", result.KEXDuration)
 	}
-	if !result.HostKeyVerifySuccess {
-		t.Error("HostKeyVerifySuccess = false, want true")
+	if !result.ServerHostKeyVerifySuccess {
+		t.Error("ServerHostKeyVerifySuccess = false, want true")
 	}
 	if result.ErrorPhase != ErrPhaseKeyExchange || result.ErrorReason != ErrReasonTimeout {
 		t.Errorf("error = %s/%s, want %s/%s", result.ErrorPhase, result.ErrorReason, ErrPhaseKeyExchange, ErrReasonTimeout)
@@ -509,11 +512,11 @@ func TestRunHostKeyFailureOutranksLaterKexFailure(t *testing.T) {
 	if result.KEXSuccess {
 		t.Error("KEXSuccess = true, want false when NEWKEYS never completed")
 	}
-	if result.HostKeyVerifySuccess {
-		t.Error("HostKeyVerifySuccess = true, want false")
+	if result.ServerHostKeyVerifySuccess {
+		t.Error("ServerHostKeyVerifySuccess = true, want false")
 	}
-	if result.ErrorPhase != ErrPhaseHostKeyVerify || result.ErrorReason != ErrReasonOther {
-		t.Errorf("error = %s/%s, want %s/%s", result.ErrorPhase, result.ErrorReason, ErrPhaseHostKeyVerify, ErrReasonOther)
+	if result.ErrorPhase != ErrPhaseKeyExchange || result.ErrorReason != ErrReasonServerHostKeyRejected {
+		t.Errorf("error = %s/%s, want %s/%s", result.ErrorPhase, result.ErrorReason, ErrPhaseKeyExchange, ErrReasonServerHostKeyRejected)
 	}
 }
 

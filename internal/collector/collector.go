@@ -18,6 +18,7 @@ const (
 	subSystemIdent         = "identification"
 	subSystemKEX           = "kex"
 	subSystemHostKeyVerify = "host_key_verify"
+	subSystemServerHostKey = "server_host_key"
 	subSystemCipher        = "cipher"
 	subSystemMAC           = "mac"
 	subSystemError         = "error"
@@ -123,10 +124,10 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
-	hostKeyVerifySuccessDesc = typedDesc{
+	serverHostKeyVerifySuccessDesc = typedDesc{
 		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemHostKeyVerify, "success"),
-			"Whether the server host key was successfully verified.",
+			prometheus.BuildFQName(namespace, subSystemServerHostKey, "verify_success"),
+			"Whether the server host key was verified (RFC 4253 section 8).",
 			nil,
 			nil,
 		),
@@ -194,7 +195,7 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- hostKeyAlgorithmInfoDesc.desc
 	ch <- cipherInfoDesc.desc
 	ch <- macInfoDesc.desc
-	ch <- hostKeyVerifySuccessDesc.desc
+	ch <- serverHostKeyVerifySuccessDesc.desc
 	ch <- kexSuccessDesc.desc
 	ch <- kexDurationDesc.desc
 	ch <- errorInfoDesc.desc
@@ -220,7 +221,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"cipher_write", result.CipherWrite,
 			"mac_read", result.MACRead,
 			"mac_write", result.MACWrite,
-			"host_key_verify_success", result.HostKeyVerifySuccess,
+			"server_host_key_verify_success", result.ServerHostKeyVerifySuccess,
 			"kex_success", result.KEXSuccess,
 			"kex_duration", result.KEXDuration,
 			"error_phase", result.ErrorPhase,
@@ -270,7 +271,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- macInfoDesc.mustNewConstMetric(1, "write", result.MACWrite)
 	}
 
-	ch <- hostKeyVerifySuccessDesc.mustNewConstMetric(boolToFloat64(result.HostKeyVerifySuccess))
+	ch <- serverHostKeyVerifySuccessDesc.mustNewConstMetric(boolToFloat64(result.ServerHostKeyVerifySuccess))
 
 	ch <- kexSuccessDesc.mustNewConstMetric(boolToFloat64(result.KEXSuccess))
 	if result.KEXSuccess {

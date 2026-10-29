@@ -64,12 +64,12 @@ A healthy probe reports:
 ```
 ssh_transport_tcp_connect_success 1
 ssh_transport_kex_success 1
-ssh_transport_host_key_verify_success 1
+ssh_transport_server_host_key_verify_success 1
 ```
 
 On failure the matching `_success` metric is `0` and
 `ssh_transport_error_info` carries the phase and reason, e.g.
-`{phase="host_key_verify",reason="mismatch"}`. A target outside
+`{phase="key_exchange",reason="server_host_key_mismatch"}`. A target outside
 `allowed_targets` or `allowed_ports` is rejected with HTTP 403 before any
 connection is attempted.
 
@@ -276,10 +276,6 @@ ssh_transport_dns_lookup_duration_seconds 0.004120583
 # TYPE ssh_transport_host_key_verify_algorithm_info gauge
 ssh_transport_host_key_verify_algorithm_info{algorithm="ssh-ed25519"} 1
 
-# HELP ssh_transport_host_key_verify_success Whether the server host key was successfully verified.
-# TYPE ssh_transport_host_key_verify_success gauge
-ssh_transport_host_key_verify_success 1
-
 # HELP ssh_transport_identification_server_version_info SSH version banner presented by the server (RFC 4253 4.2). Absent if not observed.
 # TYPE ssh_transport_identification_server_version_info gauge
 ssh_transport_identification_server_version_info{version="SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10"} 1
@@ -299,6 +295,10 @@ ssh_transport_kex_duration_seconds 0.090082416
 # HELP ssh_transport_kex_success Whether the SSH transport layer key exchange (RFC 4253) completed successfully.
 # TYPE ssh_transport_kex_success gauge
 ssh_transport_kex_success 1
+
+# HELP ssh_transport_server_host_key_verify_success Whether the server host key was verified (RFC 4253 section 8).
+# TYPE ssh_transport_server_host_key_verify_success gauge
+ssh_transport_server_host_key_verify_success 1
 
 # HELP ssh_transport_tcp_connect_duration_seconds Time taken to establish the TCP connection, excluding name resolution. Absent on failure.
 # TYPE ssh_transport_tcp_connect_duration_seconds gauge
@@ -399,8 +399,7 @@ key is verified within the key exchange, before it completes.
 | --- | --- |
 | `dns_lookup` | Failure while resolving the target hostname, before any connection attempt. IP literal targets skip this phase. |
 | `tcp_connect` | Failure while establishing the underlying TCP connection to the target (before anything SSH). |
-| `key_exchange` | Failure during the SSH transport-layer key exchange (RFC 4253), after the TCP connection was established. |
-| `host_key_verify` | Verification of the server's host key against the configured `known_hosts` failed. Takes precedence over a key exchange that fails after the check. |
+| `key_exchange` | Failure during the SSH transport-layer key exchange (RFC 4253), after the TCP connection was established. This includes verifying the server host key against `known_hosts`, which takes precedence over a key exchange that fails after the check. |
 
 ### Reasons
 
@@ -415,8 +414,9 @@ The reason narrows down the cause within a phase.
 | `connection_reset` | `tcp_connect`, `key_exchange` | The peer hung up unexpectedly, e.g. sshd dropping the client on `MaxStartups` or a TCP wrapper, or a firewall or load balancer in the path. Covers both a clean close (`EOF`) and a reset (`ECONNRESET`, `EPIPE`), since which one the probe sees depends on timing. |
 | `timeout` | `dns_lookup`, `tcp_connect`, `key_exchange` | The operation exceeded its deadline (the effective probe timeout, or a network-level timeout). |
 | `canceled` | `dns_lookup`, `tcp_connect`, `key_exchange` | The caller went away before the probe finished, typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
-| `unknown_host` | `host_key_verify` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
-| `mismatch` | `host_key_verify` | The server's host key did **not** match the key pinned for that host in `known_hosts`, which indicates either a man-in-the-middle or an un-rotated key. |
-| `revoked` | `host_key_verify` | The server's host key is explicitly listed as revoked in `known_hosts`. |
+| `server_host_key_unknown` | `key_exchange` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
+| `server_host_key_mismatch` | `key_exchange` | The server's host key did **not** match the key pinned for that host in `known_hosts`, which indicates either a man-in-the-middle or an un-rotated key. |
+| `server_host_key_revoked` | `key_exchange` | The server's host key is explicitly listed as revoked in `known_hosts`. |
+| `server_host_key_rejected` | `key_exchange` | The server host key was rejected for a reason other than the three above. |
 | `user_auth_reached` | `key_exchange` | The probe went on to user authentication (RFC 4252) instead of aborting once the transport layer was established. This is a bug in the exporter or its `golang.org/x/crypto` fork, not a problem with the target; please open an issue. |
 | `other` | any | The failure did not match any of the classified cases above. If you see this frequently, please open an issue with the target and (debug-level) logs so the classification can be improved. |

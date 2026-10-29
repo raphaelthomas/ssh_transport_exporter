@@ -76,18 +76,18 @@ func directionSeries(mfs map[string]*dto.MetricFamily, name, direction string) *
 func TestCollectFullSuccess(t *testing.T) {
 	t.Parallel()
 	result := probe.Result{
-		DNSLookupDuration:       250 * time.Millisecond,
-		TCPConnectSuccess:       true,
-		TCPConnectDuration:      500 * time.Millisecond,
-		TCPConnectNegotiatedMSS: 1448,
-		ServerVersion:           "SSH-2.0-OpenSSH_9.6",
-		KEXSuccess:              true,
-		KEXDuration:             time.Second,
-		KEXAlgorithm:            "curve25519-sha256",
-		HostKeyVerifySuccess:    true,
-		HostKeyAlgorithm:        "ssh-ed25519",
-		CipherRead:              "aes128-gcm@openssh.com",
-		CipherWrite:             "chacha20-poly1305@openssh.com",
+		DNSLookupDuration:          250 * time.Millisecond,
+		TCPConnectSuccess:          true,
+		TCPConnectDuration:         500 * time.Millisecond,
+		TCPConnectNegotiatedMSS:    1448,
+		ServerVersion:              "SSH-2.0-OpenSSH_9.6",
+		KEXSuccess:                 true,
+		KEXDuration:                time.Second,
+		KEXAlgorithm:               "curve25519-sha256",
+		ServerHostKeyVerifySuccess: true,
+		HostKeyAlgorithm:           "ssh-ed25519",
+		CipherRead:                 "aes128-gcm@openssh.com",
+		CipherWrite:                "chacha20-poly1305@openssh.com",
 	}
 	mfs := collectMetrics(t, result)
 
@@ -115,8 +115,8 @@ func TestCollectFullSuccess(t *testing.T) {
 	if got := labelValue(t, mfs, "ssh_transport_kex_algorithm_info", "algorithm"); got != "curve25519-sha256" {
 		t.Errorf("kex_algorithm_info algorithm = %q", got)
 	}
-	if got := singleValue(t, mfs, "ssh_transport_host_key_verify_success"); got != 1 {
-		t.Errorf("host_key_verify_success = %v, want 1", got)
+	if got := singleValue(t, mfs, "ssh_transport_server_host_key_verify_success"); got != 1 {
+		t.Errorf("server_host_key_verify_success = %v, want 1", got)
 	}
 	if got := labelValue(t, mfs, "ssh_transport_host_key_verify_algorithm_info", "algorithm"); got != "ssh-ed25519" {
 		t.Errorf("host_key_verify_algorithm_info algorithm = %q", got)
@@ -192,8 +192,8 @@ func TestCollectTCPFailure(t *testing.T) {
 	if got := singleValue(t, mfs, "ssh_transport_kex_success"); got != 0 {
 		t.Errorf("kex_success = %v, want 0", got)
 	}
-	if got := singleValue(t, mfs, "ssh_transport_host_key_verify_success"); got != 0 {
-		t.Errorf("host_key_verify_success = %v, want 0", got)
+	if got := singleValue(t, mfs, "ssh_transport_server_host_key_verify_success"); got != 0 {
+		t.Errorf("server_host_key_verify_success = %v, want 0", got)
 	}
 
 	for _, name := range []string{

@@ -170,11 +170,11 @@ func TestClassifyHostKeyVerifyError(t *testing.T) {
 		err  error
 		want string
 	}{
-		{"unknown host (empty Want)", &knownhosts.KeyError{}, ErrReasonUnknownHost},
-		{"mismatch (non-empty Want)", &knownhosts.KeyError{Want: []knownhosts.KnownKey{{}}}, ErrReasonMismatch},
-		{"revoked", &knownhosts.RevokedError{}, ErrReasonRevoked},
-		{"wrapped mismatch", fmt.Errorf("verify: %w", &knownhosts.KeyError{Want: []knownhosts.KnownKey{{}}}), ErrReasonMismatch},
-		{"other", errors.New("nope"), ErrReasonOther},
+		{"unknown host (empty Want)", &knownhosts.KeyError{}, ErrReasonServerHostKeyUnknown},
+		{"mismatch (non-empty Want)", &knownhosts.KeyError{Want: []knownhosts.KnownKey{{}}}, ErrReasonServerHostKeyMismatch},
+		{"revoked", &knownhosts.RevokedError{}, ErrReasonServerHostKeyRevoked},
+		{"wrapped mismatch", fmt.Errorf("verify: %w", &knownhosts.KeyError{Want: []knownhosts.KnownKey{{}}}), ErrReasonServerHostKeyMismatch},
+		{"rejected", errors.New("nope"), ErrReasonServerHostKeyRejected},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

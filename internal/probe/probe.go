@@ -20,26 +20,26 @@ import (
 
 // Phases a probe can fail at, reported as Result.ErrorPhase.
 const (
-	ErrPhaseDNSLookup     = "dns_lookup"
-	ErrPhaseTCPConnect    = "tcp_connect"
-	ErrPhaseKeyExchange   = "key_exchange"
-	ErrPhaseHostKeyVerify = "host_key_verify"
+	ErrPhaseDNSLookup   = "dns_lookup"
+	ErrPhaseTCPConnect  = "tcp_connect"
+	ErrPhaseKeyExchange = "key_exchange"
 )
 
 // Why a probe failed, reported as Result.ErrorReason.
 const (
-	ErrReasonConnectionRefused  = "connection_refused"
-	ErrReasonNoRouteToHost      = "no_route_to_host"
-	ErrReasonNetworkUnreachable = "network_unreachable"
-	ErrReasonDNSFailure         = "dns_failure"
-	ErrReasonConnectionReset    = "connection_reset"
-	ErrReasonUnknownHost        = "unknown_host"
-	ErrReasonMismatch           = "mismatch"
-	ErrReasonRevoked            = "revoked"
-	ErrReasonTimeout            = "timeout"
-	ErrReasonCanceled           = "canceled"
-	ErrReasonUserAuthReached    = "user_auth_reached"
-	ErrReasonOther              = "other"
+	ErrReasonConnectionRefused     = "connection_refused"
+	ErrReasonNoRouteToHost         = "no_route_to_host"
+	ErrReasonNetworkUnreachable    = "network_unreachable"
+	ErrReasonDNSFailure            = "dns_failure"
+	ErrReasonConnectionReset       = "connection_reset"
+	ErrReasonServerHostKeyUnknown  = "server_host_key_unknown"
+	ErrReasonServerHostKeyMismatch = "server_host_key_mismatch"
+	ErrReasonServerHostKeyRevoked  = "server_host_key_revoked"
+	ErrReasonServerHostKeyRejected = "server_host_key_rejected"
+	ErrReasonTimeout               = "timeout"
+	ErrReasonCanceled              = "canceled"
+	ErrReasonUserAuthReached       = "user_auth_reached"
+	ErrReasonOther                 = "other"
 )
 
 // Result is the outcome of one probe against one target.
@@ -60,8 +60,8 @@ type Result struct {
 	KEXDuration  time.Duration
 	KEXAlgorithm string
 
-	HostKeyVerifySuccess bool
-	HostKeyAlgorithm     string
+	ServerHostKeyVerifySuccess bool
+	HostKeyAlgorithm           string
 
 	CipherRead  string
 	CipherWrite string
@@ -263,9 +263,9 @@ func Run(ctx context.Context, target string, opts Options) Result {
 	// A failed host key check outranks a key exchange that failed after it.
 	select {
 	case hk := <-hostKeyResultCh:
-		result.HostKeyVerifySuccess = hk.verified
+		result.ServerHostKeyVerifySuccess = hk.verified
 		if !hk.verified {
-			result.ErrorPhase = ErrPhaseHostKeyVerify
+			result.ErrorPhase = ErrPhaseKeyExchange
 			result.ErrorReason = hk.errorReason
 		}
 	default:
@@ -286,16 +286,16 @@ func isHostname(target string) bool {
 func classifyHostKeyVerifyError(err error) string {
 	if keyErr, ok := errors.AsType[*knownhosts.KeyError](err); ok {
 		if len(keyErr.Want) == 0 {
-			return ErrReasonUnknownHost
+			return ErrReasonServerHostKeyUnknown
 		}
-		return ErrReasonMismatch
+		return ErrReasonServerHostKeyMismatch
 	}
 
 	if _, ok := errors.AsType[*knownhosts.RevokedError](err); ok {
-		return ErrReasonRevoked
+		return ErrReasonServerHostKeyRevoked
 	}
 
-	return ErrReasonOther
+	return ErrReasonServerHostKeyRejected
 }
 
 // classifyContextError reports the probe's own timeout or cancellation, so it is not
