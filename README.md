@@ -151,7 +151,7 @@ Flags:
 Probes are defined in a YAML configuration file, which is specified via the
 `--config.file` parameter. The default path is `ssh_transport_exporter.yaml`.
 `--config.check` validates it, including the `known_hosts` files it references,
-and exits.
+and the `--web.config.file` if one is set, then exits.
 
 See
 [`ssh_transport_exporter.example.yaml`](./ssh_transport_exporter.example.yaml)

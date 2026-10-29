@@ -571,6 +571,33 @@ func TestServeWithWebConfig(t *testing.T) {
 	}
 }
 
+func TestCheckConfigValidatesWebConfig(t *testing.T) {
+	valid, _ := writeWebConfig(t, "prometheus", "secret")
+	broken := filepath.Join(t.TempDir(), "web.yml")
+	writeFile(t, broken, "tls_server_config:\n  cert_file: /does/not/exist.pem\n  key_file: /does/not/exist.key\n")
+
+	for _, tt := range []struct {
+		name    string
+		args    []string
+		wantErr bool
+	}{
+		{"no web config", nil, false},
+		{"valid web config", []string{"--web.config.file=" + valid}, false},
+		{"broken web config", []string{"--web.config.file=" + broken}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := checkConfig(slog.New(slog.NewTextHandler(&buf, nil)), parseFlags(tt.args), 1)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("checkConfig() = %v, want error %t", err, tt.wantErr)
+			}
+			if gotOK := strings.Contains(buf.String(), "config OK"); gotOK == tt.wantErr {
+				t.Errorf("logged %q, want \"config OK\" only on success", buf.String())
+			}
+		})
+	}
+}
+
 func TestParseFlags(t *testing.T) {
 	check := func(t *testing.T, got *flags, want flags, wantListen []string, wantWebConfig string) {
 		t.Helper()

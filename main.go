@@ -108,6 +108,15 @@ func (f *flags) validate() error {
 	return nil
 }
 
+// checkConfig finishes --config.check once the module config has loaded.
+func checkConfig(logger *slog.Logger, f *flags, moduleCount int) error {
+	if err := web.Validate(*f.Web.WebConfigFile); err != nil {
+		return err
+	}
+	logger.Info("config OK", "path", f.ConfigFile, "web_config_file", *f.Web.WebConfigFile, "module_count", moduleCount)
+	return nil
+}
+
 // configReloadMetrics makes a failed reload, which keeps the previous config,
 // visible beyond the log.
 type configReloadMetrics struct {
@@ -279,7 +288,10 @@ func main() {
 		os.Exit(1)
 	}
 	if cfg.CheckConfig {
-		logger.Info("config OK", "path", cfg.ConfigFile, "module_count", len(modules))
+		if err := checkConfig(logger, cfg, len(modules)); err != nil {
+			logger.Error("invalid web config", "path", *cfg.Web.WebConfigFile, "error", err)
+			os.Exit(1)
+		}
 		return
 	}
 
