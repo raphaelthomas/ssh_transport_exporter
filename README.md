@@ -250,7 +250,8 @@ Verify the whole delta against upstream:
 <https://github.com/golang/crypto/compare/master...raphaelthomas:crypto:master>
 
 Rebased onto upstream releases and pinned by commit in `go.mod`. Goes away once
-the hook is upstreamed.
+the hook is upstreamed, which is proposed in
+[golang/go#82664](https://github.com/golang/go/issues/82664).
 
 ## Exported Metrics
 
