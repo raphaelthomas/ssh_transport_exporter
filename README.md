@@ -63,7 +63,7 @@ A healthy probe reports:
 
 ```
 ssh_transport_tcp_connect_success 1
-ssh_transport_kex_success 1
+ssh_transport_key_exchange_success 1
 ssh_transport_server_host_key_verify_success 1
 ```
 
@@ -280,13 +280,13 @@ ssh_transport_encryption_algorithm_info{algorithm="aes128-gcm@openssh.com",direc
 # TYPE ssh_transport_kex_algorithm_info gauge
 ssh_transport_kex_algorithm_info{algorithm="curve25519-sha256"} 1
 
-# HELP ssh_transport_kex_duration_seconds Time taken for the SSH transport layer handshake. Absent on failure.
-# TYPE ssh_transport_kex_duration_seconds gauge
-ssh_transport_kex_duration_seconds 0.090082416
+# HELP ssh_transport_key_exchange_duration_seconds Time taken for the key exchange (RFC 4253 section 7). Absent on failure.
+# TYPE ssh_transport_key_exchange_duration_seconds gauge
+ssh_transport_key_exchange_duration_seconds 0.090082416
 
-# HELP ssh_transport_kex_success Whether the SSH transport layer key exchange (RFC 4253) completed successfully.
-# TYPE ssh_transport_kex_success gauge
-ssh_transport_kex_success 1
+# HELP ssh_transport_key_exchange_success Whether the key exchange (RFC 4253 section 7) completed.
+# TYPE ssh_transport_key_exchange_success gauge
+ssh_transport_key_exchange_success 1
 
 # HELP ssh_transport_server_host_key_algorithm_info Negotiated server host key algorithm (RFC 4253 section 7.1). Absent unless key exchange completed.
 # TYPE ssh_transport_server_host_key_algorithm_info gauge

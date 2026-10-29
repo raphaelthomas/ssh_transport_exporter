@@ -83,8 +83,8 @@ func TestCollectFullSuccess(t *testing.T) {
 		TCPConnectDuration:         500 * time.Millisecond,
 		TCPMSS:                     1448,
 		ServerIdentification:       "SSH-2.0-OpenSSH_9.6",
-		KEXSuccess:                 true,
-		KEXDuration:                time.Second,
+		KeyExchangeSuccess:         true,
+		KeyExchangeDuration:        time.Second,
 		KEXAlgorithm:               "curve25519-sha256",
 		ServerHostKeyVerifySuccess: true,
 		ServerHostKeyAlgorithm:     "ssh-ed25519",
@@ -111,11 +111,11 @@ func TestCollectFullSuccess(t *testing.T) {
 	if got := labelValue(t, mfs, "ssh_transport_server_identification_info", "version"); got != "SSH-2.0-OpenSSH_9.6" {
 		t.Errorf("server_identification_info version = %q", got)
 	}
-	if got := singleValue(t, mfs, "ssh_transport_kex_success"); got != 1 {
-		t.Errorf("kex_success = %v, want 1", got)
+	if got := singleValue(t, mfs, "ssh_transport_key_exchange_success"); got != 1 {
+		t.Errorf("key_exchange_success = %v, want 1", got)
 	}
-	if got := singleValue(t, mfs, "ssh_transport_kex_duration_seconds"); got != 1 {
-		t.Errorf("kex_duration_seconds = %v, want 1", got)
+	if got := singleValue(t, mfs, "ssh_transport_key_exchange_duration_seconds"); got != 1 {
+		t.Errorf("key_exchange_duration_seconds = %v, want 1", got)
 	}
 	if got := labelValue(t, mfs, "ssh_transport_kex_algorithm_info", "algorithm"); got != "curve25519-sha256" {
 		t.Errorf("kex_algorithm_info algorithm = %q", got)
@@ -157,7 +157,7 @@ func TestCollectMalformedServerIdentification(t *testing.T) {
 	t.Parallel()
 	mfs := collectMetrics(t, probe.Result{
 		TCPConnectSuccess:             true,
-		KEXSuccess:                    true,
+		KeyExchangeSuccess:            true,
 		ServerIdentificationMalformed: true,
 	})
 
@@ -211,8 +211,8 @@ func TestCollectTCPFailure(t *testing.T) {
 	if got := singleValue(t, mfs, "ssh_transport_tcp_connect_success"); got != 0 {
 		t.Errorf("tcp_connect_success = %v, want 0", got)
 	}
-	if got := singleValue(t, mfs, "ssh_transport_kex_success"); got != 0 {
-		t.Errorf("kex_success = %v, want 0", got)
+	if got := singleValue(t, mfs, "ssh_transport_key_exchange_success"); got != 0 {
+		t.Errorf("key_exchange_success = %v, want 0", got)
 	}
 	if got := singleValue(t, mfs, "ssh_transport_server_host_key_verify_success"); got != 0 {
 		t.Errorf("server_host_key_verify_success = %v, want 0", got)
@@ -224,7 +224,7 @@ func TestCollectTCPFailure(t *testing.T) {
 		"ssh_transport_tcp_connect_duration_seconds",
 		"ssh_transport_tcp_mss_bytes",
 		"ssh_transport_server_identification_info",
-		"ssh_transport_kex_duration_seconds",
+		"ssh_transport_key_exchange_duration_seconds",
 		"ssh_transport_kex_algorithm_info",
 		"ssh_transport_server_host_key_algorithm_info",
 		"ssh_transport_encryption_algorithm_info",
@@ -249,8 +249,8 @@ func TestCollectOmissionBranches(t *testing.T) {
 		TCPConnectSuccess:        true,
 		TCPConnectDuration:       time.Second,
 		TCPMSS:                   0,
-		KEXSuccess:               true,
-		KEXDuration:              time.Second,
+		KeyExchangeSuccess:       true,
+		KeyExchangeDuration:      time.Second,
 		KEXAlgorithm:             "",
 		ServerHostKeyAlgorithm:   "",
 		EncryptionServerToClient: "aes256-ctr",
@@ -276,9 +276,9 @@ func TestCollectOmissionBranches(t *testing.T) {
 	if _, ok := mfs["ssh_transport_server_identification_info"]; ok {
 		t.Error("server_identification_info present when version empty, want absent")
 	}
-	// kex_duration is still emitted because KEX succeeded.
-	if got := singleValue(t, mfs, "ssh_transport_kex_duration_seconds"); got != 1 {
-		t.Errorf("kex_duration_seconds = %v, want 1", got)
+	// key_exchange_duration_seconds is still emitted because the key exchange succeeded.
+	if got := singleValue(t, mfs, "ssh_transport_key_exchange_duration_seconds"); got != 1 {
+		t.Errorf("key_exchange_duration_seconds = %v, want 1", got)
 	}
 	if m := directionSeries(mfs, "ssh_transport_encryption_algorithm_info", "server_to_client"); m == nil {
 		t.Error("encryption_algorithm_info server_to_client series missing")
@@ -293,7 +293,7 @@ func TestCollectMACInfo(t *testing.T) {
 	t.Parallel()
 	mfs := collectMetrics(t, probe.Result{
 		TCPConnectSuccess:        true,
-		KEXSuccess:               true,
+		KeyExchangeSuccess:       true,
 		EncryptionServerToClient: "aes128-cbc",
 		EncryptionClientToServer: "aes128-cbc",
 		MACServerToClient:        "hmac-sha1",

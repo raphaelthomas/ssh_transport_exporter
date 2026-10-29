@@ -18,6 +18,7 @@ const (
 	subSystemTCPConnect    = "tcp_connect"
 	subSystemServerIdent   = "server_identification"
 	subSystemKEX           = "kex"
+	subSystemKeyExchange   = "key_exchange"
 	subSystemServerHostKey = "server_host_key"
 	subSystemEncryption    = "encryption"
 	subSystemMAC           = "mac"
@@ -142,19 +143,19 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
-	kexSuccessDesc = typedDesc{
+	keyExchangeSuccessDesc = typedDesc{
 		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemKEX, "success"),
-			"Whether the SSH transport layer key exchange (RFC 4253) completed successfully.",
+			prometheus.BuildFQName(namespace, subSystemKeyExchange, "success"),
+			"Whether the key exchange (RFC 4253 section 7) completed.",
 			nil,
 			nil,
 		),
 		prometheus.GaugeValue,
 	}
-	kexDurationDesc = typedDesc{
+	keyExchangeDurationDesc = typedDesc{
 		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemKEX, "duration_seconds"),
-			"Time taken for the SSH transport layer handshake. Absent on failure.",
+			prometheus.BuildFQName(namespace, subSystemKeyExchange, "duration_seconds"),
+			"Time taken for the key exchange (RFC 4253 section 7). Absent on failure.",
 			nil,
 			nil,
 		),
@@ -206,8 +207,8 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- encryptionAlgorithmInfoDesc.desc
 	ch <- macAlgorithmInfoDesc.desc
 	ch <- serverHostKeyVerifySuccessDesc.desc
-	ch <- kexSuccessDesc.desc
-	ch <- kexDurationDesc.desc
+	ch <- keyExchangeSuccessDesc.desc
+	ch <- keyExchangeDurationDesc.desc
 	ch <- errorInfoDesc.desc
 }
 
@@ -234,8 +235,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"mac_client_to_server", result.MACClientToServer,
 			"mac_server_to_client", result.MACServerToClient,
 			"server_host_key_verify_success", result.ServerHostKeyVerifySuccess,
-			"kex_success", result.KEXSuccess,
-			"kex_duration", result.KEXDuration,
+			"key_exchange_success", result.KeyExchangeSuccess,
+			"key_exchange_duration", result.KeyExchangeDuration,
 			"error_phase", result.ErrorPhase,
 			"error_reason", result.ErrorReason,
 		)
@@ -264,7 +265,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- serverIdentificationValidDesc.mustNewConstMetric(0)
 	}
 
-	if result.KEXSuccess && result.KEXAlgorithm != "" {
+	if result.KeyExchangeSuccess && result.KEXAlgorithm != "" {
 		ch <- kexAlgorithmInfoDesc.mustNewConstMetric(1, result.KEXAlgorithm)
 	}
 
@@ -288,9 +289,9 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 
 	ch <- serverHostKeyVerifySuccessDesc.mustNewConstMetric(boolToFloat64(result.ServerHostKeyVerifySuccess))
 
-	ch <- kexSuccessDesc.mustNewConstMetric(boolToFloat64(result.KEXSuccess))
-	if result.KEXSuccess {
-		ch <- kexDurationDesc.mustNewConstMetric(result.KEXDuration.Seconds())
+	ch <- keyExchangeSuccessDesc.mustNewConstMetric(boolToFloat64(result.KeyExchangeSuccess))
+	if result.KeyExchangeSuccess {
+		ch <- keyExchangeDurationDesc.mustNewConstMetric(result.KeyExchangeDuration.Seconds())
 	}
 
 	if result.ErrorPhase != "" {

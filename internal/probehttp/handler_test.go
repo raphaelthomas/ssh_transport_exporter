@@ -179,10 +179,10 @@ func TestHandlerSuccess(t *testing.T) {
 
 	for _, want := range []string{
 		"ssh_transport_tcp_connect_success 1",
-		"ssh_transport_kex_success 1",
+		"ssh_transport_key_exchange_success 1",
 		"ssh_transport_server_host_key_verify_success 1",
 		"ssh_transport_tcp_connect_duration_seconds",
-		"ssh_transport_kex_duration_seconds",
+		"ssh_transport_key_exchange_duration_seconds",
 		`ssh_transport_server_identification_info{version="SSH-2.0-TestServer_1.0"} 1`,
 		`ssh_transport_encryption_algorithm_info{algorithm=`,
 	} {
@@ -290,7 +290,7 @@ func TestHandlerScrapeTimeoutHeaderShortensProbe(t *testing.T) {
 	if elapsed > 10*time.Second {
 		t.Errorf("probe took %s; scrape timeout header did not shorten the deadline", elapsed)
 	}
-	if !strings.Contains(rec.Body.String(), "ssh_transport_kex_success 0") {
+	if !strings.Contains(rec.Body.String(), "ssh_transport_key_exchange_success 0") {
 		t.Errorf("expected kex failure after timeout:\n%s", rec.Body.String())
 	}
 }
@@ -313,7 +313,7 @@ func TestHandlerInvalidScrapeTimeoutHeaderIgnored(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("header %q: status = %d, want 200", hdr, rec.Code)
 		}
-		if !strings.Contains(rec.Body.String(), "ssh_transport_kex_success 1") {
+		if !strings.Contains(rec.Body.String(), "ssh_transport_key_exchange_success 1") {
 			t.Errorf("header %q: probe did not succeed, header should have been ignored", hdr)
 		}
 	}

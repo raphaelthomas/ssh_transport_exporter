@@ -37,11 +37,11 @@ func TestRunSuccess(t *testing.T) {
 	if result.DNSLookup || result.DNSLookupSuccess || result.DNSLookupDuration != 0 {
 		t.Errorf("DNSLookup = %t, DNSLookupSuccess = %t, DNSLookupDuration = %s, want none for an IP literal target", result.DNSLookup, result.DNSLookupSuccess, result.DNSLookupDuration)
 	}
-	if !result.KEXSuccess {
-		t.Errorf("KEXSuccess = false, want true (error %s/%s)", result.ErrorPhase, result.ErrorReason)
+	if !result.KeyExchangeSuccess {
+		t.Errorf("KeyExchangeSuccess = false, want true (error %s/%s)", result.ErrorPhase, result.ErrorReason)
 	}
-	if result.KEXDuration <= 0 {
-		t.Error("KEXDuration = 0, want > 0")
+	if result.KeyExchangeDuration <= 0 {
+		t.Error("KeyExchangeDuration = 0, want > 0")
 	}
 	if result.KEXAlgorithm == "" {
 		t.Error("KEXAlgorithm is empty")
@@ -79,8 +79,8 @@ func TestRunAbortsAtTransportReady(t *testing.T) {
 
 	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
 
-	if !result.KEXSuccess {
-		t.Fatalf("KEXSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
+	if !result.KeyExchangeSuccess {
+		t.Fatalf("KeyExchangeSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
 	}
 	for _, f := range []struct{ name, got string }{
 		{"ServerIdentification", result.ServerIdentification},
@@ -111,8 +111,8 @@ func TestRunNegotiatesRequestedCipher(t *testing.T) {
 		Ciphers:         []string{cipher},
 	})
 
-	if !result.KEXSuccess {
-		t.Fatalf("KEXSuccess = false (error %s/%s)", result.ErrorPhase, result.ErrorReason)
+	if !result.KeyExchangeSuccess {
+		t.Fatalf("KeyExchangeSuccess = false (error %s/%s)", result.ErrorPhase, result.ErrorReason)
 	}
 	if result.EncryptionClientToServer != cipher || result.EncryptionServerToClient != cipher {
 		t.Errorf("encryption client_to_server=%q server_to_client=%q, want %q", result.EncryptionClientToServer, result.EncryptionServerToClient, cipher)
@@ -135,8 +135,8 @@ func TestRunHostKeyAlgorithmsRespected(t *testing.T) {
 	if !result.TCPConnectSuccess {
 		t.Fatal("TCPConnectSuccess = false, want true")
 	}
-	if result.KEXSuccess {
-		t.Error("KEXSuccess = true, want false when no common host key algorithm")
+	if result.KeyExchangeSuccess {
+		t.Error("KeyExchangeSuccess = true, want false when no common host key algorithm")
 	}
 	if result.ErrorPhase != ErrPhaseKeyExchange {
 		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseKeyExchange)
@@ -159,8 +159,8 @@ func TestRunKeyExchangesRespected(t *testing.T) {
 	if !result.TCPConnectSuccess {
 		t.Fatal("TCPConnectSuccess = false, want true")
 	}
-	if result.KEXSuccess {
-		t.Error("KEXSuccess = true, want false when no common key exchange")
+	if result.KeyExchangeSuccess {
+		t.Error("KeyExchangeSuccess = true, want false when no common key exchange")
 	}
 	if result.ErrorPhase != ErrPhaseKeyExchange {
 		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseKeyExchange)
@@ -180,8 +180,8 @@ func TestRunMACsRespected(t *testing.T) {
 		MACs:            []string{ssh.HMACSHA512},
 	})
 
-	if !result.KEXSuccess {
-		t.Fatalf("KEXSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
+	if !result.KeyExchangeSuccess {
+		t.Fatalf("KeyExchangeSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
 	}
 	if result.MACClientToServer != ssh.HMACSHA512 || result.MACServerToClient != ssh.HMACSHA512 {
 		t.Errorf("MACs client_to_server=%q server_to_client=%q, want %q", result.MACClientToServer, result.MACServerToClient, ssh.HMACSHA512)
@@ -200,8 +200,8 @@ func TestRunNonAEADCipherReportsMAC(t *testing.T) {
 		Ciphers:         []string{ssh.CipherAES128CTR},
 	})
 
-	if !result.KEXSuccess {
-		t.Fatalf("KEXSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
+	if !result.KeyExchangeSuccess {
+		t.Fatalf("KeyExchangeSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
 	}
 	if result.MACClientToServer == "" || result.MACServerToClient == "" {
 		t.Errorf("MACs client_to_server=%q server_to_client=%q, want both set for a non-AEAD cipher", result.MACClientToServer, result.MACServerToClient)
@@ -221,8 +221,8 @@ func TestRunAEADCipherReportsNoMAC(t *testing.T) {
 		Ciphers:         []string{ssh.CipherAES128GCM},
 	})
 
-	if !result.KEXSuccess {
-		t.Fatalf("KEXSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
+	if !result.KeyExchangeSuccess {
+		t.Fatalf("KeyExchangeSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
 	}
 	if result.MACClientToServer != "" || result.MACServerToClient != "" {
 		t.Errorf("MACs client_to_server=%q server_to_client=%q, want both empty for an AEAD cipher", result.MACClientToServer, result.MACServerToClient)
@@ -278,8 +278,8 @@ func TestRunHostKeyVerificationFailure(t *testing.T) {
 	if !result.TCPConnectSuccess {
 		t.Fatal("TCPConnectSuccess = false, want true")
 	}
-	if !result.KEXSuccess {
-		t.Error("KEXSuccess = false, want true (KEX completes before verification)")
+	if !result.KeyExchangeSuccess {
+		t.Error("KeyExchangeSuccess = false, want true (KEX completes before verification)")
 	}
 	if result.ServerHostKeyVerifySuccess {
 		t.Error("ServerHostKeyVerifySuccess = true, want false")
@@ -334,7 +334,7 @@ func TestRunConnectionRefused(t *testing.T) {
 	if result.ErrorReason != ErrReasonConnectionRefused {
 		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonConnectionRefused)
 	}
-	if result.KEXSuccess || result.ServerHostKeyVerifySuccess {
+	if result.KeyExchangeSuccess || result.ServerHostKeyVerifySuccess {
 		t.Error("KEX/host key reported success on a refused connection")
 	}
 }
@@ -465,8 +465,8 @@ func TestRunPeerHangup(t *testing.T) {
 			if !result.TCPConnectSuccess {
 				t.Fatalf("TCPConnectSuccess = false, want true (error %s/%s)", result.ErrorPhase, result.ErrorReason)
 			}
-			if result.KEXSuccess {
-				t.Error("KEXSuccess = true, want false")
+			if result.KeyExchangeSuccess {
+				t.Error("KeyExchangeSuccess = true, want false")
 			}
 			if result.ErrorPhase != ErrPhaseKeyExchange {
 				t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseKeyExchange)
@@ -494,11 +494,11 @@ func TestRunKexFailsAfterHostKeyAccepted(t *testing.T) {
 
 	result := Run(ctx, srv.Addr, Options{HostKeyCallback: slowHostKeyCallback(500*time.Millisecond, acceptKey(srv.HostKey))})
 
-	if result.KEXSuccess {
-		t.Error("KEXSuccess = true, want false when NEWKEYS never completed")
+	if result.KeyExchangeSuccess {
+		t.Error("KeyExchangeSuccess = true, want false when NEWKEYS never completed")
 	}
-	if result.KEXDuration != 0 {
-		t.Errorf("KEXDuration = %s, want 0", result.KEXDuration)
+	if result.KeyExchangeDuration != 0 {
+		t.Errorf("KeyExchangeDuration = %s, want 0", result.KeyExchangeDuration)
 	}
 	if !result.ServerHostKeyVerifySuccess {
 		t.Error("ServerHostKeyVerifySuccess = false, want true")
@@ -518,8 +518,8 @@ func TestRunHostKeyFailureOutranksLaterKexFailure(t *testing.T) {
 
 	result := Run(ctx, srv.Addr, Options{HostKeyCallback: slowHostKeyCallback(500*time.Millisecond, acceptKey(otherSrv.HostKey))})
 
-	if result.KEXSuccess {
-		t.Error("KEXSuccess = true, want false when NEWKEYS never completed")
+	if result.KeyExchangeSuccess {
+		t.Error("KeyExchangeSuccess = true, want false when NEWKEYS never completed")
 	}
 	if result.ServerHostKeyVerifySuccess {
 		t.Error("ServerHostKeyVerifySuccess = true, want false")
@@ -541,8 +541,8 @@ func TestRunKexTimeout(t *testing.T) {
 	if !result.TCPConnectSuccess {
 		t.Fatal("TCPConnectSuccess = false, want true (TCP connect should succeed)")
 	}
-	if result.KEXSuccess {
-		t.Error("KEXSuccess = true, want false")
+	if result.KeyExchangeSuccess {
+		t.Error("KeyExchangeSuccess = true, want false")
 	}
 	if result.ErrorPhase != ErrPhaseKeyExchange {
 		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseKeyExchange)
@@ -602,8 +602,8 @@ func TestRunNilLoggerDoesNotPanic(t *testing.T) {
 	defer cancel()
 
 	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey), Logger: nil})
-	if !result.KEXSuccess {
-		t.Errorf("KEXSuccess = false with nil logger (error %s/%s)", result.ErrorPhase, result.ErrorReason)
+	if !result.KeyExchangeSuccess {
+		t.Errorf("KeyExchangeSuccess = false with nil logger (error %s/%s)", result.ErrorPhase, result.ErrorReason)
 	}
 }
 
@@ -618,8 +618,8 @@ func TestRunDebugLoggingEnabled(t *testing.T) {
 	defer cancel()
 
 	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey), Logger: logger})
-	if !result.KEXSuccess {
-		t.Fatalf("KEXSuccess = false (error %s/%s)", result.ErrorPhase, result.ErrorReason)
+	if !result.KeyExchangeSuccess {
+		t.Fatalf("KeyExchangeSuccess = false (error %s/%s)", result.ErrorPhase, result.ErrorReason)
 	}
 	// On non-Linux the MSS read fails and logs at debug level; on Linux it
 	// succeeds and logs nothing. Either way the probe must not log an error,
@@ -644,7 +644,7 @@ func TestRunSanitizesServerIdentification(t *testing.T) {
 	if !result.ServerIdentificationMalformed {
 		t.Error("ServerIdentificationMalformed = false, want true")
 	}
-	if !result.KEXSuccess {
-		t.Error("KEXSuccess = false, want true")
+	if !result.KeyExchangeSuccess {
+		t.Error("KeyExchangeSuccess = false, want true")
 	}
 }

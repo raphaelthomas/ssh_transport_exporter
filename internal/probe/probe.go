@@ -59,9 +59,9 @@ type Result struct {
 	// conform, which ServerIdentification alone cannot express once it is dropped.
 	ServerIdentificationMalformed bool
 
-	KEXSuccess   bool
-	KEXDuration  time.Duration
-	KEXAlgorithm string
+	KeyExchangeSuccess  bool
+	KeyExchangeDuration time.Duration
+	KEXAlgorithm        string
 
 	ServerHostKeyVerifySuccess bool
 	ServerHostKeyAlgorithm     string
@@ -237,7 +237,7 @@ func Run(ctx context.Context, target string, opts Options) Result {
 				version = stripServerIdentificationComments(version)
 			}
 			result.ServerIdentification = version
-			result.KEXDuration = time.Since(kexStart)
+			result.KeyExchangeDuration = time.Since(kexStart)
 			result.KEXAlgorithm = tc.Algorithms.KeyExchange
 			result.ServerHostKeyAlgorithm = tc.Algorithms.HostKey
 			result.EncryptionClientToServer = tc.Algorithms.Write.Cipher
@@ -253,7 +253,7 @@ func Run(ctx context.Context, target string, opts Options) Result {
 
 	switch {
 	case errors.Is(handshakeErr, errAbort):
-		result.KEXSuccess = true
+		result.KeyExchangeSuccess = true
 	case handshakeErr == nil:
 		// Unreachable while TransportReadyCallback returns errAbort.
 		logger.Error("probe reached user authentication instead of aborting; x/crypto/ssh behavior may have changed", "target", target)
