@@ -38,6 +38,7 @@ const (
 	ErrReasonRevoked            = "revoked"
 	ErrReasonTimeout            = "timeout"
 	ErrReasonCanceled           = "canceled"
+	ErrReasonUserAuthReached    = "user_auth_reached"
 	ErrReasonOther              = "other"
 )
 
@@ -251,8 +252,9 @@ func Run(ctx context.Context, target string, opts Options) Result {
 		result.KEXSuccess = true
 	case handshakeErr == nil:
 		// Unreachable while TransportReadyCallback returns errAbort.
-		logger.Warn("SSH handshake completed without hitting abort sentinel; x/crypto/ssh behavior may have changed", "target", target)
-		result.KEXSuccess = true
+		logger.Error("probe reached user authentication instead of aborting; x/crypto/ssh behavior may have changed", "target", target)
+		result.ErrorStage = ErrStageKeyExchange
+		result.ErrorReason = ErrReasonUserAuthReached
 	default:
 		result.ErrorStage = ErrStageKeyExchange
 		result.ErrorReason = classifyKexError(ctx, handshakeErr)

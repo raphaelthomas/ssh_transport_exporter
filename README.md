@@ -418,4 +418,5 @@ The reason narrows down the cause within a stage.
 | `unknown_host` | `host_key_verify` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
 | `mismatch` | `host_key_verify` | The server's host key did **not** match the key pinned for that host in `known_hosts`, which indicates either a man-in-the-middle or an un-rotated key. |
 | `revoked` | `host_key_verify` | The server's host key is explicitly listed as revoked in `known_hosts`. |
+| `user_auth_reached` | `kex` | The probe went on to user authentication (RFC 4252) instead of aborting once the transport layer was established. This is a bug in the exporter or its `golang.org/x/crypto` fork, not a problem with the target; please open an issue. |
 | `other` | any | The failure did not match any of the classified cases above. If you see this frequently, please open an issue with the target and (debug-level) logs so the classification can be improved. |

@@ -610,10 +610,10 @@ func TestRunDebugLoggingEnabled(t *testing.T) {
 		t.Fatalf("KEXSuccess = false (error %s/%s)", result.ErrorStage, result.ErrorReason)
 	}
 	// On non-Linux the MSS read fails and logs at debug level; on Linux it
-	// succeeds and logs nothing. Either way the probe must not warn about the
-	// abort sentinel, which would signal an x/crypto behavior change.
-	if strings.Contains(buf.String(), "abort sentinel") {
-		t.Errorf("probe logged the abort-sentinel warning: %s", buf.String())
+	// succeeds and logs nothing. Either way the probe must not log an error,
+	// which would signal that it was not aborted before user authentication.
+	if strings.Contains(buf.String(), "level=ERROR") {
+		t.Errorf("probe logged an error: %s", buf.String())
 	}
 }
 
