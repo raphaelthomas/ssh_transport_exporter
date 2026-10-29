@@ -1,10 +1,9 @@
-NEXT_VERSION := $(shell svu next --v0 --always)
-
 .PHONY: build release lint vet test clean
 
 build:
 	go build -buildmode=pie -o ssh_transport_exporter .
 
+release: NEXT_VERSION = $(shell svu next --v0 --always)
 release:
 	@echo "Current version: $(shell svu current)"
 	@echo "Next version:    $(NEXT_VERSION)"
