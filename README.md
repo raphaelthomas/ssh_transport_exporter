@@ -161,16 +161,18 @@ selects the `known_hosts`, the allowed targets, and the advertised algorithms.
 
 ### Configuration reload
 
-`SIGHUP` re-reads the configuration file and the `known_hosts` files it
-references, which is how a host key rotation is picked up without a restart:
+`SIGHUP` or a `POST` to `/-/reload` re-reads the configuration file and the
+`known_hosts` files it references, which is how a host key rotation is picked up
+without a restart:
 
 ```
 kill -HUP $(pidof ssh_transport_exporter)
+curl -X POST localhost:10022/-/reload
 ```
 
 The new configuration is validated before it is swapped in. If it is rejected,
-the error is logged and the previous configuration stays active, so a bad edit
-cannot take the exporter down.
+the error is logged, `/-/reload` answers `500`, and the previous configuration
+stays active, so a bad edit cannot take the exporter down.
 
 ## Health Checks
 

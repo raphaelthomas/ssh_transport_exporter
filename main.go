@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -139,15 +140,35 @@ func (m configReloadMetrics) record(err error) {
 	m.timestamp.SetToCurrentTime()
 }
 
-func reload(logger *slog.Logger, cfg *flags, live *atomic.Pointer[map[string]config.Module], metrics configReloadMetrics) {
+// reloadMu serializes reloads from SIGHUP and /-/reload, so an older config
+// cannot be stored after a newer one.
+var reloadMu sync.Mutex
+
+func reload(logger *slog.Logger, cfg *flags, live *atomic.Pointer[map[string]config.Module], metrics configReloadMetrics) error {
+	reloadMu.Lock()
+	defer reloadMu.Unlock()
+
 	modules, err := config.Load(cfg.ConfigFile, cfg.AllowAllTargets, logger)
 	metrics.record(err)
 	if err != nil {
 		logger.Error("config reload failed, keeping previous config", "path", cfg.ConfigFile, "error", err)
-		return
+		return err
 	}
 	live.Store(&modules)
 	logger.Info("config reloaded", "module_count", len(modules))
+	return nil
+}
+
+func reloadHandler(logger *slog.Logger, cfg *flags, live *atomic.Pointer[map[string]config.Module], metrics configReloadMetrics) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		logger.Info("received reload request, reloading config")
+		if err := reload(logger, cfg, live, metrics); err != nil {
+			http.Error(w, "config reload failed, keeping previous config", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("OK\n"))
+	}
 }
 
 var landingPage = fmt.Sprintf(`<html>
@@ -205,7 +226,7 @@ func serve(logger *slog.Logger, cfg *flags, srv *http.Server, live *atomic.Point
 			case sig := <-sigCh:
 				if sig == syscall.SIGHUP {
 					logger.Info("received SIGHUP, reloading config")
-					reload(logger, cfg, live, reloadMetrics)
+					_ = reload(logger, cfg, live, reloadMetrics)
 					continue
 				}
 				// Restore default handling so a second signal terminates the
@@ -296,6 +317,7 @@ func main() {
 	// {$} matches only the root, so any other unrouted path still 404s.
 	mux.HandleFunc("GET /{$}", landingPageHandler)
 	addHealthHandlers(mux)
+	mux.Handle("POST /-/reload", reloadHandler(logger, cfg, &live, reloadMetrics))
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/probe", probehttp.Handler(probehttp.Options{
 		Logger:        logger,

@@ -64,7 +64,9 @@ func TestReloadSwapsLiveModules(t *testing.T) {
 	live.Store(&initial)
 
 	writeFile(t, path, configWithModules(t, "a", "b"))
-	reload(logger, cfg, &live, reloadMetrics)
+	if err := reload(logger, cfg, &live, reloadMetrics); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
 
 	got := *live.Load()
 	if len(got) != 2 {
@@ -99,7 +101,9 @@ func TestReloadKeepsPreviousConfigOnError(t *testing.T) {
 	before := live.Load()
 
 	writeFile(t, path, "modules: [this is not a map\n")
-	reload(logger, cfg, &live, reloadMetrics)
+	if err := reload(logger, cfg, &live, reloadMetrics); err == nil {
+		t.Error("reload succeeded on a broken config, want an error")
+	}
 
 	if live.Load() != before {
 		t.Error("live module set was swapped despite a failed reload")
@@ -135,7 +139,9 @@ func TestReloadMissingFileKeepsPreviousConfig(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("removing config: %v", err)
 	}
-	reload(logger, cfg, &live, reloadMetrics)
+	if err := reload(logger, cfg, &live, reloadMetrics); err == nil {
+		t.Error("reload succeeded without a config file, want an error")
+	}
 
 	if live.Load() != before {
 		t.Error("live module set was swapped after the config file disappeared")
@@ -153,12 +159,13 @@ func TestReloadHonorsAllowAllTargets(t *testing.T) {
 	var live atomic.Pointer[map[string]config.Module]
 	empty := map[string]config.Module{}
 	live.Store(&empty)
-	reload(logger, &flags{ConfigFile: path, AllowAllTargets: false}, &live, reloadMetrics)
-	if len(*live.Load()) != 0 {
+	if err := reload(logger, &flags{ConfigFile: path, AllowAllTargets: false}, &live, reloadMetrics); err == nil || len(*live.Load()) != 0 {
 		t.Error("reload succeeded without --allow-all-targets, want failure")
 	}
 
-	reload(logger, &flags{ConfigFile: path, AllowAllTargets: true}, &live, reloadMetrics)
+	if err := reload(logger, &flags{ConfigFile: path, AllowAllTargets: true}, &live, reloadMetrics); err != nil {
+		t.Fatalf("reload with --allow-all-targets: %v", err)
+	}
 	modules := *live.Load()
 	mod, ok := modules["a"]
 	if !ok {
@@ -166,6 +173,71 @@ func TestReloadHonorsAllowAllTargets(t *testing.T) {
 	}
 	if len(mod.AllowedTargets) != 1 || !mod.AllowedTargets[0].Match("anything.example") {
 		t.Error("expected an allow-all matcher after reload with --allow-all-targets")
+	}
+}
+
+func TestReloadHandler(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, path, configWithModules(t, "a"))
+
+	logger := slog.New(slog.DiscardHandler)
+	initial, err := config.Load(path, false, logger)
+	if err != nil {
+		t.Fatalf("initial load: %v", err)
+	}
+	var live atomic.Pointer[map[string]config.Module]
+	live.Store(&initial)
+
+	mux := http.NewServeMux()
+	mux.Handle("POST /-/reload", reloadHandler(logger, &flags{ConfigFile: path}, &live, newConfigReloadMetrics()))
+	do := func(method string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(method, "/-/reload", nil))
+		return rec
+	}
+
+	writeFile(t, path, configWithModules(t, "a", "b"))
+	if rec := do(http.MethodPost); rec.Code != http.StatusOK || rec.Body.String() != "OK\n" {
+		t.Errorf("POST = %d %q, want 200 %q", rec.Code, rec.Body.String(), "OK\n")
+	}
+	if _, ok := (*live.Load())["b"]; !ok {
+		t.Errorf("module %q missing after reload; modules = %v", "b", keys(*live.Load()))
+	}
+
+	before := live.Load()
+	writeFile(t, path, "modules: [this is not a map\n")
+	if rec := do(http.MethodPost); rec.Code != http.StatusInternalServerError || rec.Body.String() != "config reload failed, keeping previous config\n" {
+		t.Errorf("POST with a broken config = %d %q, want 500 without details", rec.Code, rec.Body.String())
+	}
+	if live.Load() != before {
+		t.Error("live module set was swapped despite a failed reload")
+	}
+
+	if rec := do(http.MethodGet); rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+// A reload waiting for another one reads the config only once it runs, so the
+// newest file wins.
+func TestReloadsAreSerialized(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, path, configWithModules(t, "a"))
+
+	logger := slog.New(slog.DiscardHandler)
+	var live atomic.Pointer[map[string]config.Module]
+
+	reloadMu.Lock()
+	done := make(chan error)
+	go func() { done <- reload(logger, &flags{ConfigFile: path}, &live, newConfigReloadMetrics()) }()
+	writeFile(t, path, configWithModules(t, "a", "b"))
+	reloadMu.Unlock()
+
+	if err := <-done; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if _, ok := (*live.Load())["b"]; !ok {
+		t.Errorf("module %q missing, want the newest config; modules = %v", "b", keys(*live.Load()))
 	}
 }
 
