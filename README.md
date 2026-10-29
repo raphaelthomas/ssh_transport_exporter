@@ -271,6 +271,10 @@ ssh_transport_dns_lookup_duration_seconds 0.004120583
 # TYPE ssh_transport_dns_lookup_success gauge
 ssh_transport_dns_lookup_success 1
 
+# HELP ssh_transport_duration_seconds Time taken for the whole probe, whether it succeeded or not.
+# TYPE ssh_transport_duration_seconds gauge
+ssh_transport_duration_seconds 0.121203458
+
 # HELP ssh_transport_encryption_algorithm_info Negotiated encryption algorithm per direction (RFC 4253 section 7.1). Absent unless key exchange completed.
 # TYPE ssh_transport_encryption_algorithm_info gauge
 ssh_transport_encryption_algorithm_info{algorithm="aes128-gcm@openssh.com",direction="client_to_server"} 1
@@ -331,7 +335,8 @@ ssh_transport_mac_algorithm_info{algorithm="hmac-sha2-256-etm@openssh.com",direc
 ```
 
 An unsuccessful probe adds an `ssh_transport_error_info` metric, reports `0` for
-the `*_success` gauges, and omits the `*_duration_seconds` metrics. See [Error
+the `*_success` gauge of the phase that failed and of every later phase, and
+omits their `*_duration_seconds` metrics. See [Error
 Phases and Reasons](#error-phases-and-reasons) for the label values. For a probe
 whose target failed DNS resolution:
 
@@ -389,9 +394,10 @@ against `--probe.max-concurrent` when sizing it.
 
 When a probe does not fully succeed, the exporter emits a single
 `ssh_transport_error_info` metric (constant `1`) carrying two labels `phase`
-and `reason`, and omits the `*_duration_seconds` metrics. The `phase` label
-identifies *how far* the probe got before failing; the `reason` label explains
-*why* it failed in that phase.
+and `reason`, and omits the `*_duration_seconds` metrics of the phase that
+failed and of every later phase. The `phase` label identifies *how far* the
+probe got before failing; the `reason` label explains *why* it failed in that
+phase.
 
 ### Phases
 

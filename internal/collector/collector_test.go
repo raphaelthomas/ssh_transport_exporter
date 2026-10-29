@@ -90,11 +90,15 @@ func TestCollectFullSuccess(t *testing.T) {
 		ServerHostKeyAlgorithm:     "ssh-ed25519",
 		EncryptionServerToClient:   "aes128-gcm@openssh.com",
 		EncryptionClientToServer:   "chacha20-poly1305@openssh.com",
+		Duration:                   2 * time.Second,
 	}
 	mfs := collectMetrics(t, result)
 
 	if got := singleValue(t, mfs, "ssh_transport_dns_lookup_success"); got != 1 {
 		t.Errorf("dns_lookup_success = %v, want 1", got)
+	}
+	if got := singleValue(t, mfs, "ssh_transport_duration_seconds"); got != 2 {
+		t.Errorf("duration_seconds = %v, want 2", got)
 	}
 	if got := singleValue(t, mfs, "ssh_transport_dns_lookup_duration_seconds"); got != 0.25 {
 		t.Errorf("dns_lookup_duration_seconds = %v, want 0.25", got)
@@ -205,11 +209,15 @@ func TestCollectTCPFailure(t *testing.T) {
 		TCPConnectSuccess: false,
 		ErrorPhase:        probe.ErrPhaseTCPConnect,
 		ErrorReason:       probe.ErrReasonConnectionRefused,
+		Duration:          time.Second,
 	}
 	mfs := collectMetrics(t, result)
 
 	if got := singleValue(t, mfs, "ssh_transport_tcp_connect_success"); got != 0 {
 		t.Errorf("tcp_connect_success = %v, want 0", got)
+	}
+	if got := singleValue(t, mfs, "ssh_transport_duration_seconds"); got != 1 {
+		t.Errorf("duration_seconds = %v, want 1 on failure", got)
 	}
 	if got := singleValue(t, mfs, "ssh_transport_key_exchange_success"); got != 0 {
 		t.Errorf("key_exchange_success = %v, want 0", got)
@@ -318,8 +326,8 @@ func TestDescribeEmitsAllDescriptors(t *testing.T) {
 	ch := make(chan *prometheus.Desc, 32)
 	c.Describe(ch)
 	close(ch)
-	if got := len(ch); got != 15 {
-		t.Errorf("Describe emitted %d descriptors, want 15", got)
+	if got := len(ch); got != 16 {
+		t.Errorf("Describe emitted %d descriptors, want 16", got)
 	}
 }
 

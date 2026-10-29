@@ -170,6 +170,15 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
+	durationDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "", "duration_seconds"),
+			"Time taken for the whole probe, whether it succeeded or not.",
+			nil,
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
 )
 
 // SSHCollector implements prometheus.Collector for one target/module.
@@ -210,6 +219,7 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- keyExchangeSuccessDesc.desc
 	ch <- keyExchangeDurationDesc.desc
 	ch <- errorInfoDesc.desc
+	ch <- durationDesc.desc
 }
 
 // Collect runs the probe and translates the result into metrics.
@@ -239,6 +249,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"key_exchange_duration", result.KeyExchangeDuration,
 			"error_phase", result.ErrorPhase,
 			"error_reason", result.ErrorReason,
+			"duration", result.Duration,
 		)
 	}
 
@@ -297,6 +308,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 	if result.ErrorPhase != "" {
 		ch <- errorInfoDesc.mustNewConstMetric(1, result.ErrorPhase, result.ErrorReason)
 	}
+
+	ch <- durationDesc.mustNewConstMetric(result.Duration.Seconds())
 }
 
 func boolToFloat64(b bool) float64 {

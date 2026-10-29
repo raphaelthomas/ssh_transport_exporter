@@ -64,6 +64,9 @@ func TestRunSuccess(t *testing.T) {
 	if result.ErrorPhase != "" || result.ErrorReason != "" {
 		t.Errorf("error = %s/%s, want none", result.ErrorPhase, result.ErrorReason)
 	}
+	if result.Duration < result.TCPConnectDuration+result.KeyExchangeDuration {
+		t.Errorf("Duration = %s, want at least TCP connect plus key exchange (%s + %s)", result.Duration, result.TCPConnectDuration, result.KeyExchangeDuration)
+	}
 }
 
 // Everything the probe reports beyond the TCP and key exchange timings is
@@ -336,6 +339,9 @@ func TestRunConnectionRefused(t *testing.T) {
 	}
 	if result.KeyExchangeSuccess || result.ServerHostKeyVerifySuccess {
 		t.Error("KEX/host key reported success on a refused connection")
+	}
+	if result.Duration <= 0 {
+		t.Error("Duration = 0, want > 0 on an early failure")
 	}
 }
 

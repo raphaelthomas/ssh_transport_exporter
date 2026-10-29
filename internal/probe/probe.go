@@ -74,6 +74,8 @@ type Result struct {
 
 	ErrorPhase  string
 	ErrorReason string
+
+	Duration time.Duration
 }
 
 // errAbort is returned from TransportReadyCallback to abort the connection
@@ -128,8 +130,9 @@ type hostKeyResult struct {
 }
 
 // Run probes target and reports any failure in the returned Result.
-func Run(ctx context.Context, target string, opts Options) Result {
-	var result Result
+func Run(ctx context.Context, target string, opts Options) (result Result) {
+	start := time.Now()
+	defer func() { result.Duration = time.Since(start) }()
 
 	logger := opts.Logger
 	if logger == nil {
