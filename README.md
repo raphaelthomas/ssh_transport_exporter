@@ -136,16 +136,24 @@ Flags:
   -h, --[no-]help               Show context-sensitive help (also try --help-long and --help-man).
       --[no-]version            Show application version.
       --web.listen-address=:10022 ...
-                                Addresses on which to expose metrics and web interface. Repeatable for multiple addresses. Examples: `:9100` or `[::1]:9100` for http, `vsock://:9100` for vsock ($SSH_TRANSPORT_EXPORTER_LISTEN_ADDRESS)
-      --web.config.file=""      Path to configuration file that can enable TLS or authentication. See: https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md ($SSH_TRANSPORT_EXPORTER_WEB_CONFIG_FILE)
+                                Addresses on which to expose metrics and web interface. Repeatable for multiple
+                                addresses. Examples: `:9100` or `[::1]:9100` for http, `vsock://:9100` for vsock
+                                ($SSH_TRANSPORT_EXPORTER_LISTEN_ADDRESS)
+      --web.config.file=""      Path to configuration file that can enable TLS or authentication. See:
+                                https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md
+                                ($SSH_TRANSPORT_EXPORTER_WEB_CONFIG_FILE)
       --log.level=info          Log level (debug, info, warn, error) ($SSH_TRANSPORT_EXPORTER_LOG_LEVEL)
       --config.file="ssh_transport_exporter.yaml"
-                                Path to the exporter's YAML config file with module definitions ($SSH_TRANSPORT_EXPORTER_CONFIG_FILE)
+                                Path to the exporter's YAML config file with module definitions
+                                ($SSH_TRANSPORT_EXPORTER_CONFIG_FILE)
       --[no-]config.check       Validate the config file and exit.
-      --probe.timeout=5s        Hard upper bound for a single probe; Prometheus scrape timeout may shorten it. ($SSH_TRANSPORT_EXPORTER_PROBE_TIMEOUT)
+      --probe.timeout=5s        Hard upper bound for a single probe; Prometheus scrape timeout may shorten it.
+                                ($SSH_TRANSPORT_EXPORTER_PROBE_TIMEOUT)
       --probe.max-concurrent=500
-                                Maximum probes running at once; further requests get 503 rather than queueing. 0 disables the limit. ($SSH_TRANSPORT_EXPORTER_PROBE_MAX_CONCURRENT)
-      --[no-]allow-all-targets  Probe any target when no allowed_targets is set; for fleets too diverse to enumerate. An explicit list always wins. ($SSH_TRANSPORT_EXPORTER_ALLOW_ALL_TARGETS)
+                                Maximum probes running at once; further requests get 503 rather than queueing.
+                                0 disables the limit. ($SSH_TRANSPORT_EXPORTER_PROBE_MAX_CONCURRENT)
+      --[no-]allow-all-targets  Probe any target when no allowed_targets is set; for fleets too diverse to
+                                enumerate. An explicit list always wins. ($SSH_TRANSPORT_EXPORTER_ALLOW_ALL_TARGETS)
 ```
 
 Probes are defined in a YAML configuration file, which is specified via the
