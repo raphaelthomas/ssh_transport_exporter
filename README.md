@@ -220,7 +220,7 @@ cannot obtain anything from it. Data coming back from a target is treated as
 untrusted and never reaches a Prometheus label unvalidated.
 
 The one label a target still controls is the identification string on
-`ssh_transport_identification_server_version_info`, so a host that varies its
+`ssh_transport_server_identification_info`, so a host that varies its
 banner varies the series. Setting `strip_server_version_comment` on a module
 reduces the label to the software version, and dropping the metric at scrape
 time bounds it entirely:
@@ -228,7 +228,7 @@ time bounds it entirely:
 ```yaml
     metric_relabel_configs:
       - source_labels: [__name__]
-        regex: ssh_transport_identification_server_version_info
+        regex: ssh_transport_server_identification_info
         action: drop
 ```
 
@@ -276,14 +276,6 @@ ssh_transport_dns_lookup_duration_seconds 0.004120583
 # TYPE ssh_transport_host_key_verify_algorithm_info gauge
 ssh_transport_host_key_verify_algorithm_info{algorithm="ssh-ed25519"} 1
 
-# HELP ssh_transport_identification_server_version_info SSH version banner presented by the server (RFC 4253 4.2). Absent if not observed.
-# TYPE ssh_transport_identification_server_version_info gauge
-ssh_transport_identification_server_version_info{version="SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10"} 1
-
-# HELP ssh_transport_identification_server_version_valid Whether the server's identification string conformed to RFC 4253 4.2. Absent if none was presented.
-# TYPE ssh_transport_identification_server_version_valid gauge
-ssh_transport_identification_server_version_valid 1
-
 # HELP ssh_transport_kex_algorithm_info Negotiated key exchange algorithm. Absent unless key exchange completed.
 # TYPE ssh_transport_kex_algorithm_info gauge
 ssh_transport_kex_algorithm_info{algorithm="curve25519-sha256"} 1
@@ -299,6 +291,14 @@ ssh_transport_kex_success 1
 # HELP ssh_transport_server_host_key_verify_success Whether the server host key was verified (RFC 4253 section 8).
 # TYPE ssh_transport_server_host_key_verify_success gauge
 ssh_transport_server_host_key_verify_success 1
+
+# HELP ssh_transport_server_identification_info Identification string sent by the server (RFC 4253 section 4.2). Absent if not observed.
+# TYPE ssh_transport_server_identification_info gauge
+ssh_transport_server_identification_info{version="SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10"} 1
+
+# HELP ssh_transport_server_identification_valid Whether the server's identification string conformed to RFC 4253 section 4.2. Absent if none was presented.
+# TYPE ssh_transport_server_identification_valid gauge
+ssh_transport_server_identification_valid 1
 
 # HELP ssh_transport_tcp_connect_duration_seconds Time taken to establish the TCP connection, excluding name resolution. Absent on failure.
 # TYPE ssh_transport_tcp_connect_duration_seconds gauge

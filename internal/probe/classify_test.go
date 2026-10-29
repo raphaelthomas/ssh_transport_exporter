@@ -14,7 +14,7 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-func TestSanitizeServerVersion(t *testing.T) {
+func TestSanitizeServerIdentification(t *testing.T) {
 	tests := []struct {
 		name string
 		in   string
@@ -37,8 +37,8 @@ func TestSanitizeServerVersion(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := sanitizeServerVersion([]byte(tt.in)); got != tt.want {
-				t.Errorf("sanitizeServerVersion(%q) = %q, want %q", tt.in, got, tt.want)
+			if got := sanitizeServerIdentification([]byte(tt.in)); got != tt.want {
+				t.Errorf("sanitizeServerIdentification(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}
@@ -64,16 +64,16 @@ func TestStripServerVersionComment(t *testing.T) {
 	}
 }
 
-func TestSanitizeServerVersionLengthLimit(t *testing.T) {
+func TestSanitizeServerIdentificationLengthLimit(t *testing.T) {
 	const maxLen = 255
 
 	atLimit := "SSH-2.0-" + strings.Repeat("a", maxLen-len("SSH-2.0-"))
-	if got := sanitizeServerVersion([]byte(atLimit)); got != atLimit {
+	if got := sanitizeServerIdentification([]byte(atLimit)); got != atLimit {
 		t.Errorf("a %d byte banner was rejected", len(atLimit))
 	}
 
-	if got := sanitizeServerVersion([]byte(atLimit + "a")); got != "" {
-		t.Errorf("sanitizeServerVersion = %q, want %q for an overlong banner", got, "")
+	if got := sanitizeServerIdentification([]byte(atLimit + "a")); got != "" {
+		t.Errorf("sanitizeServerIdentification = %q, want %q for an overlong banner", got, "")
 	}
 }
 

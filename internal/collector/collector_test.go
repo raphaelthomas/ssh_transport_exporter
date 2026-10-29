@@ -80,7 +80,7 @@ func TestCollectFullSuccess(t *testing.T) {
 		TCPConnectSuccess:          true,
 		TCPConnectDuration:         500 * time.Millisecond,
 		TCPMSS:                     1448,
-		ServerVersion:              "SSH-2.0-OpenSSH_9.6",
+		ServerIdentification:       "SSH-2.0-OpenSSH_9.6",
 		KEXSuccess:                 true,
 		KEXDuration:                time.Second,
 		KEXAlgorithm:               "curve25519-sha256",
@@ -103,8 +103,8 @@ func TestCollectFullSuccess(t *testing.T) {
 	if got := singleValue(t, mfs, "ssh_transport_tcp_mss_bytes"); got != 1448 {
 		t.Errorf("tcp_mss_bytes = %v, want 1448", got)
 	}
-	if got := labelValue(t, mfs, "ssh_transport_identification_server_version_info", "version"); got != "SSH-2.0-OpenSSH_9.6" {
-		t.Errorf("server_version_info version = %q", got)
+	if got := labelValue(t, mfs, "ssh_transport_server_identification_info", "version"); got != "SSH-2.0-OpenSSH_9.6" {
+		t.Errorf("server_identification_info version = %q", got)
 	}
 	if got := singleValue(t, mfs, "ssh_transport_kex_success"); got != 1 {
 		t.Errorf("kex_success = %v, want 1", got)
@@ -138,8 +138,8 @@ func TestCollectFullSuccess(t *testing.T) {
 		t.Error("mac_info present for AEAD ciphers, want absent")
 	}
 
-	if got := singleValue(t, mfs, "ssh_transport_identification_server_version_valid"); got != 1 {
-		t.Errorf("server_version_valid = %v, want 1", got)
+	if got := singleValue(t, mfs, "ssh_transport_server_identification_valid"); got != 1 {
+		t.Errorf("server_identification_valid = %v, want 1", got)
 	}
 
 	if _, ok := mfs["ssh_transport_error_info"]; ok {
@@ -148,32 +148,32 @@ func TestCollectFullSuccess(t *testing.T) {
 }
 
 // A rejected banner is reported as invalid rather than vanishing silently.
-func TestCollectMalformedServerVersion(t *testing.T) {
+func TestCollectMalformedServerIdentification(t *testing.T) {
 	t.Parallel()
 	mfs := collectMetrics(t, probe.Result{
-		TCPConnectSuccess:      true,
-		KEXSuccess:             true,
-		ServerVersionMalformed: true,
+		TCPConnectSuccess:             true,
+		KEXSuccess:                    true,
+		ServerIdentificationMalformed: true,
 	})
 
-	if got := singleValue(t, mfs, "ssh_transport_identification_server_version_valid"); got != 0 {
-		t.Errorf("server_version_valid = %v, want 0", got)
+	if got := singleValue(t, mfs, "ssh_transport_server_identification_valid"); got != 0 {
+		t.Errorf("server_identification_valid = %v, want 0", got)
 	}
-	if _, ok := mfs["ssh_transport_identification_server_version_info"]; ok {
-		t.Error("server_version_info present for a rejected banner, want absent")
+	if _, ok := mfs["ssh_transport_server_identification_info"]; ok {
+		t.Error("server_identification_info present for a rejected banner, want absent")
 	}
 }
 
 // No banner observed at all is distinct from one that was rejected.
-func TestCollectNoServerVersionObserved(t *testing.T) {
+func TestCollectNoServerIdentificationObserved(t *testing.T) {
 	t.Parallel()
 	mfs := collectMetrics(t, probe.Result{TCPConnectSuccess: true})
 
-	if _, ok := mfs["ssh_transport_identification_server_version_valid"]; ok {
-		t.Error("server_version_valid present when no banner was observed, want absent")
+	if _, ok := mfs["ssh_transport_server_identification_valid"]; ok {
+		t.Error("server_identification_valid present when no banner was observed, want absent")
 	}
-	if _, ok := mfs["ssh_transport_identification_server_version_info"]; ok {
-		t.Error("server_version_info present when no banner was observed, want absent")
+	if _, ok := mfs["ssh_transport_server_identification_info"]; ok {
+		t.Error("server_identification_info present when no banner was observed, want absent")
 	}
 }
 
@@ -200,7 +200,7 @@ func TestCollectTCPFailure(t *testing.T) {
 		"ssh_transport_dns_lookup_duration_seconds",
 		"ssh_transport_tcp_connect_duration_seconds",
 		"ssh_transport_tcp_mss_bytes",
-		"ssh_transport_identification_server_version_info",
+		"ssh_transport_server_identification_info",
 		"ssh_transport_kex_duration_seconds",
 		"ssh_transport_kex_algorithm_info",
 		"ssh_transport_host_key_verify_algorithm_info",
@@ -247,8 +247,8 @@ func TestCollectOmissionBranches(t *testing.T) {
 	if _, ok := mfs["ssh_transport_host_key_verify_algorithm_info"]; ok {
 		t.Error("host_key_verify_algorithm_info present when algorithm empty, want absent")
 	}
-	if _, ok := mfs["ssh_transport_identification_server_version_info"]; ok {
-		t.Error("server_version_info present when version empty, want absent")
+	if _, ok := mfs["ssh_transport_server_identification_info"]; ok {
+		t.Error("server_identification_info present when version empty, want absent")
 	}
 	// kex_duration is still emitted because KEX succeeded.
 	if got := singleValue(t, mfs, "ssh_transport_kex_duration_seconds"); got != 1 {

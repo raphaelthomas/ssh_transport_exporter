@@ -51,10 +51,10 @@ type Result struct {
 	TCPConnectDuration time.Duration
 	TCPMSS             int
 
-	ServerVersion string
-	// ServerVersionMalformed records that a banner was presented but did not
-	// conform, which ServerVersion alone cannot express once it is dropped.
-	ServerVersionMalformed bool
+	ServerIdentification string
+	// ServerIdentificationMalformed records that a banner was presented but did not
+	// conform, which ServerIdentification alone cannot express once it is dropped.
+	ServerIdentificationMalformed bool
 
 	KEXSuccess   bool
 	KEXDuration  time.Duration
@@ -225,14 +225,14 @@ func Run(ctx context.Context, target string, opts Options) Result {
 		},
 		TransportReadyCallback: func(tc *ssh.ClientTransportReadyContext) error {
 			rawVersion := tc.Metadata.ServerVersion()
-			version := sanitizeServerVersion(rawVersion)
+			version := sanitizeServerIdentification(rawVersion)
 			if version == "" {
-				result.ServerVersionMalformed = true
-				logger.Debug("dropping malformed server version banner", "target", target, "banner", string(rawVersion))
+				result.ServerIdentificationMalformed = true
+				logger.Debug("dropping malformed server identification string", "target", target, "banner", string(rawVersion))
 			} else if opts.StripServerVersionComment {
 				version = stripServerVersionComment(version)
 			}
-			result.ServerVersion = version
+			result.ServerIdentification = version
 			result.KEXDuration = time.Since(kexStart)
 			result.KEXAlgorithm = tc.Algorithms.KeyExchange
 			result.HostKeyAlgorithm = tc.Algorithms.HostKey
@@ -357,9 +357,9 @@ func classifyKexError(ctx context.Context, err error) string {
 	return ErrReasonOther
 }
 
-// sanitizeServerVersion drops a malformed banner rather than repairing it, since
+// sanitizeServerIdentification drops a malformed banner rather than repairing it, since
 // the banner is untrusted input that ends up in a label value.
-func sanitizeServerVersion(raw []byte) string {
+func sanitizeServerIdentification(raw []byte) string {
 	const maxLen = 255 // see RFC 4253, section 4.2
 
 	if len(raw) > maxLen {

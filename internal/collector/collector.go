@@ -16,7 +16,7 @@ const (
 	subSystemDNS           = "dns_lookup"
 	subSystemTCP           = "tcp"
 	subSystemTCPConnect    = "tcp_connect"
-	subSystemIdent         = "identification"
+	subSystemServerIdent   = "server_identification"
 	subSystemKEX           = "kex"
 	subSystemHostKeyVerify = "host_key_verify"
 	subSystemServerHostKey = "server_host_key"
@@ -71,19 +71,19 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
-	serverVersionInfoDesc = typedDesc{
+	serverIdentificationInfoDesc = typedDesc{
 		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemIdent, "server_version_info"),
-			"SSH version banner presented by the server (RFC 4253 4.2). Absent if not observed.",
+			prometheus.BuildFQName(namespace, subSystemServerIdent, "info"),
+			"Identification string sent by the server (RFC 4253 section 4.2). Absent if not observed.",
 			[]string{"version"},
 			nil,
 		),
 		prometheus.GaugeValue,
 	}
-	serverVersionValidDesc = typedDesc{
+	serverIdentificationValidDesc = typedDesc{
 		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemIdent, "server_version_valid"),
-			"Whether the server's identification string conformed to RFC 4253 4.2. Absent if none was presented.",
+			prometheus.BuildFQName(namespace, subSystemServerIdent, "valid"),
+			"Whether the server's identification string conformed to RFC 4253 section 4.2. Absent if none was presented.",
 			nil,
 			nil,
 		),
@@ -190,8 +190,8 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- tcpConnectSuccessDesc.desc
 	ch <- tcpConnectDurationDesc.desc
 	ch <- tcpMSSDesc.desc
-	ch <- serverVersionInfoDesc.desc
-	ch <- serverVersionValidDesc.desc
+	ch <- serverIdentificationInfoDesc.desc
+	ch <- serverIdentificationValidDesc.desc
 	ch <- kexAlgorithmInfoDesc.desc
 	ch <- hostKeyAlgorithmInfoDesc.desc
 	ch <- cipherInfoDesc.desc
@@ -214,8 +214,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"tcp_connect_success", result.TCPConnectSuccess,
 			"tcp_connect_duration", result.TCPConnectDuration,
 			"tcp_mss", result.TCPMSS,
-			"server_version", result.ServerVersion,
-			"server_version_malformed", result.ServerVersionMalformed,
+			"server_identification", result.ServerIdentification,
+			"server_identification_malformed", result.ServerIdentificationMalformed,
 			"kex_algorithm", result.KEXAlgorithm,
 			"host_key_algorithm", result.HostKeyAlgorithm,
 			"cipher_read", result.CipherRead,
@@ -243,11 +243,11 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	switch {
-	case result.ServerVersion != "":
-		ch <- serverVersionInfoDesc.mustNewConstMetric(1, result.ServerVersion)
-		ch <- serverVersionValidDesc.mustNewConstMetric(1)
-	case result.ServerVersionMalformed:
-		ch <- serverVersionValidDesc.mustNewConstMetric(0)
+	case result.ServerIdentification != "":
+		ch <- serverIdentificationInfoDesc.mustNewConstMetric(1, result.ServerIdentification)
+		ch <- serverIdentificationValidDesc.mustNewConstMetric(1)
+	case result.ServerIdentificationMalformed:
+		ch <- serverIdentificationValidDesc.mustNewConstMetric(0)
 	}
 
 	if result.KEXSuccess && result.KEXAlgorithm != "" {

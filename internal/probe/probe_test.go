@@ -52,11 +52,11 @@ func TestRunSuccess(t *testing.T) {
 	if result.HostKeyAlgorithm != ssh.KeyAlgoED25519 {
 		t.Errorf("HostKeyAlgorithm = %q, want %q", result.HostKeyAlgorithm, ssh.KeyAlgoED25519)
 	}
-	if result.ServerVersion != "SSH-2.0-TestServer_1.0" {
-		t.Errorf("ServerVersion = %q, want SSH-2.0-TestServer_1.0", result.ServerVersion)
+	if result.ServerIdentification != "SSH-2.0-TestServer_1.0" {
+		t.Errorf("ServerIdentification = %q, want SSH-2.0-TestServer_1.0", result.ServerIdentification)
 	}
-	if result.ServerVersionMalformed {
-		t.Error("ServerVersionMalformed = true, want false for a conforming banner")
+	if result.ServerIdentificationMalformed {
+		t.Error("ServerIdentificationMalformed = true, want false for a conforming banner")
 	}
 	if result.CipherRead == "" || result.CipherWrite == "" {
 		t.Errorf("ciphers read=%q write=%q, want both set", result.CipherRead, result.CipherWrite)
@@ -83,7 +83,7 @@ func TestRunAbortsAtTransportReady(t *testing.T) {
 		t.Fatalf("KEXSuccess = false, want true (phase %q, reason %q)", result.ErrorPhase, result.ErrorReason)
 	}
 	for _, f := range []struct{ name, got string }{
-		{"ServerVersion", result.ServerVersion},
+		{"ServerIdentification", result.ServerIdentification},
 		{"KEXAlgorithm", result.KEXAlgorithm},
 		{"HostKeyAlgorithm", result.HostKeyAlgorithm},
 		{"CipherRead", result.CipherRead},
@@ -253,11 +253,11 @@ func TestRunStripsServerVersionComment(t *testing.T) {
 				StripServerVersionComment: tt.strip,
 			})
 
-			if result.ServerVersionMalformed {
-				t.Fatal("ServerVersionMalformed = true, want false")
+			if result.ServerIdentificationMalformed {
+				t.Fatal("ServerIdentificationMalformed = true, want false")
 			}
-			if result.ServerVersion != tt.want {
-				t.Errorf("ServerVersion = %q, want %q", result.ServerVersion, tt.want)
+			if result.ServerIdentification != tt.want {
+				t.Errorf("ServerIdentification = %q, want %q", result.ServerIdentification, tt.want)
 			}
 		})
 	}
@@ -620,7 +620,7 @@ func TestRunDebugLoggingEnabled(t *testing.T) {
 	}
 }
 
-func TestRunSanitizesServerVersion(t *testing.T) {
+func TestRunSanitizesServerIdentification(t *testing.T) {
 	t.Parallel()
 	// Banner containing a DEL byte, which must not reach the label.
 	srv := sshtest.NewServer(t, sshtest.Options{ServerVersion: "SSH-2.0-Test\x7fServer"})
@@ -629,11 +629,11 @@ func TestRunSanitizesServerVersion(t *testing.T) {
 	defer cancel()
 
 	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
-	if result.ServerVersion != "" {
-		t.Errorf("ServerVersion = %q, want it dropped as malformed", result.ServerVersion)
+	if result.ServerIdentification != "" {
+		t.Errorf("ServerIdentification = %q, want it dropped as malformed", result.ServerIdentification)
 	}
-	if !result.ServerVersionMalformed {
-		t.Error("ServerVersionMalformed = false, want true")
+	if !result.ServerIdentificationMalformed {
+		t.Error("ServerIdentificationMalformed = false, want true")
 	}
 	if !result.KEXSuccess {
 		t.Error("KEXSuccess = false, want true")
