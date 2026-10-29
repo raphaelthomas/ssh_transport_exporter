@@ -20,9 +20,10 @@ import (
 
 // Phases a probe can fail at, reported as Result.ErrorPhase.
 const (
-	ErrPhaseDNSLookup   = "dns_lookup"
-	ErrPhaseTCPConnect  = "tcp_connect"
-	ErrPhaseKeyExchange = "key_exchange"
+	ErrPhaseDNSLookup       = "dns_lookup"
+	ErrPhaseTCPConnect      = "tcp_connect"
+	ErrPhaseVersionExchange = "version_exchange"
+	ErrPhaseKeyExchange     = "key_exchange"
 )
 
 // Why a probe failed, reported as Result.ErrorReason.
@@ -57,6 +58,9 @@ type Result struct {
 	ServerIdentificationReceived bool
 	// ServerIdentification is zero if none was received or it could not be parsed.
 	ServerIdentification ServerIdentification
+
+	VersionExchangeSuccess  bool
+	VersionExchangeDuration time.Duration
 
 	KeyExchangeSuccess  bool
 	KeyExchangeDuration time.Duration
@@ -129,6 +133,41 @@ type hostKeyResult struct {
 	errorReason string
 }
 
+// identificationWatcher records when the server's identification string has
+// been read, which ends the version exchange (RFC 4253, section 4.2).
+type identificationWatcher struct {
+	net.Conn
+	line     []byte // start of the current line, enough to spot "SSH-"
+	received atomic.Pointer[time.Time]
+}
+
+func (w *identificationWatcher) Read(p []byte) (int, error) {
+	n, err := w.Conn.Read(p)
+	if w.received.Load() == nil {
+		w.scan(p[:n])
+	}
+	return n, err
+}
+
+// scan looks for the end of the line starting with "SSH-"; the server may send
+// other lines before it.
+func (w *identificationWatcher) scan(b []byte) {
+	for _, c := range b {
+		if c == '\n' {
+			if string(w.line) == "SSH-" {
+				now := time.Now()
+				w.received.Store(&now)
+				return
+			}
+			w.line = w.line[:0]
+			continue
+		}
+		if len(w.line) < len("SSH-") {
+			w.line = append(w.line, c)
+		}
+	}
+}
+
 // Run probes target and reports any failure in the returned Result.
 func Run(ctx context.Context, target string, opts Options) (result Result) {
 	start := time.Now()
@@ -199,7 +238,8 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 	})
 	defer forceCloseOnCtxDone()
 
-	kexStart := time.Now()
+	versionExchangeStart := time.Now()
+	conn := &identificationWatcher{Conn: rawConn}
 	hostKeyResultCh := make(chan hostKeyResult, 1)
 
 	hostKeyAlgorithms := opts.HostKeyAlgorithms
@@ -242,7 +282,9 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 			default:
 				result.ServerIdentification = ident
 			}
-			result.KeyExchangeDuration = time.Since(kexStart)
+			if received := conn.received.Load(); received != nil {
+				result.KeyExchangeDuration = time.Since(*received)
+			}
 			result.KEXAlgorithm = tc.Algorithms.KeyExchange
 			result.ServerHostKeyAlgorithm = tc.Algorithms.HostKey
 			result.EncryptionClientToServer = tc.Algorithms.Write.Cipher
@@ -254,7 +296,12 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		},
 	}
 
-	_, _, _, handshakeErr := ssh.NewClientConn(rawConn, target, clientConfig)
+	_, _, _, handshakeErr := ssh.NewClientConn(conn, target, clientConfig)
+
+	if received := conn.received.Load(); received != nil {
+		result.VersionExchangeSuccess = true
+		result.VersionExchangeDuration = received.Sub(versionExchangeStart)
+	}
 
 	switch {
 	case errors.Is(handshakeErr, errAbort):
@@ -266,6 +313,9 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		result.ErrorReason = ErrReasonUserAuthReached
 	default:
 		result.ErrorPhase = ErrPhaseKeyExchange
+		if !result.VersionExchangeSuccess {
+			result.ErrorPhase = ErrPhaseVersionExchange
+		}
 		result.ErrorReason = classifyKexError(ctx, handshakeErr)
 	}
 

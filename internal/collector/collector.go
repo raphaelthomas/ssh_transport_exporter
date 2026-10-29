@@ -12,17 +12,18 @@ import (
 )
 
 const (
-	namespace              = "ssh_transport"
-	subSystemDNS           = "dns_lookup"
-	subSystemTCP           = "tcp"
-	subSystemTCPConnect    = "tcp_connect"
-	subSystemServerIdent   = "server_identification"
-	subSystemKEX           = "kex"
-	subSystemKeyExchange   = "key_exchange"
-	subSystemServerHostKey = "server_host_key"
-	subSystemEncryption    = "encryption"
-	subSystemMAC           = "mac"
-	subSystemError         = "error"
+	namespace                = "ssh_transport"
+	subSystemDNS             = "dns_lookup"
+	subSystemTCP             = "tcp"
+	subSystemTCPConnect      = "tcp_connect"
+	subSystemServerIdent     = "server_identification"
+	subSystemVersionExchange = "version_exchange"
+	subSystemKEX             = "kex"
+	subSystemKeyExchange     = "key_exchange"
+	subSystemServerHostKey   = "server_host_key"
+	subSystemEncryption      = "encryption"
+	subSystemMAC             = "mac"
+	subSystemError           = "error"
 )
 
 type typedDesc struct {
@@ -93,6 +94,24 @@ var (
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemServerIdent, "rfc_conformant"),
 			"Whether the server's identification string conforms to RFC 4253 section 4.2. Absent if none was received.",
+			nil,
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
+	versionExchangeSuccessDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemVersionExchange, "success"),
+			"Whether the server's identification string was received (RFC 4253 section 4.2).",
+			nil,
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
+	versionExchangeDurationDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemVersionExchange, "duration_seconds"),
+			"Time taken for the version exchange (RFC 4253 section 4.2). Absent on failure.",
 			nil,
 			nil,
 		),
@@ -220,6 +239,8 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- tcpMSSDesc.desc
 	ch <- serverIdentificationInfoDesc.desc
 	ch <- serverIdentificationRFCConformantDesc.desc
+	ch <- versionExchangeSuccessDesc.desc
+	ch <- versionExchangeDurationDesc.desc
 	ch <- kexAlgorithmInfoDesc.desc
 	ch <- serverHostKeyAlgorithmInfoDesc.desc
 	ch <- encryptionAlgorithmInfoDesc.desc
@@ -248,6 +269,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"tcp_mss", result.TCPMSS,
 			"server_identification_received", result.ServerIdentificationReceived,
 			"server_identification", result.ServerIdentification,
+			"version_exchange_success", result.VersionExchangeSuccess,
+			"version_exchange_duration", result.VersionExchangeDuration,
 			"kex_algorithm", result.KEXAlgorithm,
 			"server_host_key_algorithm", result.ServerHostKeyAlgorithm,
 			"encryption_client_to_server", result.EncryptionClientToServer,
@@ -285,6 +308,11 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			ch <- serverIdentificationInfoDesc.mustNewConstMetric(1, id.String, id.ProtoVersion, id.SoftwareVersion, id.Comments)
 		}
 		ch <- serverIdentificationRFCConformantDesc.mustNewConstMetric(boolToFloat64(id.RFCConformant))
+	}
+
+	ch <- versionExchangeSuccessDesc.mustNewConstMetric(boolToFloat64(result.VersionExchangeSuccess))
+	if result.VersionExchangeSuccess {
+		ch <- versionExchangeDurationDesc.mustNewConstMetric(result.VersionExchangeDuration.Seconds())
 	}
 
 	if result.KeyExchangeSuccess && result.KEXAlgorithm != "" {

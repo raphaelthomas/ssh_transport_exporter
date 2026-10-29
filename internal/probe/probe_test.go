@@ -3,6 +3,7 @@ package probe
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"runtime"
@@ -67,8 +68,11 @@ func TestRunSuccess(t *testing.T) {
 	if !result.Success {
 		t.Error("Success = false, want true")
 	}
-	if result.Duration < result.TCPConnectDuration+result.KeyExchangeDuration {
-		t.Errorf("Duration = %s, want at least TCP connect plus key exchange (%s + %s)", result.Duration, result.TCPConnectDuration, result.KeyExchangeDuration)
+	if !result.VersionExchangeSuccess || result.VersionExchangeDuration <= 0 {
+		t.Errorf("VersionExchangeSuccess = %t, VersionExchangeDuration = %s, want true, > 0", result.VersionExchangeSuccess, result.VersionExchangeDuration)
+	}
+	if phases := result.TCPConnectDuration + result.VersionExchangeDuration + result.KeyExchangeDuration; result.Duration < phases {
+		t.Errorf("Duration = %s, want at least the sum of the phases (%s)", result.Duration, phases)
 	}
 }
 
@@ -164,6 +168,9 @@ func TestRunKeyExchangesRespected(t *testing.T) {
 
 	if !result.TCPConnectSuccess {
 		t.Fatal("TCPConnectSuccess = false, want true")
+	}
+	if !result.VersionExchangeSuccess {
+		t.Error("VersionExchangeSuccess = false, want true before the key exchange fails")
 	}
 	if result.KeyExchangeSuccess {
 		t.Error("KeyExchangeSuccess = true, want false when no common key exchange")
@@ -481,8 +488,8 @@ func TestRunPeerHangup(t *testing.T) {
 			if result.KeyExchangeSuccess {
 				t.Error("KeyExchangeSuccess = true, want false")
 			}
-			if result.ErrorPhase != ErrPhaseKeyExchange {
-				t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseKeyExchange)
+			if result.ErrorPhase != ErrPhaseVersionExchange {
+				t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseVersionExchange)
 			}
 			if result.ErrorReason != ErrReasonConnectionReset {
 				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonConnectionReset)
@@ -542,7 +549,7 @@ func TestRunHostKeyFailureOutranksLaterKexFailure(t *testing.T) {
 	}
 }
 
-func TestRunKexTimeout(t *testing.T) {
+func TestRunVersionExchangeTimeout(t *testing.T) {
 	t.Parallel()
 	addr := sshtest.SilentServer(t)
 
@@ -554,18 +561,18 @@ func TestRunKexTimeout(t *testing.T) {
 	if !result.TCPConnectSuccess {
 		t.Fatal("TCPConnectSuccess = false, want true (TCP connect should succeed)")
 	}
-	if result.KeyExchangeSuccess {
-		t.Error("KeyExchangeSuccess = true, want false")
+	if result.VersionExchangeSuccess || result.KeyExchangeSuccess {
+		t.Errorf("VersionExchangeSuccess = %t, KeyExchangeSuccess = %t, want both false", result.VersionExchangeSuccess, result.KeyExchangeSuccess)
 	}
-	if result.ErrorPhase != ErrPhaseKeyExchange {
-		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseKeyExchange)
+	if result.ErrorPhase != ErrPhaseVersionExchange {
+		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseVersionExchange)
 	}
 	if result.ErrorReason != ErrReasonTimeout {
 		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonTimeout)
 	}
 }
 
-func TestRunKexCanceled(t *testing.T) {
+func TestRunVersionExchangeCanceled(t *testing.T) {
 	t.Parallel()
 	addr := sshtest.SilentServer(t)
 
@@ -581,8 +588,8 @@ func TestRunKexCanceled(t *testing.T) {
 	if !result.TCPConnectSuccess {
 		t.Fatal("TCPConnectSuccess = false, want true (TCP connect should succeed)")
 	}
-	if result.ErrorPhase != ErrPhaseKeyExchange {
-		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseKeyExchange)
+	if result.ErrorPhase != ErrPhaseVersionExchange {
+		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseVersionExchange)
 	}
 	if result.ErrorReason != ErrReasonCanceled {
 		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonCanceled)
@@ -659,5 +666,49 @@ func TestRunDropsUnparsableServerIdentification(t *testing.T) {
 	}
 	if !result.KeyExchangeSuccess {
 		t.Error("KeyExchangeSuccess = false, want true")
+	}
+}
+
+func TestIdentificationWatcher(t *testing.T) {
+	t.Parallel()
+	const stream = "Hello\r\nSSH\r\nSSH-2.0-Foo_1.0\r\n\x00\x00\x00\x0c"
+	for _, size := range []int{1, 3, len(stream)} {
+		t.Run(fmt.Sprintf("reads of %d bytes", size), func(t *testing.T) {
+			t.Parallel()
+			client, server := net.Pipe()
+			defer func() { _ = client.Close() }()
+			go func() {
+				_, _ = server.Write([]byte(stream))
+				_ = server.Close()
+			}()
+
+			w := &identificationWatcher{Conn: client}
+			buf := make([]byte, size)
+			var read []byte
+			for {
+				n, err := w.Read(buf)
+				read = append(read, buf[:n]...)
+				if w.received.Load() != nil {
+					break
+				}
+				if err != nil {
+					t.Fatalf("identification string not detected; read %q: %v", read, err)
+				}
+			}
+			// Detection must happen in the read that delivers the newline.
+			want := "Hello\r\nSSH\r\nSSH-2.0-Foo_1.0\r\n"
+			if !strings.HasPrefix(string(read), want) || len(read) >= len(want)+size {
+				t.Errorf("detected after %q, want after %q", read, want)
+			}
+		})
+	}
+}
+
+func TestIdentificationWatcherIgnoresOtherLines(t *testing.T) {
+	t.Parallel()
+	w := &identificationWatcher{}
+	w.scan([]byte("Hello\r\nSSH\r\nNot SSH-2.0-Foo\r\n"))
+	if w.received.Load() != nil {
+		t.Error("identification string detected in lines not starting with SSH-")
 	}
 }

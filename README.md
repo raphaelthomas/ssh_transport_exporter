@@ -64,6 +64,7 @@ A healthy probe reports:
 ```
 ssh_transport_dns_lookup_success 1
 ssh_transport_tcp_connect_success 1
+ssh_transport_version_exchange_success 1
 ssh_transport_server_host_key_verify_success 1
 ssh_transport_key_exchange_success 1
 ssh_transport_success 1
@@ -288,7 +289,7 @@ ssh_transport_kex_algorithm_info{algorithm="curve25519-sha256"} 1
 
 # HELP ssh_transport_key_exchange_duration_seconds Time taken for the key exchange (RFC 4253 section 7). Absent on failure.
 # TYPE ssh_transport_key_exchange_duration_seconds gauge
-ssh_transport_key_exchange_duration_seconds 0.090082416
+ssh_transport_key_exchange_duration_seconds 0.077645125
 
 # HELP ssh_transport_key_exchange_success Whether the key exchange (RFC 4253 section 7) completed.
 # TYPE ssh_transport_key_exchange_success gauge
@@ -325,6 +326,14 @@ ssh_transport_tcp_connect_success 1
 # HELP ssh_transport_tcp_mss_bytes TCP maximum segment size negotiated at connect time. Absent if unavailable.
 # TYPE ssh_transport_tcp_mss_bytes gauge
 ssh_transport_tcp_mss_bytes 1448
+
+# HELP ssh_transport_version_exchange_duration_seconds Time taken for the version exchange (RFC 4253 section 4.2). Absent on failure.
+# TYPE ssh_transport_version_exchange_duration_seconds gauge
+ssh_transport_version_exchange_duration_seconds 0.012437291
+
+# HELP ssh_transport_version_exchange_success Whether the server's identification string was received (RFC 4253 section 4.2).
+# TYPE ssh_transport_version_exchange_success gauge
+ssh_transport_version_exchange_success 1
 ```
 
 One further metric is absent above because the sample negotiated an AEAD cipher
@@ -407,15 +416,16 @@ phase.
 
 ### Phases
 
-The phase is the last one the probe reached. Probing proceeds strictly
-in this order: *DNS lookup*, *TCP connect*, *key exchange*. The server's host
-key is verified within the key exchange, before it completes.
+The phase is the last one the probe reached. Probing proceeds strictly in this
+order: *DNS lookup*, *TCP connect*, *version exchange*, *key exchange*. The
+server's host key is verified within the key exchange, before it completes.
 
 | Phase | Description |
 | --- | --- |
 | `dns_lookup` | Failure while resolving the target hostname, before any connection attempt. IP literal targets skip this phase. |
 | `tcp_connect` | Failure while establishing the underlying TCP connection to the target (before anything SSH). |
-| `key_exchange` | Failure during the SSH transport-layer key exchange (RFC 4253), after the TCP connection was established. This includes verifying the server host key against `known_hosts`, which takes precedence over a key exchange that fails after the check. |
+| `version_exchange` | Failure before the server sent its identification string (RFC 4253 section 4.2), e.g. a service on the port that is not SSH or an sshd that drops the connection. |
+| `key_exchange` | Failure during the SSH transport-layer key exchange (RFC 4253 section 7), after the version exchange. This includes verifying the server host key against `known_hosts`, which takes precedence over a key exchange that fails after the check. |
 
 ### Reasons
 
@@ -427,9 +437,9 @@ The reason narrows down the cause within a phase.
 | `no_route_to_host` | `tcp_connect` | The destination *network* is reachable, but the specific *host* is not (`EHOSTUNREACH`), often a down host or an ICMP host-unreachable from a router. |
 | `network_unreachable` | `tcp_connect` | There is no route to the destination *network* at all (`ENETUNREACH`), typically a missing route, an absent default gateway, or a down interface on the prober side. |
 | `dns_failure` | `dns_lookup` | The target hostname could not be resolved (DNS lookup error). |
-| `connection_reset` | `tcp_connect`, `key_exchange` | The peer hung up unexpectedly, e.g. sshd dropping the client on `MaxStartups` or a TCP wrapper, or a firewall or load balancer in the path. Covers both a clean close (`EOF`) and a reset (`ECONNRESET`, `EPIPE`), since which one the probe sees depends on timing. |
-| `timeout` | `dns_lookup`, `tcp_connect`, `key_exchange` | The operation exceeded its deadline (the effective probe timeout, or a network-level timeout). |
-| `canceled` | `dns_lookup`, `tcp_connect`, `key_exchange` | The caller went away before the probe finished, typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
+| `connection_reset` | `tcp_connect`, `version_exchange`, `key_exchange` | The peer hung up unexpectedly, e.g. sshd dropping the client on `MaxStartups` or a TCP wrapper, or a firewall or load balancer in the path. Covers both a clean close (`EOF`) and a reset (`ECONNRESET`, `EPIPE`), since which one the probe sees depends on timing. |
+| `timeout` | `dns_lookup`, `tcp_connect`, `version_exchange`, `key_exchange` | The operation exceeded its deadline (the effective probe timeout, or a network-level timeout). |
+| `canceled` | `dns_lookup`, `tcp_connect`, `version_exchange`, `key_exchange` | The caller went away before the probe finished, typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
 | `server_host_key_unknown` | `key_exchange` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
 | `server_host_key_mismatch` | `key_exchange` | The server's host key did **not** match the key pinned for that host in `known_hosts`, which indicates either a man-in-the-middle or an un-rotated key. |
 | `server_host_key_revoked` | `key_exchange` | The server's host key is explicitly listed as revoked in `known_hosts`. |

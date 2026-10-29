@@ -149,7 +149,8 @@ func HangupServer(t *testing.T, reset bool) string {
 }
 
 // SilentServer starts a TCP listener that accepts connections but never speaks
-// SSH, so a probe hangs in key exchange until its context deadline fires.
+// SSH, so a probe hangs in the version exchange until its context deadline
+// fires.
 func SilentServer(t *testing.T) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

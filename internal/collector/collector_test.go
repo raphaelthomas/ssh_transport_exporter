@@ -84,6 +84,8 @@ func TestCollectFullSuccess(t *testing.T) {
 		TCPMSS:                       1448,
 		ServerIdentificationReceived: true,
 		ServerIdentification:         probe.ServerIdentification{String: "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3", ProtoVersion: "2.0", SoftwareVersion: "OpenSSH_9.6p1", Comments: "Ubuntu-3", RFCConformant: true},
+		VersionExchangeSuccess:       true,
+		VersionExchangeDuration:      100 * time.Millisecond,
 		KeyExchangeSuccess:           true,
 		KeyExchangeDuration:          time.Second,
 		KEXAlgorithm:                 "curve25519-sha256",
@@ -126,6 +128,12 @@ func TestCollectFullSuccess(t *testing.T) {
 		if got := labelValue(t, mfs, "ssh_transport_server_identification_info", label); got != want {
 			t.Errorf("server_identification_info %s = %q, want %q", label, got, want)
 		}
+	}
+	if got := singleValue(t, mfs, "ssh_transport_version_exchange_success"); got != 1 {
+		t.Errorf("version_exchange_success = %v, want 1", got)
+	}
+	if got := singleValue(t, mfs, "ssh_transport_version_exchange_duration_seconds"); got != 0.1 {
+		t.Errorf("version_exchange_duration_seconds = %v, want 0.1", got)
 	}
 	if got := singleValue(t, mfs, "ssh_transport_key_exchange_success"); got != 1 {
 		t.Errorf("key_exchange_success = %v, want 1", got)
@@ -252,6 +260,9 @@ func TestCollectTCPFailure(t *testing.T) {
 	if got := singleValue(t, mfs, "ssh_transport_success"); got != 0 {
 		t.Errorf("success = %v, want 0", got)
 	}
+	if got := singleValue(t, mfs, "ssh_transport_version_exchange_success"); got != 0 {
+		t.Errorf("version_exchange_success = %v, want 0", got)
+	}
 	if got := singleValue(t, mfs, "ssh_transport_key_exchange_success"); got != 0 {
 		t.Errorf("key_exchange_success = %v, want 0", got)
 	}
@@ -265,6 +276,7 @@ func TestCollectTCPFailure(t *testing.T) {
 		"ssh_transport_tcp_connect_duration_seconds",
 		"ssh_transport_tcp_mss_bytes",
 		"ssh_transport_server_identification_info",
+		"ssh_transport_version_exchange_duration_seconds",
 		"ssh_transport_key_exchange_duration_seconds",
 		"ssh_transport_kex_algorithm_info",
 		"ssh_transport_server_host_key_algorithm_info",
@@ -359,8 +371,8 @@ func TestDescribeEmitsAllDescriptors(t *testing.T) {
 	ch := make(chan *prometheus.Desc, 32)
 	c.Describe(ch)
 	close(ch)
-	if got := len(ch); got != 17 {
-		t.Errorf("Describe emitted %d descriptors, want 17", got)
+	if got := len(ch); got != 19 {
+		t.Errorf("Describe emitted %d descriptors, want 19", got)
 	}
 }
 

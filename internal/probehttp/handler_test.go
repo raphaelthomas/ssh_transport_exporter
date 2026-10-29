@@ -179,6 +179,7 @@ func TestHandlerSuccess(t *testing.T) {
 
 	for _, want := range []string{
 		"ssh_transport_tcp_connect_success 1",
+		"ssh_transport_version_exchange_success 1",
 		"ssh_transport_key_exchange_success 1",
 		"ssh_transport_server_host_key_verify_success 1",
 		"ssh_transport_tcp_connect_duration_seconds",
@@ -291,8 +292,8 @@ func TestHandlerScrapeTimeoutHeaderShortensProbe(t *testing.T) {
 	if elapsed > 10*time.Second {
 		t.Errorf("probe took %s; scrape timeout header did not shorten the deadline", elapsed)
 	}
-	if !strings.Contains(rec.Body.String(), "ssh_transport_key_exchange_success 0") {
-		t.Errorf("expected kex failure after timeout:\n%s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "ssh_transport_version_exchange_success 0") {
+		t.Errorf("expected version exchange failure after timeout:\n%s", rec.Body.String())
 	}
 }
 
