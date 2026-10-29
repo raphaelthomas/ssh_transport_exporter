@@ -64,6 +64,9 @@ func TestRunSuccess(t *testing.T) {
 	if result.ErrorPhase != "" || result.ErrorReason != "" {
 		t.Errorf("error = %s/%s, want none", result.ErrorPhase, result.ErrorReason)
 	}
+	if !result.Success {
+		t.Error("Success = false, want true")
+	}
 	if result.Duration < result.TCPConnectDuration+result.KeyExchangeDuration {
 		t.Errorf("Duration = %s, want at least TCP connect plus key exchange (%s + %s)", result.Duration, result.TCPConnectDuration, result.KeyExchangeDuration)
 	}
@@ -284,6 +287,9 @@ func TestRunHostKeyVerificationFailure(t *testing.T) {
 	if !result.KeyExchangeSuccess {
 		t.Error("KeyExchangeSuccess = false, want true (KEX completes before verification)")
 	}
+	if result.Success {
+		t.Error("Success = true, want false when the host key was rejected")
+	}
 	if result.ServerHostKeyVerifySuccess {
 		t.Error("ServerHostKeyVerifySuccess = true, want false")
 	}
@@ -342,6 +348,9 @@ func TestRunConnectionRefused(t *testing.T) {
 	}
 	if result.Duration <= 0 {
 		t.Error("Duration = 0, want > 0 on an early failure")
+	}
+	if result.Success {
+		t.Error("Success = true, want false on a refused connection")
 	}
 }
 

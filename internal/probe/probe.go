@@ -76,6 +76,7 @@ type Result struct {
 	ErrorReason string
 
 	Duration time.Duration
+	Success  bool
 }
 
 // errAbort is returned from TransportReadyCallback to abort the connection
@@ -278,6 +279,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 	default:
 	}
 
+	result.Success = result.ErrorPhase == "" && result.KeyExchangeSuccess && result.ServerHostKeyVerifySuccess
 	return result
 }
 

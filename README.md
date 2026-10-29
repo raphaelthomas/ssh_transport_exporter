@@ -62,9 +62,11 @@ curl 'localhost:10022/probe?target=bastion.example.com'
 A healthy probe reports:
 
 ```
+ssh_transport_dns_lookup_success 1
 ssh_transport_tcp_connect_success 1
-ssh_transport_key_exchange_success 1
 ssh_transport_server_host_key_verify_success 1
+ssh_transport_key_exchange_success 1
+ssh_transport_success 1
 ```
 
 On failure the matching `_success` metric is `0` and
@@ -307,6 +309,10 @@ ssh_transport_server_identification_info{version="SSH-2.0-OpenSSH_9.2p1 Debian-2
 # HELP ssh_transport_server_identification_valid Whether the server's identification string conformed to RFC 4253 section 4.2. Absent if none was presented.
 # TYPE ssh_transport_server_identification_valid gauge
 ssh_transport_server_identification_valid 1
+
+# HELP ssh_transport_success Whether the probe succeeded: every phase completed and the server host key was verified.
+# TYPE ssh_transport_success gauge
+ssh_transport_success 1
 
 # HELP ssh_transport_tcp_connect_duration_seconds Time taken to establish the TCP connection, excluding name resolution. Absent on failure.
 # TYPE ssh_transport_tcp_connect_duration_seconds gauge

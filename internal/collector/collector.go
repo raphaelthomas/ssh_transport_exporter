@@ -179,6 +179,15 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
+	successDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "", "success"),
+			"Whether the probe succeeded: every phase completed and the server host key was verified.",
+			nil,
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
 )
 
 // SSHCollector implements prometheus.Collector for one target/module.
@@ -220,6 +229,7 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- keyExchangeDurationDesc.desc
 	ch <- errorInfoDesc.desc
 	ch <- durationDesc.desc
+	ch <- successDesc.desc
 }
 
 // Collect runs the probe and translates the result into metrics.
@@ -250,6 +260,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"error_phase", result.ErrorPhase,
 			"error_reason", result.ErrorReason,
 			"duration", result.Duration,
+			"success", result.Success,
 		)
 	}
 
@@ -310,6 +321,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	ch <- durationDesc.mustNewConstMetric(result.Duration.Seconds())
+	ch <- successDesc.mustNewConstMetric(boolToFloat64(result.Success))
 }
 
 func boolToFloat64(b bool) float64 {

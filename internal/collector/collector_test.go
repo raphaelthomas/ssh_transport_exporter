@@ -91,6 +91,7 @@ func TestCollectFullSuccess(t *testing.T) {
 		EncryptionServerToClient:   "aes128-gcm@openssh.com",
 		EncryptionClientToServer:   "chacha20-poly1305@openssh.com",
 		Duration:                   2 * time.Second,
+		Success:                    true,
 	}
 	mfs := collectMetrics(t, result)
 
@@ -99,6 +100,9 @@ func TestCollectFullSuccess(t *testing.T) {
 	}
 	if got := singleValue(t, mfs, "ssh_transport_duration_seconds"); got != 2 {
 		t.Errorf("duration_seconds = %v, want 2", got)
+	}
+	if got := singleValue(t, mfs, "ssh_transport_success"); got != 1 {
+		t.Errorf("success = %v, want 1", got)
 	}
 	if got := singleValue(t, mfs, "ssh_transport_dns_lookup_duration_seconds"); got != 0.25 {
 		t.Errorf("dns_lookup_duration_seconds = %v, want 0.25", got)
@@ -219,6 +223,9 @@ func TestCollectTCPFailure(t *testing.T) {
 	if got := singleValue(t, mfs, "ssh_transport_duration_seconds"); got != 1 {
 		t.Errorf("duration_seconds = %v, want 1 on failure", got)
 	}
+	if got := singleValue(t, mfs, "ssh_transport_success"); got != 0 {
+		t.Errorf("success = %v, want 0", got)
+	}
 	if got := singleValue(t, mfs, "ssh_transport_key_exchange_success"); got != 0 {
 		t.Errorf("key_exchange_success = %v, want 0", got)
 	}
@@ -326,8 +333,8 @@ func TestDescribeEmitsAllDescriptors(t *testing.T) {
 	ch := make(chan *prometheus.Desc, 32)
 	c.Describe(ch)
 	close(ch)
-	if got := len(ch); got != 16 {
-		t.Errorf("Describe emitted %d descriptors, want 16", got)
+	if got := len(ch); got != 17 {
+		t.Errorf("Describe emitted %d descriptors, want 17", got)
 	}
 }
 
