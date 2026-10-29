@@ -49,7 +49,7 @@ type flags struct {
 	AllowAllTargets    bool
 }
 
-func parseFlags() *flags {
+func parseFlags(args []string) *flags {
 	app := kingpin.New("ssh_transport_exporter", "")
 	app.Version(buildinfo.Version)
 	app.HelpFlag.Short('h')
@@ -90,7 +90,7 @@ func parseFlags() *flags {
 		Envar(envPrefix + "ALLOW_ALL_TARGETS").
 		BoolVar(&f.AllowAllTargets)
 
-	kingpin.MustParse(app.Parse(os.Args[1:]))
+	kingpin.MustParse(app.Parse(args))
 	if err := f.validate(); err != nil {
 		app.Fatalf("%s", err)
 	}
@@ -264,7 +264,7 @@ func serve(logger *slog.Logger, srv *http.Server, listenAndServe func() error, s
 }
 
 func main() {
-	cfg := parseFlags()
+	cfg := parseFlags(os.Args[1:])
 
 	logLevel := &slog.LevelVar{}
 	logLevel.Set(cfg.LogLevel)

@@ -466,6 +466,56 @@ func TestServeReloadsOnSIGHUPAndKeepsServing(t *testing.T) {
 	}
 }
 
+func TestParseFlags(t *testing.T) {
+	want := flags{
+		ListenAddress:      ":10022",
+		LogLevel:           slog.LevelInfo,
+		ConfigFile:         "ssh_transport_exporter.yaml",
+		ProbeTimeout:       5 * time.Second,
+		MaxConcurrentProbe: 500,
+	}
+	if got := *parseFlags(nil); got != want {
+		t.Errorf("defaults = %+v, want %+v", got, want)
+	}
+
+	want = flags{
+		ListenAddress:      "127.0.0.1:9999",
+		LogLevel:           slog.LevelDebug,
+		ConfigFile:         "other.yaml",
+		CheckConfig:        true,
+		ProbeTimeout:       time.Second,
+		MaxConcurrentProbe: 10,
+		AllowAllTargets:    true,
+	}
+	args := []string{
+		"--web.listen-address=127.0.0.1:9999",
+		"--log.level=debug",
+		"--config.file=other.yaml",
+		"--config.check",
+		"--probe.timeout=1s",
+		"--probe.max-concurrent=10",
+		"--allow-all-targets",
+	}
+	if got := *parseFlags(args); got != want {
+		t.Errorf("flags = %+v, want %+v", got, want)
+	}
+
+	for name, value := range map[string]string{
+		"LISTEN_ADDRESS":       "127.0.0.1:9999",
+		"LOG_LEVEL":            "debug",
+		"CONFIG_FILE":          "other.yaml",
+		"PROBE_TIMEOUT":        "1s",
+		"PROBE_MAX_CONCURRENT": "10",
+		"ALLOW_ALL_TARGETS":    "true",
+	} {
+		t.Setenv("SSH_TRANSPORT_EXPORTER_"+name, value)
+	}
+	want.CheckConfig = false // a one-off action, so it has no env var
+	if got := *parseFlags(nil); got != want {
+		t.Errorf("flags from env = %+v, want %+v", got, want)
+	}
+}
+
 func TestFlagsValidate(t *testing.T) {
 	tests := []struct {
 		name          string
