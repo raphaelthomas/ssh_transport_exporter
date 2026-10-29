@@ -67,15 +67,21 @@ func TestStripServerIdentificationComments(t *testing.T) {
 }
 
 func TestParseServerIdentificationLengthLimit(t *testing.T) {
-	const maxLen = 255
-
-	atLimit := "SSH-2.0-" + strings.Repeat("a", maxLen-len("SSH-2.0-"))
-	if _, err := parseServerIdentification([]byte(atLimit)); err != nil {
-		t.Errorf("a %d byte identification string was rejected: %v", len(atLimit), err)
-	}
-
-	if _, err := parseServerIdentification([]byte(atLimit + "a")); err == nil {
-		t.Error("an overlong identification string was parsed, want an error")
+	for _, tt := range []struct {
+		length            int
+		wantRFCConformant bool
+		wantErr           bool
+	}{
+		{253, true, false},
+		{254, false, false},
+		{255, false, false},
+		{256, false, true},
+	} {
+		raw := "SSH-2.0-" + strings.Repeat("a", tt.length-len("SSH-2.0-"))
+		rfcConformant, err := parseServerIdentification([]byte(raw))
+		if rfcConformant != tt.wantRFCConformant || (err != nil) != tt.wantErr {
+			t.Errorf("length %d: got %t, %v, want %t, error %t", tt.length, rfcConformant, err, tt.wantRFCConformant, tt.wantErr)
+		}
 	}
 }
 

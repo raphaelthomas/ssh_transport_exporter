@@ -401,6 +401,11 @@ func parseServerIdentification(raw []byte) (rfcConformant bool, err error) {
 		return false, errors.New("softwareversion is empty")
 	}
 
+	// The limit includes the CR LF, which x/crypto has already stripped.
+	if len(raw) > maxLen-len("\r\n") {
+		return false, nil
+	}
+
 	// Servers in the wild put a minus in softwareversion (e.g. "Cisco-1.25"),
 	// so it is parsed and exported, just not RFC conformant.
 	return !bytes.Contains(software, []byte{'-'}), nil
