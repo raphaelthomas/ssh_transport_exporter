@@ -32,6 +32,9 @@ type Options struct {
 	// Timeout is a hard upper bound on a single probe; a shorter Prometheus
 	// scrape timeout (X-Prometheus-Scrape-Timeout-Seconds) takes precedence.
 	Timeout time.Duration
+	// TimeoutOffset is subtracted from the scrape timeout so the probe gives up,
+	// and its timeout metrics reach Prometheus, before the scrape itself does.
+	TimeoutOffset time.Duration
 	// MaxConcurrent bounds probes running at once. Requests beyond it are
 	// rejected with 503 rather than queued. Zero disables the limit.
 	MaxConcurrent int
@@ -117,7 +120,7 @@ func Handler(opts Options) http.HandlerFunc {
 		inFlight.Inc()
 		defer inFlight.Dec()
 
-		ctx, cancel := context.WithTimeout(r.Context(), effectiveTimeout(r, opts.Timeout))
+		ctx, cancel := context.WithTimeout(r.Context(), effectiveTimeout(r, opts.Timeout, opts.TimeoutOffset))
 		defer cancel()
 
 		registry := prometheus.NewRegistry()
@@ -160,10 +163,11 @@ func (rec *statusRecorder) Write(b []byte) (int, error) {
 func (rec *statusRecorder) Unwrap() http.ResponseWriter { return rec.ResponseWriter }
 
 // effectiveTimeout returns maxTimeout, shortened to the Prometheus scrape
-// timeout when the request carries a valid, shorter one via the
-// X-Prometheus-Scrape-Timeout-Seconds header. Malformed, zero, and negative
-// header values are ignored.
-func effectiveTimeout(r *http.Request, maxTimeout time.Duration) time.Duration {
+// timeout minus offset when the request carries a valid, shorter one via the
+// X-Prometheus-Scrape-Timeout-Seconds header, as blackbox_exporter does.
+// Malformed, zero, and negative header values are ignored, as is a scrape
+// timeout the offset would leave non-positive.
+func effectiveTimeout(r *http.Request, maxTimeout, offset time.Duration) time.Duration {
 	timeoutSecs := r.Header.Get("X-Prometheus-Scrape-Timeout-Seconds")
 	if timeoutSecs == "" {
 		return maxTimeout
@@ -172,7 +176,8 @@ func effectiveTimeout(r *http.Request, maxTimeout time.Duration) time.Duration {
 	if err != nil || s <= 0 {
 		return maxTimeout
 	}
-	if scrapeTimeout := time.Duration(s * float64(time.Second)); scrapeTimeout < maxTimeout {
+	scrapeTimeout := time.Duration(s*float64(time.Second)) - offset
+	if scrapeTimeout > 0 && scrapeTimeout < maxTimeout {
 		return scrapeTimeout
 	}
 	return maxTimeout

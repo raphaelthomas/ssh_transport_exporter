@@ -159,6 +159,10 @@ func landingPageHandler(w http.ResponseWriter, _ *http.Request) {
 // shutdownTimeout bounds how long in-flight probes may drain on shutdown.
 const shutdownTimeout = 10 * time.Second
 
+// probeTimeoutOffset is subtracted from the Prometheus scrape timeout, as in
+// blackbox_exporter, so a probe times out and reports it before the scrape does.
+const probeTimeoutOffset = 500 * time.Millisecond
+
 // serve runs srv on ln until a termination signal arrives on sigCh, reloading
 // config on SIGHUP. It returns once in-flight requests have drained, so the
 // caller must not exit before it does.
@@ -262,6 +266,7 @@ func main() {
 	mux.HandleFunc("/probe", probehttp.Handler(probehttp.Options{
 		Logger:        logger,
 		Timeout:       cfg.ProbeTimeout,
+		TimeoutOffset: probeTimeoutOffset,
 		MaxConcurrent: cfg.MaxConcurrentProbe,
 		Requests:      probeRequests,
 		InFlight:      probesInFlight,

@@ -118,8 +118,43 @@ func TestEffectiveTimeout(t *testing.T) {
 			if tt.header != "" {
 				req.Header.Set("X-Prometheus-Scrape-Timeout-Seconds", strings.Trim(tt.header, `"`))
 			}
-			if got := effectiveTimeout(req, maxTimeout); got != tt.want {
+			if got := effectiveTimeout(req, maxTimeout, 0); got != tt.want {
 				t.Errorf("effectiveTimeout(header=%q) = %s, want %s", tt.header, got, tt.want)
+			}
+		})
+	}
+}
+
+// The offset leaves the probe time to report its own timeout before
+// Prometheus abandons the scrape.
+func TestEffectiveTimeoutOffset(t *testing.T) {
+	const (
+		maxTimeout = 10 * time.Second
+		offset     = 500 * time.Millisecond
+	)
+
+	tests := []struct {
+		name   string
+		header string // empty means the header is not set at all
+		want   time.Duration
+	}{
+		{name: "no header keeps the hard bound unreduced", header: "", want: maxTimeout},
+		{name: "offset subtracted from shorter header", header: "5", want: 4500 * time.Millisecond},
+		{name: "header equal to the hard bound is shortened", header: "10", want: 9500 * time.Millisecond},
+		{name: "header within offset of the hard bound is shortened", header: "10.2", want: 9700 * time.Millisecond},
+		{name: "header beyond hard bound plus offset is capped", header: "30", want: maxTimeout},
+		{name: "header equal to the offset ignored", header: "0.5", want: maxTimeout},
+		{name: "header below the offset ignored", header: "0.2", want: maxTimeout},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", nil)
+			if tt.header != "" {
+				req.Header.Set("X-Prometheus-Scrape-Timeout-Seconds", tt.header)
+			}
+			if got := effectiveTimeout(req, maxTimeout, offset); got != tt.want {
+				t.Errorf("effectiveTimeout(header=%q, offset=%s) = %s, want %s", tt.header, offset, got, tt.want)
 			}
 		})
 	}
@@ -221,12 +256,12 @@ func TestEffectiveTimeoutDoesNotLeakAcrossRequests(t *testing.T) {
 
 	withHeader := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", nil)
 	withHeader.Header.Set("X-Prometheus-Scrape-Timeout-Seconds", "0.1")
-	if got := effectiveTimeout(withHeader, maxTimeout); got != 100*time.Millisecond {
+	if got := effectiveTimeout(withHeader, maxTimeout, 0); got != 100*time.Millisecond {
 		t.Fatalf("first request: got %s, want 100ms", got)
 	}
 
 	bare := httptest.NewRequest(http.MethodGet, "/probe?target=host:22", nil)
-	if got := effectiveTimeout(bare, maxTimeout); got != maxTimeout {
+	if got := effectiveTimeout(bare, maxTimeout, 0); got != maxTimeout {
 		t.Errorf("second request without header: got %s, want the full %s bound", got, maxTimeout)
 	}
 }
