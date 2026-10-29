@@ -51,11 +51,12 @@ func knownHostsFile(t *testing.T) string {
 
 func configWithModules(t *testing.T, names ...string) string {
 	t.Helper()
-	s := fmt.Sprintf("known_hosts_file: %q\nallowed_targets: [\"example.com\"]\nmodules:\n", knownHostsFile(t))
+	var b strings.Builder
+	fmt.Fprintf(&b, "known_hosts_file: %q\nallowed_targets: [\"example.com\"]\nmodules:\n", knownHostsFile(t))
 	for _, n := range names {
-		s += "  " + n + ": {}\n"
+		b.WriteString("  " + n + ": {}\n")
 	}
-	return s
+	return b.String()
 }
 
 func TestReloadSwapsLiveModules(t *testing.T) {
