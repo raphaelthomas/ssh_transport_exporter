@@ -79,7 +79,7 @@ func TestCollectFullSuccess(t *testing.T) {
 		DNSLookupDuration:          250 * time.Millisecond,
 		TCPConnectSuccess:          true,
 		TCPConnectDuration:         500 * time.Millisecond,
-		TCPConnectNegotiatedMSS:    1448,
+		TCPMSS:                     1448,
 		ServerVersion:              "SSH-2.0-OpenSSH_9.6",
 		KEXSuccess:                 true,
 		KEXDuration:                time.Second,
@@ -100,8 +100,8 @@ func TestCollectFullSuccess(t *testing.T) {
 	if got := singleValue(t, mfs, "ssh_transport_tcp_connect_duration_seconds"); got != 0.5 {
 		t.Errorf("tcp_connect_duration_seconds = %v, want 0.5", got)
 	}
-	if got := singleValue(t, mfs, "ssh_transport_tcp_connect_negotiated_mss_bytes"); got != 1448 {
-		t.Errorf("negotiated_mss_bytes = %v, want 1448", got)
+	if got := singleValue(t, mfs, "ssh_transport_tcp_mss_bytes"); got != 1448 {
+		t.Errorf("tcp_mss_bytes = %v, want 1448", got)
 	}
 	if got := labelValue(t, mfs, "ssh_transport_identification_server_version_info", "version"); got != "SSH-2.0-OpenSSH_9.6" {
 		t.Errorf("server_version_info version = %q", got)
@@ -199,7 +199,7 @@ func TestCollectTCPFailure(t *testing.T) {
 	for _, name := range []string{
 		"ssh_transport_dns_lookup_duration_seconds",
 		"ssh_transport_tcp_connect_duration_seconds",
-		"ssh_transport_tcp_connect_negotiated_mss_bytes",
+		"ssh_transport_tcp_mss_bytes",
 		"ssh_transport_identification_server_version_info",
 		"ssh_transport_kex_duration_seconds",
 		"ssh_transport_kex_algorithm_info",
@@ -223,23 +223,23 @@ func TestCollectTCPFailure(t *testing.T) {
 func TestCollectOmissionBranches(t *testing.T) {
 	t.Parallel()
 	result := probe.Result{
-		TCPConnectSuccess:       true,
-		TCPConnectDuration:      time.Second,
-		TCPConnectNegotiatedMSS: 0,
-		KEXSuccess:              true,
-		KEXDuration:             time.Second,
-		KEXAlgorithm:            "",
-		HostKeyAlgorithm:        "",
-		CipherRead:              "aes256-ctr",
-		CipherWrite:             "",
+		TCPConnectSuccess:  true,
+		TCPConnectDuration: time.Second,
+		TCPMSS:             0,
+		KEXSuccess:         true,
+		KEXDuration:        time.Second,
+		KEXAlgorithm:       "",
+		HostKeyAlgorithm:   "",
+		CipherRead:         "aes256-ctr",
+		CipherWrite:        "",
 	}
 	mfs := collectMetrics(t, result)
 
 	if _, ok := mfs["ssh_transport_dns_lookup_duration_seconds"]; ok {
 		t.Error("dns_lookup_duration_seconds present without a lookup, want absent")
 	}
-	if _, ok := mfs["ssh_transport_tcp_connect_negotiated_mss_bytes"]; ok {
-		t.Error("negotiated_mss_bytes present when MSS is 0, want absent")
+	if _, ok := mfs["ssh_transport_tcp_mss_bytes"]; ok {
+		t.Error("tcp_mss_bytes present when MSS is 0, want absent")
 	}
 	if _, ok := mfs["ssh_transport_kex_algorithm_info"]; ok {
 		t.Error("kex_algorithm_info present when algorithm empty, want absent")

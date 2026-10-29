@@ -304,13 +304,13 @@ ssh_transport_server_host_key_verify_success 1
 # TYPE ssh_transport_tcp_connect_duration_seconds gauge
 ssh_transport_tcp_connect_duration_seconds 0.026296792
 
-# HELP ssh_transport_tcp_connect_negotiated_mss_bytes Negotiated TCP maximum segment size at connect time. Absent if unavailable.
-# TYPE ssh_transport_tcp_connect_negotiated_mss_bytes gauge
-ssh_transport_tcp_connect_negotiated_mss_bytes 1448
-
 # HELP ssh_transport_tcp_connect_success Whether a TCP connection to the target could be established.
 # TYPE ssh_transport_tcp_connect_success gauge
 ssh_transport_tcp_connect_success 1
+
+# HELP ssh_transport_tcp_mss_bytes TCP maximum segment size negotiated at connect time. Absent if unavailable.
+# TYPE ssh_transport_tcp_mss_bytes gauge
+ssh_transport_tcp_mss_bytes 1448
 ```
 
 One further metric is absent above because the sample negotiated an AEAD cipher

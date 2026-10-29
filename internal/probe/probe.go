@@ -47,9 +47,9 @@ type Result struct {
 	// Name resolution results, zero for IP literal targets and failed lookups
 	DNSLookupDuration time.Duration
 
-	TCPConnectSuccess       bool
-	TCPConnectDuration      time.Duration
-	TCPConnectNegotiatedMSS int
+	TCPConnectSuccess  bool
+	TCPConnectDuration time.Duration
+	TCPMSS             int
 
 	ServerVersion string
 	// ServerVersionMalformed records that a banner was presented but did not
@@ -181,7 +181,7 @@ func Run(ctx context.Context, target string, opts Options) Result {
 
 	if tcpConn, ok := rawConn.(*net.TCPConn); ok {
 		if mss, err := tcpNegotiatedMSS(tcpConn); err == nil {
-			result.TCPConnectNegotiatedMSS = mss
+			result.TCPMSS = mss
 		} else if logger.Enabled(ctx, slog.LevelDebug) {
 			logger.Debug("failed to read negotiated TCP MSS", "target", target, "error", err)
 		}

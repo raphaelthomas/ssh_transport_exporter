@@ -577,11 +577,11 @@ func TestRunNegotiatedMSS(t *testing.T) {
 	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
 
 	if runtime.GOOS == "linux" {
-		if result.TCPConnectNegotiatedMSS <= 0 {
-			t.Errorf("TCPConnectNegotiatedMSS = %d, want > 0 on linux", result.TCPConnectNegotiatedMSS)
+		if result.TCPMSS <= 0 {
+			t.Errorf("TCPMSS = %d, want > 0 on linux", result.TCPMSS)
 		}
-	} else if result.TCPConnectNegotiatedMSS != 0 {
-		t.Errorf("TCPConnectNegotiatedMSS = %d, want 0 on %s", result.TCPConnectNegotiatedMSS, runtime.GOOS)
+	} else if result.TCPMSS != 0 {
+		t.Errorf("TCPMSS = %d, want 0 on %s", result.TCPMSS, runtime.GOOS)
 	}
 }
 

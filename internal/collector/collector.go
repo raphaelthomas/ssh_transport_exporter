@@ -14,7 +14,8 @@ import (
 const (
 	namespace              = "ssh_transport"
 	subSystemDNS           = "dns_lookup"
-	subSystemTCP           = "tcp_connect"
+	subSystemTCP           = "tcp"
+	subSystemTCPConnect    = "tcp_connect"
 	subSystemIdent         = "identification"
 	subSystemKEX           = "kex"
 	subSystemHostKeyVerify = "host_key_verify"
@@ -45,7 +46,7 @@ var (
 	}
 	tcpConnectSuccessDesc = typedDesc{
 		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemTCP, "success"),
+			prometheus.BuildFQName(namespace, subSystemTCPConnect, "success"),
 			"Whether a TCP connection to the target could be established.",
 			nil,
 			nil,
@@ -54,17 +55,17 @@ var (
 	}
 	tcpConnectDurationDesc = typedDesc{
 		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemTCP, "duration_seconds"),
+			prometheus.BuildFQName(namespace, subSystemTCPConnect, "duration_seconds"),
 			"Time taken to establish the TCP connection, excluding name resolution. Absent on failure.",
 			nil,
 			nil,
 		),
 		prometheus.GaugeValue,
 	}
-	tcpConnectNegotiatedMSSDesc = typedDesc{
+	tcpMSSDesc = typedDesc{
 		prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subSystemTCP, "negotiated_mss_bytes"),
-			"Negotiated TCP maximum segment size at connect time. Absent if unavailable.",
+			prometheus.BuildFQName(namespace, subSystemTCP, "mss_bytes"),
+			"TCP maximum segment size negotiated at connect time. Absent if unavailable.",
 			nil,
 			nil,
 		),
@@ -188,7 +189,7 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- dnsLookupDurationDesc.desc
 	ch <- tcpConnectSuccessDesc.desc
 	ch <- tcpConnectDurationDesc.desc
-	ch <- tcpConnectNegotiatedMSSDesc.desc
+	ch <- tcpMSSDesc.desc
 	ch <- serverVersionInfoDesc.desc
 	ch <- serverVersionValidDesc.desc
 	ch <- kexAlgorithmInfoDesc.desc
@@ -212,7 +213,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"dns_lookup_duration", result.DNSLookupDuration,
 			"tcp_connect_success", result.TCPConnectSuccess,
 			"tcp_connect_duration", result.TCPConnectDuration,
-			"tcp_connect_negotiated_mss", result.TCPConnectNegotiatedMSS,
+			"tcp_mss", result.TCPMSS,
 			"server_version", result.ServerVersion,
 			"server_version_malformed", result.ServerVersionMalformed,
 			"kex_algorithm", result.KEXAlgorithm,
@@ -236,8 +237,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 	ch <- tcpConnectSuccessDesc.mustNewConstMetric(boolToFloat64(result.TCPConnectSuccess))
 	if result.TCPConnectSuccess {
 		ch <- tcpConnectDurationDesc.mustNewConstMetric(result.TCPConnectDuration.Seconds())
-		if result.TCPConnectNegotiatedMSS > 0 {
-			ch <- tcpConnectNegotiatedMSSDesc.mustNewConstMetric(float64(result.TCPConnectNegotiatedMSS))
+		if result.TCPMSS > 0 {
+			ch <- tcpMSSDesc.mustNewConstMetric(float64(result.TCPMSS))
 		}
 	}
 
