@@ -259,7 +259,8 @@ untrusted and never reaches a Prometheus label unvalidated.
 
 The labels a target still controls are the identification string and its
 fields on `ssh_transport_server_identification_info`, so a host that varies its
-identification string varies the series. Setting
+identification string varies the series. Some implementations do so on every
+connection, potentially increasing cardinality significantly. Setting
 `strip_server_identification_comments` on a module drops the comments from these
 labels, and dropping the metric at scrape time bounds it entirely:
 
