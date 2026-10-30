@@ -1,0 +1,58 @@
+# Host ports must match the servers table in e2e_test.go.
+services:
+  openssh-rocky8:
+    build:
+      context: openssh-rhel
+      args: { IMAGE: "rockylinux/rockylinux:8" }
+    ports: ["127.0.0.1:2201:22"]
+  openssh-rocky9:
+    build:
+      context: openssh-rhel
+      args: { IMAGE: "rockylinux/rockylinux:9" }
+    ports: ["127.0.0.1:2202:22"]
+  openssh-ubuntu2204:
+    build:
+      context: openssh-debian
+      args: { IMAGE: "ubuntu:22.04" }
+    ports: ["127.0.0.1:2203:22"]
+  openssh-debian12:
+    build:
+      context: openssh-debian
+      args: { IMAGE: "debian:12" }
+    ports: ["127.0.0.1:2204:22"]
+  openssh-ubuntu2404:
+    build:
+      context: openssh-debian
+      args: { IMAGE: "ubuntu:24.04" }
+    ports: ["127.0.0.1:2205:22"]
+  openssh-rocky10:
+    build:
+      context: openssh-rhel
+      args: { IMAGE: "rockylinux/rockylinux:10" }
+    ports: ["127.0.0.1:2206:22"]
+  openssh-debian13:
+    build:
+      context: openssh-debian
+      args: { IMAGE: "debian:13" }
+    ports: ["127.0.0.1:2207:22"]
+  openssh-ubuntu2604:
+    build:
+      context: openssh-debian
+      args: { IMAGE: "ubuntu:26.04" }
+    ports: ["127.0.0.1:2208:22"]
+  openssh-alpine:
+    build: openssh-alpine
+    ports: ["127.0.0.1:2209:22"]
+
+  dropbear:
+    build: dropbear
+    ports: ["127.0.0.1:2221:22"]
+  tinyssh:
+    build: tinyssh
+    ports: ["127.0.0.1:2222:22"]
+  asyncssh:
+    build: asyncssh
+    ports: ["127.0.0.1:2223:22"]
+  erlang:
+    build: erlang
+    ports: ["127.0.0.1:2224:22"]

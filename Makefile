@@ -1,4 +1,4 @@
-.PHONY: build release lint vet vuln test clean
+.PHONY: build release lint vet vuln test e2e clean
 
 build:
 	go build -buildmode=pie -o ssh_transport_exporter .
@@ -22,6 +22,14 @@ vuln:
 
 test:
 	go test -race -cover -v ./...
+
+COMPOSE ?= docker compose
+E2E_COMPOSE = $(COMPOSE) -f tests/e2e/compose.yaml
+
+e2e:
+	trap '$(E2E_COMPOSE) down' EXIT; \
+	$(E2E_COMPOSE) up -d --build && \
+	go test -tags e2e -count=1 -v ./tests/e2e/...
 
 clean:
 	@echo "Removing build artifacts..."
