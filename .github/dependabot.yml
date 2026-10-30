@@ -16,3 +16,20 @@ updates:
       actions:
         patterns:
           - "*"
+  - package-ecosystem: docker
+    directories:
+      - /tests/e2e/*
+    schedule:
+      interval: daily
+    groups:
+      e2e-images:
+        patterns:
+          - "*"
+  - package-ecosystem: pip
+    directory: /tests/e2e/asyncssh
+    schedule:
+      interval: daily
+    groups:
+      e2e-python:
+        patterns:
+          - "*"
