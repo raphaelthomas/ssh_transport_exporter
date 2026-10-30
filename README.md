@@ -111,7 +111,9 @@ scrape_configs:
 ## Installation
 
 Container images are published to GHCR for `linux/amd64` and `linux/arm64`. The
-image is built `FROM scratch` and runs as UID 65534.
+image is built `FROM scratch` and runs as UID 65534. The image's SPDX SBOM is
+attached as an attestation, shown by `docker buildx imagetools inspect <image>
+--format '{{ json .SBOM }}'`.
 
 Binaries for Linux, macOS and Windows, an SPDX SBOM per archive, and a checksums
 file are attached to every
