@@ -124,6 +124,8 @@ against this repository:
 ```
 gh attestation verify ssh_transport_exporter-<version>-linux-amd64.tar.gz \
   --repo raphaelthomas/ssh_transport_exporter
+gh attestation verify oci://ghcr.io/raphaelthomas/ssh_transport_exporter:<version> \
+  --repo raphaelthomas/ssh_transport_exporter
 ```
 
 ## Configuration
