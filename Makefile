@@ -1,7 +1,7 @@
 .PHONY: build release lint vet vuln test e2e clean
 
 build:
-	go build -buildmode=pie -o ssh_transport_exporter .
+	CGO_ENABLED=0 go build -buildmode=pie -o ssh_transport_exporter .
 
 release: NEXT_VERSION = $(shell svu next --v0 --always)
 release:
