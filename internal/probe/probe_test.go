@@ -126,6 +126,40 @@ func TestRunNegotiatesRequestedCipher(t *testing.T) {
 	}
 }
 
+func TestRunNoCommonAlgorithm(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		server sshtest.Options
+		probe  Options
+		want   string
+	}{
+		{"kex", sshtest.Options{KeyExchanges: []string{ssh.KeyExchangeCurve25519}}, Options{KeyExchanges: []string{ssh.KeyExchangeECDHP256}}, ErrReasonNoCommonKex},
+		{"host key", sshtest.Options{}, Options{HostKeyAlgorithms: []string{ssh.KeyAlgoRSASHA256}}, ErrReasonNoCommonHostKey},
+		{"cipher", sshtest.Options{Ciphers: []string{ssh.CipherAES128CTR}}, Options{Ciphers: []string{ssh.CipherAES256CTR}}, ErrReasonNoCommonCipher},
+		{"mac", sshtest.Options{Ciphers: []string{ssh.CipherAES128CTR}, MACs: []string{ssh.HMACSHA256}}, Options{Ciphers: []string{ssh.CipherAES128CTR}, MACs: []string{ssh.HMACSHA512}}, ErrReasonNoCommonMAC},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := sshtest.NewServer(t, tt.server)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			tt.probe.HostKeyCallback = acceptKey(srv.HostKey)
+			result := Run(ctx, srv.Addr, tt.probe)
+
+			if !result.VersionExchangeSuccess {
+				t.Error("VersionExchangeSuccess = false, want true")
+			}
+			if result.ErrorPhase != ErrPhaseKeyExchange || result.ErrorReason != tt.want {
+				t.Errorf("error = %s/%s, want %s/%s", result.ErrorPhase, result.ErrorReason, ErrPhaseKeyExchange, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunHostKeyAlgorithmsRespected(t *testing.T) {
 	t.Parallel()
 	srv := sshtest.NewServer(t, sshtest.Options{})

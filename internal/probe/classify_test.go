@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
@@ -161,6 +162,14 @@ func TestClassifyKexError(t *testing.T) {
 		{"peer reset in a net.OpError", nil, &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}, ErrReasonConnectionReset},
 		{"own close without an expired context", nil, net.ErrClosed, ErrReasonOther},
 		{"other", nil, errors.New("kex exploded"), ErrReasonOther},
+		{"no common kex", nil, &ssh.AlgorithmNegotiationError{What: "key exchange"}, ErrReasonNoCommonKex},
+		{"no common host key", nil, &ssh.AlgorithmNegotiationError{What: "host key"}, ErrReasonNoCommonHostKey},
+		{"no common cipher client to server", nil, &ssh.AlgorithmNegotiationError{What: "client to server cipher"}, ErrReasonNoCommonCipher},
+		{"no common cipher server to client", nil, &ssh.AlgorithmNegotiationError{What: "server to client cipher"}, ErrReasonNoCommonCipher},
+		{"no common MAC client to server", nil, &ssh.AlgorithmNegotiationError{What: "client to server MAC"}, ErrReasonNoCommonMAC},
+		{"no common MAC server to client", nil, &ssh.AlgorithmNegotiationError{What: "server to client MAC"}, ErrReasonNoCommonMAC},
+		{"no common compression", nil, &ssh.AlgorithmNegotiationError{What: "client to server compression"}, ErrReasonNoCommonAlgorithm},
+		{"wrapped no common host key", nil, fmt.Errorf("ssh: handshake failed: %w", &ssh.AlgorithmNegotiationError{What: "host key"}), ErrReasonNoCommonHostKey},
 		{"expired context reports timeout", expiredContext, net.ErrClosed, ErrReasonTimeout},
 		{"expired context outranks a generic error", expiredContext, errors.New("kex exploded"), ErrReasonTimeout},
 		{"canceled context reports canceled", canceledContext, net.ErrClosed, ErrReasonCanceled},

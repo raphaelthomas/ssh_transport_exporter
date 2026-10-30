@@ -40,6 +40,11 @@ const (
 	ErrReasonTimeout               = "timeout"
 	ErrReasonCanceled              = "canceled"
 	ErrReasonUserAuthReached       = "user_auth_reached"
+	ErrReasonNoCommonKex           = "no_common_kex_algorithm"
+	ErrReasonNoCommonHostKey       = "no_common_host_key_algorithm"
+	ErrReasonNoCommonCipher        = "no_common_cipher"
+	ErrReasonNoCommonMAC           = "no_common_mac"
+	ErrReasonNoCommonAlgorithm     = "no_common_algorithm"
 	ErrReasonOther                 = "other"
 )
 
@@ -319,6 +324,9 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 			result.ErrorPhase = ErrPhaseVersionExchange
 		}
 		result.ErrorReason = classifyKexError(ctx, handshakeErr)
+		if negErr, ok := errors.AsType[*ssh.AlgorithmNegotiationError](handshakeErr); ok {
+			logger.Debug("no common algorithm with server", "target", target, "what", negErr.What, "offered", negErr.SupportedAlgorithms, "server_offered", negErr.RequestedAlgorithms)
+		}
 	}
 
 	// A failed host key check outranks a key exchange that failed after it.
@@ -405,6 +413,10 @@ func classifyKexError(ctx context.Context, err error) string {
 		return reason
 	}
 
+	if negErr, ok := errors.AsType[*ssh.AlgorithmNegotiationError](err); ok {
+		return classifyNegotiationError(negErr)
+	}
+
 	if netErr, ok := errors.AsType[net.Error](err); ok && netErr.Timeout() {
 		return ErrReasonTimeout
 	}
@@ -417,6 +429,23 @@ func classifyKexError(ctx context.Context, err error) string {
 		return ErrReasonConnectionReset
 	}
 	return ErrReasonOther
+}
+
+// classifyNegotiationError maps What, as set by x/crypto's findAgreedAlgorithms,
+// to a reason; an unknown What still proves a failed negotiation.
+func classifyNegotiationError(err *ssh.AlgorithmNegotiationError) string {
+	switch err.What {
+	case "key exchange":
+		return ErrReasonNoCommonKex
+	case "host key":
+		return ErrReasonNoCommonHostKey
+	case "client to server cipher", "server to client cipher":
+		return ErrReasonNoCommonCipher
+	case "client to server MAC", "server to client MAC":
+		return ErrReasonNoCommonMAC
+	default:
+		return ErrReasonNoCommonAlgorithm
+	}
 }
 
 // maxIdentificationLen is the RFC 4253, section 4.2 limit, including the CR LF.

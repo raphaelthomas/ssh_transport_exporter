@@ -479,5 +479,10 @@ The reason narrows down the cause within a phase.
 | `server_host_key_mismatch` | `key_exchange` | The server's host key did **not** match the key pinned for that host in `known_hosts`, which indicates either a man-in-the-middle or an un-rotated key. |
 | `server_host_key_revoked` | `key_exchange` | The server's host key is explicitly listed as revoked in `known_hosts`. |
 | `server_host_key_rejected` | `key_exchange` | The server host key was rejected for a reason other than the three above. |
+| `no_common_kex_algorithm` | `key_exchange` | The server supports none of the key exchange algorithms the probe offers (`kex_algorithms` in the module). |
+| `no_common_host_key_algorithm` | `key_exchange` | The server has no host key of a type the probe accepts (`host_key_algorithms` in the module), e.g. an ed25519-only server probed with RSA only. |
+| `no_common_cipher` | `key_exchange` | The server supports none of the ciphers the probe offers (`ciphers` in the module). |
+| `no_common_mac` | `key_exchange` | A non-AEAD cipher was negotiated, but the server supports none of the MACs the probe offers (`macs` in the module). |
+| `no_common_algorithm` | `key_exchange` | Algorithm negotiation failed for a list not covered above. All five `no_common_*` reasons are certain: the probe itself found no common algorithm in the server's offer, so `error_reason=~"no_common_.*"` matches every negotiation failure. |
 | `user_auth_reached` | `key_exchange` | The probe went on to user authentication (RFC 4252) instead of aborting once the transport layer was established. This is a bug in the exporter or its `golang.org/x/crypto` fork, not a problem with the target; please open an issue. |
 | `other` | any | The failure did not match any of the classified cases above. If you see this frequently, please open an issue with the target and (debug-level) logs so the classification can be improved. |

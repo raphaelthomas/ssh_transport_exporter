@@ -35,6 +35,10 @@ type Options struct {
 	ServerVersion string
 	// Ciphers restricts the server's cipher list. Nil uses the default set.
 	Ciphers []string
+	// KeyExchanges restricts the server's kex list. Nil uses the default set.
+	KeyExchanges []string
+	// MACs restricts the server's MAC list. Nil uses the default set.
+	MACs []string
 }
 
 // NewServer starts an SSH server on 127.0.0.1 with an ephemeral port and
@@ -68,6 +72,8 @@ func NewServer(t *testing.T, opts Options) *Server {
 		},
 		ServerVersion: opts.ServerVersion,
 		Ciphers:       opts.Ciphers,
+		KeyExchanges:  opts.KeyExchanges,
+		MACs:          opts.MACs,
 	}
 	cfg.AddHostKey(signer)
 
