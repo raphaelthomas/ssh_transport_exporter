@@ -41,8 +41,8 @@ github.com/prometheus/exporter-toolkit v0.20.0 h1:hz3g2aPcq3mXlQSt1MGjj2rwVk1wtR
 github.com/prometheus/exporter-toolkit v0.20.0/go.mod h1:gIIY0Mw0ci1wgYscdeMqVh6FUPYJca549eOkE39nU64=
 github.com/prometheus/procfs v0.23.0 h1:ad+S6FTkzwaMgacKLM5h6bNKExS+DMH0YiUwXItH/o4=
 github.com/prometheus/procfs v0.23.0/go.mod h1:3AVXO0FqLafyYFU/V/IQRZlC8Rgqz8Dm/x6pKLK+RIk=
-github.com/raphaelthomas/crypto v0.0.0-20261028074818-af722c6c9852 h1:Bwpwfrqk0+tM1gvJN6X6gSlm1OGZ7SENcurcoH5yrHU=
-github.com/raphaelthomas/crypto v0.0.0-20261028074818-af722c6c9852/go.mod h1:Xh+kl5A+M0gMiWDytH2Hhr5Z7WbNCpv/eB/EFgfSk+w=
+github.com/raphaelthomas/crypto v0.0.0-20261030083615-098e47cc6761 h1:bJSmckEuCCgB9Wu4ef63ojjpX0KGmhnbtQP4PxhwRjU=
+github.com/raphaelthomas/crypto v0.0.0-20261030083615-098e47cc6761/go.mod h1:Xh+kl5A+M0gMiWDytH2Hhr5Z7WbNCpv/eB/EFgfSk+w=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.4.0/go.mod h1:YvHI0jy2hoMjB+UWwv71VJQ9isScKT/TqJzVSSt89Yw=
 github.com/stretchr/objx v0.5.0/go.mod h1:Yh+to48EsGEfYuaHDzXPcE3xhTkx73EhmCGUpEOglKo=
