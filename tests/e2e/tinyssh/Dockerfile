@@ -1,4 +1,4 @@
-FROM alpine:3.23
+FROM alpine:3.24
 RUN apk add --no-cache tinyssh busybox-extras \
  && tinysshd-makekey /etc/tinyssh/sshkeydir
 # TinySSH has no listener of its own.
