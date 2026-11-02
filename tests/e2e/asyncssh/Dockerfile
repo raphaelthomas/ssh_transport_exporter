@@ -1,4 +1,4 @@
-FROM python:3.13-alpine
+FROM python:3.15-alpine
 WORKDIR /app
 COPY requirements.txt server.py ./
 RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt \
