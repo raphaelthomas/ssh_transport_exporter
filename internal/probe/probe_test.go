@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -157,6 +158,26 @@ func TestRunNoCommonAlgorithm(t *testing.T) {
 				t.Errorf("error = %s/%s, want %s/%s", result.ErrorPhase, result.ErrorReason, ErrPhaseKeyExchange, tt.want)
 			}
 		})
+	}
+}
+
+func TestDefaultAlgorithmsSupported(t *testing.T) {
+	supported := ssh.SupportedAlgorithms()
+	for _, tt := range []struct {
+		name      string
+		defaults  []string
+		supported []string
+	}{
+		{"kex", defaultKeyExchanges, supported.KeyExchanges},
+		{"host key", defaultHostKeyAlgorithms, supported.HostKeys},
+		{"cipher", defaultCiphers, supported.Ciphers},
+		{"MAC", defaultMACs, supported.MACs},
+	} {
+		for _, algo := range tt.defaults {
+			if !slices.Contains(tt.supported, algo) {
+				t.Errorf("default %s algorithm %q is not in ssh.SupportedAlgorithms()", tt.name, algo)
+			}
+		}
 	}
 }
 

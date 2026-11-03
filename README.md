@@ -320,8 +320,8 @@ ssh_transport_duration_seconds 0.121203458
 
 # HELP ssh_transport_encryption_algorithm_info Negotiated encryption algorithm per direction (RFC 4253 section 7.1). Absent unless key exchange completed.
 # TYPE ssh_transport_encryption_algorithm_info gauge
-ssh_transport_encryption_algorithm_info{algorithm="aes128-gcm@openssh.com",direction="client_to_server"} 1
-ssh_transport_encryption_algorithm_info{algorithm="aes128-gcm@openssh.com",direction="server_to_client"} 1
+ssh_transport_encryption_algorithm_info{algorithm="chacha20-poly1305@openssh.com",direction="client_to_server"} 1
+ssh_transport_encryption_algorithm_info{algorithm="chacha20-poly1305@openssh.com",direction="server_to_client"} 1
 
 # HELP ssh_transport_kex_algorithm_info Negotiated key exchange algorithm (RFC 4253 section 7.1). Absent unless key exchange completed.
 # TYPE ssh_transport_kex_algorithm_info gauge

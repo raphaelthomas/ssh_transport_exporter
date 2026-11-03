@@ -97,17 +97,18 @@ type Options struct {
 	// so must be safe for concurrent use. Nil fails verification.
 	HostKeyCallback ssh.HostKeyCallback
 
-	// Ciphers to advertise. Empty uses golang.org/x/crypto/ssh's default.
+	// Ciphers to advertise, in preference order. Empty uses defaultCiphers.
 	Ciphers []string
 
-	// KeyExchanges to advertise. Empty uses golang.org/x/crypto/ssh's default.
+	// KeyExchanges to advertise, in preference order. Empty uses
+	// defaultKeyExchanges.
 	KeyExchanges []string
 
-	// MACs to advertise. Empty uses golang.org/x/crypto/ssh's default.
+	// MACs to advertise, in preference order. Empty uses defaultMACs.
 	MACs []string
 
 	// HostKeyAlgorithms to accept, in preference order. Empty uses
-	// defaultHostKeyAlgorithms below, not the library's own default.
+	// defaultHostKeyAlgorithms.
 	HostKeyAlgorithms []string
 
 	StripServerIdentificationComments bool
@@ -115,20 +116,60 @@ type Options struct {
 	Logger *slog.Logger
 }
 
-// defaultHostKeyAlgorithms mirrors OpenSSH's client default order.
-var defaultHostKeyAlgorithms = []string{
-	ssh.CertAlgoED25519v01,
-	ssh.CertAlgoECDSA256v01,
-	ssh.CertAlgoECDSA384v01,
-	ssh.CertAlgoECDSA521v01,
-	ssh.CertAlgoRSASHA512v01,
-	ssh.CertAlgoRSASHA256v01,
-	ssh.KeyAlgoED25519,
-	ssh.KeyAlgoECDSA256,
-	ssh.KeyAlgoECDSA384,
-	ssh.KeyAlgoECDSA521,
-	ssh.KeyAlgoRSASHA256,
-	ssh.KeyAlgoRSASHA512,
+// The defaults are OpenSSH 10.0's client defaults (myproposal.h), without the
+// algorithms x/crypto does not implement: sntrup761x25519-sha512,
+// diffie-hellman-group18-sha512, sk-*, ssh-mldsa44-ed25519, umac-* and
+// hmac-sha1-etm.
+var (
+	defaultKeyExchanges = []string{
+		ssh.KeyExchangeMLKEM768X25519,
+		ssh.KeyExchangeCurve25519,
+		ssh.KeyExchangeECDHP256,
+		ssh.KeyExchangeECDHP384,
+		ssh.KeyExchangeECDHP521,
+		ssh.KeyExchangeDHGEXSHA256,
+		ssh.KeyExchangeDH16SHA512,
+		ssh.KeyExchangeDH14SHA256,
+	}
+
+	defaultHostKeyAlgorithms = []string{
+		ssh.CertAlgoED25519v01,
+		ssh.CertAlgoECDSA256v01,
+		ssh.CertAlgoECDSA384v01,
+		ssh.CertAlgoECDSA521v01,
+		ssh.CertAlgoRSASHA512v01,
+		ssh.CertAlgoRSASHA256v01,
+		ssh.KeyAlgoED25519,
+		ssh.KeyAlgoECDSA256,
+		ssh.KeyAlgoECDSA384,
+		ssh.KeyAlgoECDSA521,
+		ssh.KeyAlgoRSASHA512,
+		ssh.KeyAlgoRSASHA256,
+	}
+
+	defaultCiphers = []string{
+		ssh.CipherChaCha20Poly1305,
+		ssh.CipherAES128GCM,
+		ssh.CipherAES256GCM,
+		ssh.CipherAES128CTR,
+		ssh.CipherAES192CTR,
+		ssh.CipherAES256CTR,
+	}
+
+	defaultMACs = []string{
+		ssh.HMACSHA256ETM,
+		ssh.HMACSHA512ETM,
+		ssh.HMACSHA256,
+		ssh.HMACSHA512,
+		ssh.HMACSHA1,
+	}
+)
+
+func orDefault(algorithms, defaults []string) []string {
+	if len(algorithms) == 0 {
+		return defaults
+	}
+	return algorithms
 }
 
 // hostKeyResult moves the verification result off the goroutine that runs
@@ -252,18 +293,13 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 	conn := &identificationWatcher{Conn: rawConn}
 	hostKeyResultCh := make(chan hostKeyResult, 1)
 
-	hostKeyAlgorithms := opts.HostKeyAlgorithms
-	if len(hostKeyAlgorithms) == 0 {
-		hostKeyAlgorithms = defaultHostKeyAlgorithms
-	}
-
 	clientConfig := &ssh.ClientConfig{
 		User:              "ssh_transport_exporter",
 		Auth:              nil,
-		Ciphers:           opts.Ciphers,
-		KeyExchanges:      opts.KeyExchanges,
-		MACs:              opts.MACs,
-		HostKeyAlgorithms: hostKeyAlgorithms,
+		Ciphers:           orDefault(opts.Ciphers, defaultCiphers),
+		KeyExchanges:      orDefault(opts.KeyExchanges, defaultKeyExchanges),
+		MACs:              orDefault(opts.MACs, defaultMACs),
+		HostKeyAlgorithms: orDefault(opts.HostKeyAlgorithms, defaultHostKeyAlgorithms),
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			hk := hostKeyResult{verified: true}
 			if err := hostKeyCallback(hostname, remote, key); err != nil {
