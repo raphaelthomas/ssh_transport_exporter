@@ -2,10 +2,15 @@ package probe
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/rsa"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -198,12 +203,140 @@ func TestClassifyHostKeyVerifyError(t *testing.T) {
 		{"mismatch (non-empty Want)", &knownhosts.KeyError{Want: []knownhosts.KnownKey{{}}}, ErrReasonServerHostKeyMismatch},
 		{"revoked", &knownhosts.RevokedError{}, ErrReasonServerHostKeyRevoked},
 		{"wrapped mismatch", fmt.Errorf("verify: %w", &knownhosts.KeyError{Want: []knownhosts.KnownKey{{}}}), ErrReasonServerHostKeyMismatch},
+		{"certificate invalid", fmt.Errorf("%w: %w", errHostCertificateInvalid, errors.New("ssh: cert has expired")), ErrReasonServerHostCertificateInvalid},
 		{"rejected", errors.New("nope"), ErrReasonServerHostKeyRejected},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := classifyHostKeyVerifyError(tt.err); got != tt.want {
 				t.Errorf("classifyHostKeyVerifyError(%v) = %q, want %q", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func newEd25519Signer(t *testing.T) ssh.Signer {
+	t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signer
+}
+
+// newRSASigner returns an RSA signer restricted to algorithm.
+func newRSASigner(t *testing.T, algorithm string) ssh.Signer {
+	t.Helper()
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restricted, err := ssh.NewSignerWithAlgorithms(signer.(ssh.AlgorithmSigner), []string{algorithm})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return restricted
+}
+
+// TestVerifyHostKey checks that verifyHostKey decides like OpenSSH. It also
+// fails if x/crypto changes behavior verifyHostKey relies on:
+//   - a CA key passes as a host key if its @cert-authority line matches;
+//   - IsRevoked checks a certificate's key and CA;
+//   - a @revoked certificate line revokes the key inside the certificate;
+//   - knownhosts doesn't fall back to the plain key itself.
+func TestVerifyHostKey(t *testing.T) {
+	const host = "host.example.com"
+	hostKey, otherKey, ca := newEd25519Signer(t), newEd25519Signer(t), newEd25519Signer(t)
+	hostPub, caPub := hostKey.PublicKey(), ca.PublicKey()
+
+	newCert := func(authority ssh.Signer, edit func(*ssh.Certificate)) *ssh.Certificate {
+		t.Helper()
+		cert := &ssh.Certificate{
+			Key:             hostPub,
+			CertType:        ssh.HostCert,
+			ValidPrincipals: []string{host},
+			ValidBefore:     ssh.CertTimeInfinity,
+		}
+		if edit != nil {
+			edit(cert)
+		}
+		if err := cert.SignCert(rand.Reader, authority); err != nil {
+			t.Fatal(err)
+		}
+		return cert
+	}
+	valid := newCert(ca, nil)
+	expired := newCert(ca, func(c *ssh.Certificate) { c.ValidBefore = uint64(time.Now().Add(-time.Hour).Unix()) })
+	wrongPrincipal := newCert(ca, func(c *ssh.Certificate) { c.ValidPrincipals = []string{"other.example.com"} })
+	userCert := newCert(ca, func(c *ssh.Certificate) { c.CertType = ssh.UserCert })
+	rsaSHA1CA, rsaSHA2CA := newRSASigner(t, ssh.KeyAlgoRSA), newRSASigner(t, ssh.KeyAlgoRSASHA512)
+	sha1Signed, sha2Signed := newCert(rsaSHA1CA, nil), newCert(rsaSHA2CA, nil)
+
+	line := func(prefix string, key ssh.PublicKey) string {
+		return prefix + " " + strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+	}
+	authority := func(key ssh.PublicKey) string { return line("@cert-authority *.example.com", key) }
+	listed := line(host, hostPub)
+	listedOther := line(host, otherKey.PublicKey())
+	trusted := authority(caPub)
+	revokedKey := line("@revoked *", hostPub)
+	revokedCA := line("@revoked *", caPub)
+	revokedCert := line("@revoked *", valid)
+
+	tests := []struct {
+		name       string
+		key        ssh.PublicKey
+		knownHosts []string
+		want       string // empty when verified
+	}{
+		{"plain key, listed", hostPub, []string{listed}, ""},
+		{"plain key, not listed", hostPub, nil, ErrReasonServerHostKeyUnknown},
+		{"plain key, other key listed", hostPub, []string{listedOther}, ErrReasonServerHostKeyMismatch},
+		{"trusted CA, valid", valid, []string{trusted}, ""},
+		{"trusted CA, rsa-sha2-512 CA signature", sha2Signed, []string{authority(rsaSHA2CA.PublicKey())}, ""},
+		{"trusted CA, expired, plain key listed", expired, []string{trusted, listed}, ""},
+		{"trusted CA, expired, plain key not listed", expired, []string{trusted}, ErrReasonServerHostCertificateInvalid},
+		{"trusted CA, expired, other plain key listed", expired, []string{trusted, listedOther}, ErrReasonServerHostCertificateInvalid},
+		{"trusted CA, wrong principal, plain key not listed", wrongPrincipal, []string{trusted}, ErrReasonServerHostCertificateInvalid},
+		{"trusted CA, user certificate, plain key not listed", userCert, []string{trusted}, ErrReasonServerHostCertificateInvalid},
+		{"trusted CA, ssh-rsa CA signature, plain key not listed", sha1Signed, []string{authority(rsaSHA1CA.PublicKey())}, ErrReasonServerHostCertificateInvalid},
+		{"trusted CA, ssh-rsa CA signature, plain key listed", sha1Signed, []string{authority(rsaSHA1CA.PublicKey()), listed}, ""},
+		{"untrusted CA, plain key listed", valid, []string{listed}, ""},
+		{"untrusted CA, plain key not listed", valid, nil, ErrReasonServerHostKeyUnknown},
+		{"untrusted CA, other plain key listed", valid, []string{listedOther}, ErrReasonServerHostKeyMismatch},
+		{"trusted CA, key revoked", valid, []string{trusted, listed, revokedKey}, ErrReasonServerHostKeyRevoked},
+		{"trusted CA, CA revoked", valid, []string{trusted, listed, revokedCA}, ErrReasonServerHostKeyRevoked},
+		{"trusted CA, certificate revoked", valid, []string{trusted, listed, revokedCert}, ErrReasonServerHostKeyRevoked},
+		{"trusted CA, expired, key revoked", expired, []string{trusted, listed, revokedKey}, ErrReasonServerHostKeyRevoked},
+		{"untrusted CA, key revoked", valid, []string{listed, revokedKey}, ErrReasonServerHostKeyRevoked},
+		{"untrusted CA, CA revoked", valid, []string{listed, revokedCA}, ErrReasonServerHostKeyRevoked},
+	}
+	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "known_hosts")
+			if err := os.WriteFile(path, []byte(strings.Join(tt.knownHosts, "\n")+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cb, err := knownhosts.New(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = verifyHostKey(cb, host+":22", remote, tt.key)
+			got := ""
+			if err != nil {
+				got = classifyHostKeyVerifyError(err)
+			}
+			if got != tt.want {
+				t.Errorf("verifyHostKey() = %v (%q), want %q", err, got, tt.want)
 			}
 		})
 	}
