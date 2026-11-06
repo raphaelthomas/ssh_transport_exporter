@@ -13,6 +13,9 @@ key verification observable. This can, for example, help to identify path
 MTU or TCP MSS issues, which are difficult to detect with the `blackbox_exporter`,
 without requiring any SSH credentials.
 
+The probe behaves like an OpenSSH 10.0 - 10.6 client with default settings,
+limited to the algorithms `golang.org/x/crypto` implements.
+
 Support for the SSH Authentication Protocol ([RFC
 4252](https://datatracker.ietf.org/doc/html/rfc4252)) is intentionally omitted
 to avoid the need for credentials and to reduce the potential attack surface.
@@ -171,6 +174,37 @@ for a fully annotated example configuration file.
 
 Use one job per module, each with its own `params.module`, since the module
 selects the `known_hosts`, the allowed targets, and the advertised algorithms.
+
+### Host key verification
+
+The probe checks the server's host key against `known_hosts`, like OpenSSH:
+
+- A plain host key must be listed for the target.
+- A host certificate must be signed by a CA whose `@cert-authority` line
+  matches the target.
+- If the certificate fails, e.g. because it expired, the probe checks the
+  host key inside the certificate instead. A `@revoked` key or CA always
+  fails.
+
+So `ssh_transport_server_host_key_verify_success 1` means `known_hosts`
+vouches for the key, through a CA or directly.
+
+Differences from OpenSSH:
+
+- `@revoked` lines apply to all hosts, whatever their host pattern.
+- The probe doesn't support wildcard principals in host certificates, e.g.
+  `*.example.com`. OpenSSH 10.3 and later would accept them.
+- If a certificate from a trusted CA is invalid and the host key inside the
+  certificate doesn't match any key listed for the target in `known_hosts`,
+  the probe reports `server_host_certificate_invalid`. OpenSSH reports the
+  host key as unknown or changed.
+- If the server sends a plain key and `known_hosts` has only a
+  `@cert-authority` line for the target, the probe reports
+  `server_host_key_mismatch`. OpenSSH reports the host as unknown.
+- OpenSSH asks the server for a host key of a type that `known_hosts` has for
+  the target. The probe asks for host key types in a fixed order. So it can
+  get a key of another type and report `server_host_key_mismatch` where
+  OpenSSH connects.
 
 ### TLS and basic auth
 
@@ -481,9 +515,10 @@ The reason narrows down the cause within a phase.
 | `timeout` | `dns_lookup`, `tcp_connect`, `version_exchange`, `key_exchange` | The operation exceeded its deadline (the effective probe timeout, or a network-level timeout). |
 | `canceled` | `dns_lookup`, `tcp_connect`, `version_exchange`, `key_exchange` | The caller went away before the probe finished, typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
 | `server_host_key_unknown` | `key_exchange` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
-| `server_host_key_mismatch` | `key_exchange` | The server's host key did **not** match the key pinned for that host in `known_hosts`, which indicates either a man-in-the-middle or an un-rotated key. |
-| `server_host_key_revoked` | `key_exchange` | The server's host key is explicitly listed as revoked in `known_hosts`. |
-| `server_host_key_rejected` | `key_exchange` | The server host key was rejected for a reason other than the three above. |
+| `server_host_key_mismatch` | `key_exchange` | The server's host key does **not** match the keys listed for the target. This points to a man-in-the-middle or an un-rotated key. |
+| `server_host_key_revoked` | `key_exchange` | The host key, or a certificate's key or CA, is marked `@revoked` in `known_hosts`. |
+| `server_host_certificate_invalid` | `key_exchange` | The server's host certificate is signed by a CA trusted for the target, but the certificate is invalid, e.g. expired. The host key inside the certificate doesn't match any key listed for the target either. |
+| `server_host_key_rejected` | `key_exchange` | The server host key was rejected for a reason other than the four above. |
 | `no_common_kex_algorithm` | `key_exchange` | The server supports none of the key exchange algorithms the probe offers (`kex_algorithms` in the module). |
 | `no_common_host_key_algorithm` | `key_exchange` | The server has no host key of a type the probe accepts (`host_key_algorithms` in the module), e.g. an ed25519-only server probed with RSA only. |
 | `no_common_cipher` | `key_exchange` | The server supports none of the ciphers the probe offers (`ciphers` in the module). |

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"slices"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -28,24 +29,25 @@ const (
 
 // Why a probe failed, reported as Result.ErrorReason.
 const (
-	ErrReasonConnectionRefused     = "connection_refused"
-	ErrReasonNoRouteToHost         = "no_route_to_host"
-	ErrReasonNetworkUnreachable    = "network_unreachable"
-	ErrReasonDNSFailure            = "dns_failure"
-	ErrReasonConnectionReset       = "connection_reset"
-	ErrReasonServerHostKeyUnknown  = "server_host_key_unknown"
-	ErrReasonServerHostKeyMismatch = "server_host_key_mismatch"
-	ErrReasonServerHostKeyRevoked  = "server_host_key_revoked"
-	ErrReasonServerHostKeyRejected = "server_host_key_rejected"
-	ErrReasonTimeout               = "timeout"
-	ErrReasonCanceled              = "canceled"
-	ErrReasonUserAuthReached       = "user_auth_reached"
-	ErrReasonNoCommonKex           = "no_common_kex_algorithm"
-	ErrReasonNoCommonHostKey       = "no_common_host_key_algorithm"
-	ErrReasonNoCommonCipher        = "no_common_cipher"
-	ErrReasonNoCommonMAC           = "no_common_mac"
-	ErrReasonNoCommonAlgorithm     = "no_common_algorithm"
-	ErrReasonOther                 = "other"
+	ErrReasonConnectionRefused            = "connection_refused"
+	ErrReasonNoRouteToHost                = "no_route_to_host"
+	ErrReasonNetworkUnreachable           = "network_unreachable"
+	ErrReasonDNSFailure                   = "dns_failure"
+	ErrReasonConnectionReset              = "connection_reset"
+	ErrReasonServerHostKeyUnknown         = "server_host_key_unknown"
+	ErrReasonServerHostKeyMismatch        = "server_host_key_mismatch"
+	ErrReasonServerHostKeyRevoked         = "server_host_key_revoked"
+	ErrReasonServerHostKeyRejected        = "server_host_key_rejected"
+	ErrReasonServerHostCertificateInvalid = "server_host_certificate_invalid"
+	ErrReasonTimeout                      = "timeout"
+	ErrReasonCanceled                     = "canceled"
+	ErrReasonUserAuthReached              = "user_auth_reached"
+	ErrReasonNoCommonKex                  = "no_common_kex_algorithm"
+	ErrReasonNoCommonHostKey              = "no_common_host_key_algorithm"
+	ErrReasonNoCommonCipher               = "no_common_cipher"
+	ErrReasonNoCommonMAC                  = "no_common_mac"
+	ErrReasonNoCommonAlgorithm            = "no_common_algorithm"
+	ErrReasonOther                        = "other"
 )
 
 // Result is the outcome of one probe against one target.
@@ -116,10 +118,10 @@ type Options struct {
 	Logger *slog.Logger
 }
 
-// The defaults are OpenSSH 10.0's client defaults (myproposal.h), without the
-// algorithms x/crypto does not implement: sntrup761x25519-sha512,
-// diffie-hellman-group18-sha512, sk-*, ssh-mldsa44-ed25519, umac-* and
-// hmac-sha1-etm.
+// The defaults are the client defaults of OpenSSH 10.0 - 10.6 (myproposal.h),
+// without the algorithms x/crypto does not implement: sntrup761x25519-sha512,
+// diffie-hellman-group18-sha512, sk-* and webauthn-sk-* host keys,
+// ssh-mldsa44-ed25519, umac-* and hmac-sha1-etm.
 var (
 	defaultKeyExchanges = []string{
 		ssh.KeyExchangeMLKEM768X25519,
@@ -162,6 +164,19 @@ var (
 		ssh.HMACSHA256,
 		ssh.HMACSHA512,
 		ssh.HMACSHA1,
+	}
+
+	// caSignatureAlgorithms is OpenSSH's default CASignatureAlgorithms, without
+	// webauthn-sk-ecdsa-sha2-nistp256@openssh.com, which x/crypto does not implement.
+	caSignatureAlgorithms = []string{
+		ssh.KeyAlgoED25519,
+		ssh.KeyAlgoECDSA256,
+		ssh.KeyAlgoECDSA384,
+		ssh.KeyAlgoECDSA521,
+		ssh.KeyAlgoSKED25519,
+		ssh.KeyAlgoSKECDSA256,
+		ssh.KeyAlgoRSASHA512,
+		ssh.KeyAlgoRSASHA256,
 	}
 )
 
@@ -302,7 +317,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		HostKeyAlgorithms: orDefault(opts.HostKeyAlgorithms, defaultHostKeyAlgorithms),
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			hk := hostKeyResult{verified: true}
-			if err := hostKeyCallback(hostname, remote, key); err != nil {
+			if err := verifyHostKey(hostKeyCallback, hostname, remote, key); err != nil {
 				hk.verified = false
 				hk.errorReason = classifyHostKeyVerifyError(err)
 			}
@@ -389,7 +404,46 @@ func isHostname(target string) bool {
 	return err != nil
 }
 
+// errHostCertificateInvalid marks an invalid SSH host certificate signed by a CA trusted for the host.
+var errHostCertificateInvalid = errors.New("host certificate from a trusted CA is invalid")
+
+// verifyHostKey checks key against known_hosts like OpenSSH's check_host_key. An
+// invalid SSH host certificate falls back to the host key inside it, unless that
+// key or the certificate's CA is @revoked.
+func verifyHostKey(cb ssh.HostKeyCallback, hostname string, remote net.Addr, key ssh.PublicKey) error {
+	check := func(k ssh.PublicKey) error { return cb(hostname, remote, k) }
+
+	// Check a plain host key directly.
+	cert, ok := key.(*ssh.Certificate)
+	if !ok {
+		return check(key)
+	}
+	// Validate the certificate like OpenSSH, including its CA signature algorithm.
+	certErr := check(cert)
+	if certErr == nil {
+		if slices.Contains(caSignatureAlgorithms, cert.Signature.Format) {
+			return nil
+		}
+		certErr = fmt.Errorf("CA signature algorithm %q not allowed", cert.Signature.Format)
+	}
+	// Checking the CA as a host key tells whether it is @revoked or trusted.
+	caErr := check(cert.SignatureKey)
+	if _, ok := errors.AsType[*knownhosts.RevokedError](caErr); ok {
+		return caErr
+	}
+	// Fall back to the host key inside the certificate.
+	plainErr := check(cert.Key)
+	if _, ok := errors.AsType[*knownhosts.KeyError](plainErr); ok && caErr == nil {
+		return fmt.Errorf("%w: %w", errHostCertificateInvalid, certErr)
+	}
+	return plainErr
+}
+
 func classifyHostKeyVerifyError(err error) string {
+	if errors.Is(err, errHostCertificateInvalid) {
+		return ErrReasonServerHostCertificateInvalid
+	}
+
 	if keyErr, ok := errors.AsType[*knownhosts.KeyError](err); ok {
 		if len(keyErr.Want) == 0 {
 			return ErrReasonServerHostKeyUnknown
