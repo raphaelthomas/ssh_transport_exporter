@@ -13,7 +13,7 @@ key verification observable. This can, for example, help to identify path
 MTU or TCP MSS issues, which are difficult to detect with the `blackbox_exporter`,
 without requiring any SSH credentials.
 
-The probe behaves like an OpenSSH 10.0 - 10.6 client with default settings,
+The probe behaves like an OpenSSH 10.3 - 10.6 client with default settings,
 limited to the algorithms `golang.org/x/crypto` implements.
 
 Support for the SSH Authentication Protocol ([RFC
@@ -193,7 +193,7 @@ Differences from OpenSSH:
 
 - `@revoked` lines apply to all hosts, whatever their host pattern.
 - The probe doesn't support wildcard principals in host certificates, e.g.
-  `*.example.com`. OpenSSH 10.3 and later would accept them.
+  `*.example.com`. OpenSSH would accept them.
 - If a certificate from a trusted CA is invalid and the host key inside the
   certificate doesn't match any key listed for the target in `known_hosts`,
   the probe reports `server_host_certificate_invalid`. OpenSSH reports the
