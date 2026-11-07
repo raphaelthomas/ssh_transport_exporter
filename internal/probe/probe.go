@@ -320,6 +320,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 			if err := verifyHostKey(hostKeyCallback, hostname, remote, key); err != nil {
 				hk.verified = false
 				hk.errorReason = classifyHostKeyVerifyError(err)
+				logger.Debug("host key verification failed", "target", target, "reason", hk.errorReason, "error", err)
 			}
 			select {
 			case hostKeyResultCh <- hk:

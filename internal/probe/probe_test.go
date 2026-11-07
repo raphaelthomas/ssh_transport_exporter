@@ -365,6 +365,26 @@ func TestRunHostKeyVerificationFailure(t *testing.T) {
 	}
 }
 
+func TestRunLogsHostKeyVerificationFailure(t *testing.T) {
+	t.Parallel()
+	srv := sshtest.NewServer(t, sshtest.Options{})
+	otherSrv := sshtest.NewServer(t, sshtest.Options{})
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(otherSrv.HostKey), Logger: logger})
+
+	for _, want := range []string{`msg="host key verification failed"`, "reason=" + ErrReasonServerHostKeyRejected} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("log lacks %s: %s", want, buf.String())
+		}
+	}
+}
+
 func TestRunNilHostKeyCallback(t *testing.T) {
 	t.Parallel()
 	srv := sshtest.NewServer(t, sshtest.Options{})
