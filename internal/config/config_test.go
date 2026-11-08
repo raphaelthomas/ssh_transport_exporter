@@ -377,7 +377,7 @@ func TestLoadRawConfigAcceptsInsecureAlgorithms(t *testing.T) {
 		"    ciphers: [arcfour, arcfour128, arcfour256, 3des-cbc, aes128-cbc]\n" +
 		"    kex_algorithms: [diffie-hellman-group1-sha1, diffie-hellman-group14-sha1, diffie-hellman-group-exchange-sha1]\n" +
 		"    macs: [hmac-sha1, hmac-sha1-96]\n" +
-		"    host_key_algorithms: [ssh-dss, ssh-rsa, ssh-dss-cert-v01@openssh.com, ssh-rsa-cert-v01@openssh.com]\n"
+		"    host_key_algorithms: [ssh-rsa, ssh-rsa-cert-v01@openssh.com]\n"
 	if _, err := loadRaw(t, content); err != nil {
 		t.Errorf("loadRawConfig: %v", err)
 	}

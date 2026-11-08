@@ -107,8 +107,6 @@ modules:
       - hmac-sha1      # SHA-1
       - hmac-sha1-96   # SHA-1, truncated to 96 bits
     host_key_algorithms:
-      - ssh-dss-cert-v01@openssh.com   # DSA, insecure key sizes
-      - ssh-dss                        # DSA, insecure key sizes
       - ssh-rsa-cert-v01@openssh.com   # SHA-1 signature
       - ssh-rsa                        # SHA-1 signature
     # This module only answers "did the target accept something weak", so the
