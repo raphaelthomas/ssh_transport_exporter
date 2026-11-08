@@ -79,6 +79,13 @@ type Result struct {
 	ServerHostKeyVerifySuccess bool
 	ServerHostKeyAlgorithm     string
 
+	// ServerHostCertificate reports whether the server presented a host
+	// certificate, verified or not. Its validity period is in Unix seconds;
+	// ValidBefore is ssh.CertTimeInfinity for no expiry.
+	ServerHostCertificate            bool
+	ServerHostCertificateValidAfter  uint64
+	ServerHostCertificateValidBefore uint64
+
 	EncryptionClientToServer string
 	EncryptionServerToClient string
 	// Negotiated MACs, empty for AEAD ciphers, which need none
@@ -195,6 +202,7 @@ func orDefault(algorithms, defaults []string) []string {
 type hostKeyResult struct {
 	verified    bool
 	errorReason string
+	cert        *ssh.Certificate // nil for a plain host key
 }
 
 // identificationWatcher records the server's identification string and when it
@@ -320,6 +328,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		HostKeyAlgorithms: orDefault(opts.HostKeyAlgorithms, defaultHostKeyAlgorithms),
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			hk := hostKeyResult{verified: true}
+			hk.cert, _ = key.(*ssh.Certificate)
 			if err := verifyHostKey(hostKeyCallback, hostname, remote, key); err != nil {
 				hk.verified = false
 				hk.errorReason = classifyHostKeyVerifyError(err)
@@ -388,6 +397,11 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 	select {
 	case hk := <-hostKeyResultCh:
 		result.ServerHostKeyVerifySuccess = hk.verified
+		if hk.cert != nil {
+			result.ServerHostCertificate = true
+			result.ServerHostCertificateValidAfter = hk.cert.ValidAfter
+			result.ServerHostCertificateValidBefore = hk.cert.ValidBefore
+		}
 		if !hk.verified {
 			result.ErrorPhase = ErrPhaseKeyExchange
 			result.ErrorReason = hk.errorReason

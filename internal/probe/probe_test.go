@@ -3,6 +3,7 @@ package probe
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log/slog"
 	"net"
@@ -53,6 +54,9 @@ func TestRunSuccess(t *testing.T) {
 	}
 	if result.ServerHostKeyAlgorithm != ssh.KeyAlgoED25519 {
 		t.Errorf("ServerHostKeyAlgorithm = %q, want %q", result.ServerHostKeyAlgorithm, ssh.KeyAlgoED25519)
+	}
+	if result.ServerHostCertificate {
+		t.Error("ServerHostCertificate = true for a plain host key, want false")
 	}
 	if want := (ServerIdentification{"SSH-2.0-TestServer_1.0", "2.0", "TestServer_1.0", "", true}); result.ServerIdentification != want {
 		t.Errorf("ServerIdentification = %+v, want %+v", result.ServerIdentification, want)
@@ -382,6 +386,68 @@ func TestRunLogsHostKeyVerificationFailure(t *testing.T) {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("log lacks %s: %s", want, buf.String())
 		}
+	}
+}
+
+// A host certificate goes through verifyHostKey, and its validity period is
+// reported whether it verified or not.
+func TestRunHostCertificate(t *testing.T) {
+	t.Parallel()
+	ca := newEd25519Signer(t)
+	validAfter := uint64(time.Now().Add(-time.Hour).Unix())
+	expired := uint64(time.Now().Add(-time.Minute).Unix())
+
+	tests := []struct {
+		name        string
+		validBefore uint64
+		plainListed bool
+		want        string // empty when verified
+	}{
+		{"trusted CA, valid", ssh.CertTimeInfinity, false, ""},
+		{"trusted CA, expired, plain key listed", expired, true, ""},
+		{"trusted CA, expired, plain key not listed", expired, false, ErrReasonServerHostCertificateInvalid},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := sshtest.NewServer(t, sshtest.Options{
+				HostCertificate: func(t *testing.T, hostKey ssh.PublicKey) *ssh.Certificate {
+					t.Helper()
+					cert := &ssh.Certificate{
+						Key:             hostKey,
+						CertType:        ssh.HostCert,
+						ValidPrincipals: []string{"127.0.0.1"},
+						ValidAfter:      validAfter,
+						ValidBefore:     tt.validBefore,
+					}
+					if err := cert.SignCert(rand.Reader, ca); err != nil {
+						t.Fatal(err)
+					}
+					return cert
+				},
+			})
+			hosts := "[127.0.0.1]:" + srv.Port(t)
+			knownHosts := []string{knownHostsLine("@cert-authority "+hosts, ca.PublicKey())}
+			if tt.plainListed {
+				knownHosts = append(knownHosts, knownHostsLine(hosts, srv.HostKey.(*ssh.Certificate).Key))
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: knownHostsCallback(t, knownHosts)})
+
+			if result.ErrorReason != tt.want || result.Success != (tt.want == "") {
+				t.Errorf("ErrorReason = %q, Success = %t, want %q", result.ErrorReason, result.Success, tt.want)
+			}
+			if result.ServerHostKeyAlgorithm != ssh.CertAlgoED25519v01 {
+				t.Errorf("ServerHostKeyAlgorithm = %q, want %q", result.ServerHostKeyAlgorithm, ssh.CertAlgoED25519v01)
+			}
+			if !result.ServerHostCertificate || result.ServerHostCertificateValidAfter != validAfter || result.ServerHostCertificateValidBefore != tt.validBefore {
+				t.Errorf("ServerHostCertificate = %t, valid %d to %d, want true, %d to %d",
+					result.ServerHostCertificate, result.ServerHostCertificateValidAfter, result.ServerHostCertificateValidBefore, validAfter, tt.validBefore)
+			}
+		})
 	}
 }
 
