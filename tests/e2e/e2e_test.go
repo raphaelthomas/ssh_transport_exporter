@@ -6,12 +6,15 @@ package e2e
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
 )
@@ -118,6 +121,57 @@ func TestServers(t *testing.T) {
 			}
 			if !slices.Contains(aeadCiphers, result.EncryptionServerToClient) && result.MACServerToClient == "" {
 				t.Errorf("MAC server to client not reported for cipher %s", result.EncryptionServerToClient)
+			}
+		})
+	}
+}
+
+// TestHostCertificate verifies the host certificates that the OpenSSH servers
+// sign at start with the CA from make e2e, through a @cert-authority line.
+// openssh-alpine stays stock for TestNoCommonHostKeyAlgorithm.
+func TestHostCertificate(t *testing.T) {
+	ca, err := os.ReadFile(filepath.Join(os.Getenv("E2E_CA_DIR"), "ca.pub"))
+	if err != nil {
+		t.Fatalf("reading the CA from make e2e: %v", err)
+	}
+	var certServers []server
+	var hosts []string
+	for _, s := range servers {
+		if strings.HasPrefix(s.name, "openssh-") && s.name != "openssh-alpine" {
+			certServers = append(certServers, s)
+			_, port, _ := net.SplitHostPort(s.addr)
+			hosts = append(hosts, "[127.0.0.1]:"+port)
+		}
+	}
+	// One pattern per server: x/crypto reads a pattern without a port as port 22.
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	line := "@cert-authority " + strings.Join(hosts, ",") + " " + string(ca)
+	if err = os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	callback, err := knownhosts.New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, s := range certServers {
+		t.Run(s.name, func(t *testing.T) {
+			t.Parallel()
+			trustOnFirstUse(t, s.addr, probe.Options{})
+
+			ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+			defer cancel()
+			result := probe.Run(ctx, s.addr, probe.Options{HostKeyCallback: callback})
+			if !result.Success {
+				t.Fatalf("probe failed: %s/%s", result.ErrorPhase, result.ErrorReason)
+			}
+			if !strings.HasSuffix(result.ServerHostKeyAlgorithm, "-cert-v01@openssh.com") {
+				t.Errorf("host key algorithm = %q, want a certificate", result.ServerHostKeyAlgorithm)
+			}
+			// ssh-keygen signs for forever by default.
+			if !result.ServerHostCertificate || result.ServerHostCertificateValidAfter != 0 || result.ServerHostCertificateValidBefore != ssh.CertTimeInfinity {
+				t.Errorf("ServerHostCertificate = %t, valid %d to %d, want true, 0 to forever",
+					result.ServerHostCertificate, result.ServerHostCertificateValidAfter, result.ServerHostCertificateValidBefore)
 			}
 		})
 	}

@@ -34,8 +34,11 @@ test:
 COMPOSE ?= docker compose
 E2E_COMPOSE = $(COMPOSE) -f tests/e2e/compose.yaml
 
+# The OpenSSH servers sign their host keys with a CA made for this run.
 e2e:
-	trap '$(E2E_COMPOSE) down' EXIT; \
+	export E2E_CA_DIR=$$(mktemp -d); \
+	trap '$(E2E_COMPOSE) down; rm -rf "$$E2E_CA_DIR"' EXIT; \
+	ssh-keygen -q -t ed25519 -N '' -C e2e-ca -f "$$E2E_CA_DIR/ca" && \
 	$(E2E_COMPOSE) up -d --build && \
 	go test -tags e2e -count=1 -v ./tests/e2e/...
 

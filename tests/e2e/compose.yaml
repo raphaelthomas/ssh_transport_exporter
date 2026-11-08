@@ -1,45 +1,55 @@
 # Host ports must match the servers table in e2e_test.go.
+x-ca-volume: &ca-volume "${E2E_CA_DIR:?set by make e2e}:/ca:ro"
+
 services:
   openssh-rocky8:
     build:
       context: openssh-rhel
       args: { IMAGE: "rockylinux/rockylinux:8" }
     ports: ["127.0.0.1:2201:22"]
+    volumes: [*ca-volume]
   openssh-rocky9:
     build:
       context: openssh-rhel
       args: { IMAGE: "rockylinux/rockylinux:9" }
     ports: ["127.0.0.1:2202:22"]
+    volumes: [*ca-volume]
   openssh-ubuntu2204:
     build:
       context: openssh-debian
       args: { IMAGE: "ubuntu:22.04" }
     ports: ["127.0.0.1:2203:22"]
+    volumes: [*ca-volume]
   openssh-debian12:
     build:
       context: openssh-debian
       args: { IMAGE: "debian:12" }
     ports: ["127.0.0.1:2204:22"]
+    volumes: [*ca-volume]
   openssh-ubuntu2404:
     build:
       context: openssh-debian
       args: { IMAGE: "ubuntu:24.04" }
     ports: ["127.0.0.1:2205:22"]
+    volumes: [*ca-volume]
   openssh-rocky10:
     build:
       context: openssh-rhel
       args: { IMAGE: "rockylinux/rockylinux:10" }
     ports: ["127.0.0.1:2206:22"]
+    volumes: [*ca-volume]
   openssh-debian13:
     build:
       context: openssh-debian
       args: { IMAGE: "debian:13" }
     ports: ["127.0.0.1:2207:22"]
+    volumes: [*ca-volume]
   openssh-ubuntu2604:
     build:
       context: openssh-debian
       args: { IMAGE: "ubuntu:26.04" }
     ports: ["127.0.0.1:2208:22"]
+    volumes: [*ca-volume]
   openssh-alpine:
     build: openssh-alpine
     ports: ["127.0.0.1:2209:22"]
