@@ -26,8 +26,10 @@ vet:
 vuln:
 	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
+TESTFLAGS ?= -v
+
 test:
-	go test -race -cover -v ./...
+	go test -race -cover $(TESTFLAGS) ./...
 
 COMPOSE ?= docker compose
 E2E_COMPOSE = $(COMPOSE) -f tests/e2e/compose.yaml
