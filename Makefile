@@ -1,4 +1,4 @@
-.PHONY: build release lint golangci-lint-version vet vuln test e2e clean
+.PHONY: build release lint golangci-lint-version vet vuln test e2e hooks clean
 
 build:
 	CGO_ENABLED=0 go build -buildmode=pie -o ssh_transport_exporter .
@@ -36,6 +36,9 @@ e2e:
 	trap '$(E2E_COMPOSE) down' EXIT; \
 	$(E2E_COMPOSE) up -d --build && \
 	go test -tags e2e -count=1 -v ./tests/e2e/...
+
+hooks:
+	git config core.hooksPath .githooks
 
 clean:
 	@echo "Removing build artifacts..."

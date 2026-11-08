@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuses the push if tests, lint, vet or govulncheck fail.
+exec make test lint vuln vet
