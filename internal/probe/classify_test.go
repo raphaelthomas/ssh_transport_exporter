@@ -248,6 +248,26 @@ func newRSASigner(t *testing.T, algorithm string) ssh.Signer {
 	return restricted
 }
 
+// knownHostsCallback writes lines to a known_hosts file and loads it.
+func knownHostsCallback(t *testing.T, lines []string) ssh.HostKeyCallback {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cb, err := knownhosts.New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cb
+}
+
+// knownHostsLine returns a known_hosts line for key; prefix holds the marker, if
+// any, and the host patterns.
+func knownHostsLine(prefix string, key ssh.PublicKey) string {
+	return prefix + " " + strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+}
+
 // TestVerifyHostKey checks that verifyHostKey decides like OpenSSH. It also
 // fails if x/crypto changes behavior verifyHostKey relies on:
 //   - a CA key passes as a host key if its @cert-authority line matches;
@@ -293,16 +313,13 @@ func TestVerifyHostKey(t *testing.T) {
 	noPrincipals := *valid
 	noPrincipals.ValidPrincipals = nil
 
-	line := func(prefix string, key ssh.PublicKey) string {
-		return prefix + " " + strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
-	}
-	authority := func(key ssh.PublicKey) string { return line("@cert-authority *.example.com", key) }
-	listed := line(host, hostPub)
-	listedOther := line(host, otherKey.PublicKey())
+	authority := func(key ssh.PublicKey) string { return knownHostsLine("@cert-authority *.example.com", key) }
+	listed := knownHostsLine(host, hostPub)
+	listedOther := knownHostsLine(host, otherKey.PublicKey())
 	trusted := authority(caPub)
-	revokedKey := line("@revoked *", hostPub)
-	revokedCA := line("@revoked *", caPub)
-	revokedCert := line("@revoked *", valid)
+	revokedKey := knownHostsLine("@revoked *", hostPub)
+	revokedCA := knownHostsLine("@revoked *", caPub)
+	revokedCert := knownHostsLine("@revoked *", valid)
 
 	tests := []struct {
 		name       string
@@ -341,15 +358,7 @@ func TestVerifyHostKey(t *testing.T) {
 	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "known_hosts")
-			if err := os.WriteFile(path, []byte(strings.Join(tt.knownHosts, "\n")+"\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			cb, err := knownhosts.New(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = verifyHostKey(cb, host+":22", remote, tt.key)
+			err := verifyHostKey(knownHostsCallback(t, tt.knownHosts), host+":22", remote, tt.key)
 			got := ""
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
