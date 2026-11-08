@@ -5,8 +5,10 @@ package collector
 import (
 	"context"
 	"log/slog"
+	"math"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
 )
@@ -21,6 +23,7 @@ const (
 	subSystemKEX             = "kex"
 	subSystemKeyExchange     = "key_exchange"
 	subSystemServerHostKey   = "server_host_key"
+	subSystemServerHostCert  = "server_host_certificate"
 	subSystemEncryption      = "encryption"
 	subSystemMAC             = "mac"
 	subSystemError           = "error"
@@ -135,6 +138,24 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
+	serverHostCertValidAfterDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemServerHostCert, "valid_after_timestamp_seconds"),
+			"Start of the validity period of the server's host certificate, verified or not. Absent unless the server presented one and key exchange completed.",
+			[]string{"algorithm"},
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
+	serverHostCertValidBeforeDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemServerHostCert, "valid_before_timestamp_seconds"),
+			"End of the validity period of the server's host certificate, verified or not; +Inf if it never expires. Absent unless the server presented one and key exchange completed.",
+			[]string{"algorithm"},
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
 	encryptionAlgorithmInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemEncryption, "algorithm_info"),
@@ -243,6 +264,8 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- versionExchangeDurationDesc.desc
 	ch <- kexAlgorithmInfoDesc.desc
 	ch <- serverHostKeyAlgorithmInfoDesc.desc
+	ch <- serverHostCertValidAfterDesc.desc
+	ch <- serverHostCertValidBeforeDesc.desc
 	ch <- encryptionAlgorithmInfoDesc.desc
 	ch <- macAlgorithmInfoDesc.desc
 	ch <- serverHostKeyVerifySuccessDesc.desc
@@ -272,6 +295,9 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"version_exchange_duration", result.VersionExchangeDuration,
 			"kex_algorithm", result.KEXAlgorithm,
 			"server_host_key_algorithm", result.ServerHostKeyAlgorithm,
+			"server_host_certificate", result.ServerHostCertificate,
+			"server_host_certificate_valid_after", result.ServerHostCertificateValidAfter,
+			"server_host_certificate_valid_before", result.ServerHostCertificateValidBefore,
 			"encryption_client_to_server", result.EncryptionClientToServer,
 			"encryption_server_to_client", result.EncryptionServerToClient,
 			"mac_client_to_server", result.MACClientToServer,
@@ -320,6 +346,14 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 
 	if result.ServerHostKeyAlgorithm != "" {
 		ch <- serverHostKeyAlgorithmInfoDesc.mustNewConstMetric(1, result.ServerHostKeyAlgorithm)
+		if result.ServerHostCertificate {
+			validBefore := float64(result.ServerHostCertificateValidBefore)
+			if result.ServerHostCertificateValidBefore == ssh.CertTimeInfinity {
+				validBefore = math.Inf(1)
+			}
+			ch <- serverHostCertValidAfterDesc.mustNewConstMetric(float64(result.ServerHostCertificateValidAfter), result.ServerHostKeyAlgorithm)
+			ch <- serverHostCertValidBeforeDesc.mustNewConstMetric(validBefore, result.ServerHostKeyAlgorithm)
+		}
 	}
 
 	if result.EncryptionClientToServer != "" {

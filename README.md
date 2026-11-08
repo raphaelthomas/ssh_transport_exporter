@@ -362,9 +362,17 @@ ssh_transport_key_exchange_duration_seconds 0.077645125
 # TYPE ssh_transport_key_exchange_success gauge
 ssh_transport_key_exchange_success 1
 
+# HELP ssh_transport_server_host_certificate_valid_after_timestamp_seconds Start of the validity period of the server's host certificate, verified or not. Absent unless the server presented one and key exchange completed.
+# TYPE ssh_transport_server_host_certificate_valid_after_timestamp_seconds gauge
+ssh_transport_server_host_certificate_valid_after_timestamp_seconds{algorithm="ssh-ed25519-cert-v01@openssh.com"} 1.76256e+09
+
+# HELP ssh_transport_server_host_certificate_valid_before_timestamp_seconds End of the validity period of the server's host certificate, verified or not; +Inf if it never expires. Absent unless the server presented one and key exchange completed.
+# TYPE ssh_transport_server_host_certificate_valid_before_timestamp_seconds gauge
+ssh_transport_server_host_certificate_valid_before_timestamp_seconds{algorithm="ssh-ed25519-cert-v01@openssh.com"} 1.794096e+09
+
 # HELP ssh_transport_server_host_key_algorithm_info Negotiated server host key algorithm (RFC 4253 section 7.1). Absent unless key exchange completed.
 # TYPE ssh_transport_server_host_key_algorithm_info gauge
-ssh_transport_server_host_key_algorithm_info{algorithm="ssh-ed25519"} 1
+ssh_transport_server_host_key_algorithm_info{algorithm="ssh-ed25519-cert-v01@openssh.com"} 1
 
 # HELP ssh_transport_server_host_key_verify_success Whether the server host key was verified (RFC 4253 section 8).
 # TYPE ssh_transport_server_host_key_verify_success gauge

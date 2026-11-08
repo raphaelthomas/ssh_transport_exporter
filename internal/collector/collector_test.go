@@ -2,11 +2,13 @@ package collector
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
 )
@@ -148,6 +150,14 @@ func TestCollectFullSuccess(t *testing.T) {
 	}
 	if got := labelValue(t, mfs, "ssh_transport_server_host_key_algorithm_info", "algorithm"); got != "ssh-ed25519" {
 		t.Errorf("server_host_key_algorithm_info algorithm = %q", got)
+	}
+	for _, name := range []string{
+		"ssh_transport_server_host_certificate_valid_after_timestamp_seconds",
+		"ssh_transport_server_host_certificate_valid_before_timestamp_seconds",
+	} {
+		if _, ok := mfs[name]; ok {
+			t.Errorf("%s present for a plain host key, want absent", name)
+		}
 	}
 
 	if m := directionSeries(mfs, "ssh_transport_encryption_algorithm_info", "server_to_client"); m == nil {
@@ -305,6 +315,7 @@ func TestCollectOmissionBranches(t *testing.T) {
 		KeyExchangeDuration:      time.Second,
 		KEXAlgorithm:             "",
 		ServerHostKeyAlgorithm:   "",
+		ServerHostCertificate:    true,
 		EncryptionServerToClient: "aes256-ctr",
 		EncryptionClientToServer: "",
 	}
@@ -325,6 +336,9 @@ func TestCollectOmissionBranches(t *testing.T) {
 	if _, ok := mfs["ssh_transport_server_host_key_algorithm_info"]; ok {
 		t.Error("server_host_key_algorithm_info present when algorithm empty, want absent")
 	}
+	if _, ok := mfs["ssh_transport_server_host_certificate_valid_before_timestamp_seconds"]; ok {
+		t.Error("server_host_certificate_valid_before_timestamp_seconds present when algorithm empty, want absent")
+	}
 	if _, ok := mfs["ssh_transport_server_identification_info"]; ok {
 		t.Error("server_identification_info present when none was received, want absent")
 	}
@@ -337,6 +351,43 @@ func TestCollectOmissionBranches(t *testing.T) {
 	}
 	if m := directionSeries(mfs, "ssh_transport_encryption_algorithm_info", "client_to_server"); m != nil {
 		t.Error("encryption_algorithm_info client_to_server series present, want absent")
+	}
+}
+
+// A host certificate's validity period is reported, labeled with the
+// negotiated algorithm; no expiry is +Inf.
+func TestCollectHostCertificate(t *testing.T) {
+	t.Parallel()
+	const algorithm = "ssh-ed25519-cert-v01@openssh.com"
+	for _, tt := range []struct {
+		name            string
+		validBefore     uint64
+		wantValidBefore float64
+	}{
+		{"expires", 1800000000, 1800000000},
+		{"never expires", ssh.CertTimeInfinity, math.Inf(1)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			mfs := collectMetrics(t, probe.Result{
+				KeyExchangeSuccess:               true,
+				ServerHostKeyAlgorithm:           algorithm,
+				ServerHostCertificate:            true,
+				ServerHostCertificateValidAfter:  1700000000,
+				ServerHostCertificateValidBefore: tt.validBefore,
+			})
+			for name, want := range map[string]float64{
+				"ssh_transport_server_host_certificate_valid_after_timestamp_seconds":  1700000000,
+				"ssh_transport_server_host_certificate_valid_before_timestamp_seconds": tt.wantValidBefore,
+			} {
+				if got := singleValue(t, mfs, name); got != want {
+					t.Errorf("%s = %v, want %v", name, got, want)
+				}
+				if got := labelValue(t, mfs, name, "algorithm"); got != algorithm {
+					t.Errorf("%s algorithm = %q, want %q", name, got, algorithm)
+				}
+			}
+		})
 	}
 }
 
@@ -370,8 +421,8 @@ func TestDescribeEmitsAllDescriptors(t *testing.T) {
 	ch := make(chan *prometheus.Desc, 32)
 	c.Describe(ch)
 	close(ch)
-	if got := len(ch); got != 19 {
-		t.Errorf("Describe emitted %d descriptors, want 19", got)
+	if got := len(ch); got != 21 {
+		t.Errorf("Describe emitted %d descriptors, want 21", got)
 	}
 }
 
