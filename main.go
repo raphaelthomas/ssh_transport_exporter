@@ -225,9 +225,9 @@ const shutdownTimeout = 10 * time.Second
 // blackbox_exporter, so a probe times out and reports it before the scrape does.
 const probeTimeoutOffset = 500 * time.Millisecond
 
-// serve runs listenAndServe, which serves srv, until a termination signal
-// arrives on sigCh, reloading config on SIGHUP. It returns once in-flight
-// requests have drained, so the caller must not exit before it does.
+// serve runs listenAndServe, reloading config on SIGHUP and shutting srv down
+// gracefully on any other signal from sigCh. It returns once in-flight
+// requests have drained.
 func serve(logger *slog.Logger, srv *http.Server, listenAndServe func() error, sigCh chan os.Signal, rl *reloader) error {
 	stop := make(chan struct{})
 	shutdownDone := make(chan struct{})
