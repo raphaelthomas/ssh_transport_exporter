@@ -39,6 +39,9 @@ type Options struct {
 	KeyExchanges []string
 	// MACs restricts the server's MAC list. Nil uses the default set.
 	MACs []string
+	// HostCertificate returns a signed certificate for the host key, which the
+	// server then presents instead of the plain key. Nil presents the plain key.
+	HostCertificate func(t *testing.T, hostKey ssh.PublicKey) *ssh.Certificate
 }
 
 // NewServer starts an SSH server on 127.0.0.1 with an ephemeral port and
@@ -53,6 +56,12 @@ func NewServer(t *testing.T, opts Options) *Server {
 	signer, err := ssh.NewSignerFromKey(priv)
 	if err != nil {
 		t.Fatalf("sshtest: NewSignerFromKey: %v", err)
+	}
+	if opts.HostCertificate != nil {
+		signer, err = ssh.NewCertSigner(opts.HostCertificate(t, signer.PublicKey()), signer)
+		if err != nil {
+			t.Fatalf("sshtest: NewCertSigner: %v", err)
+		}
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
