@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -204,6 +205,7 @@ func TestClassifyHostKeyVerifyError(t *testing.T) {
 		{"revoked", &knownhosts.RevokedError{}, ErrReasonServerHostKeyRevoked},
 		{"wrapped mismatch", fmt.Errorf("verify: %w", &knownhosts.KeyError{Want: []knownhosts.KnownKey{{}}}), ErrReasonServerHostKeyMismatch},
 		{"certificate invalid", fmt.Errorf("%w: %w", errHostCertificateInvalid, errors.New("ssh: cert has expired")), ErrReasonServerHostCertificateInvalid},
+		{"certificate signature invalid", fmt.Errorf("%w: %w", errHostCertificateSignatureInvalid, errors.New("ssh: certificate signature does not verify")), ErrReasonServerHostCertificateSignatureInvalid},
 		{"rejected", errors.New("nope"), ErrReasonServerHostKeyRejected},
 	}
 	for _, tt := range tests {
@@ -251,7 +253,8 @@ func newRSASigner(t *testing.T, algorithm string) ssh.Signer {
 //   - a CA key passes as a host key if its @cert-authority line matches;
 //   - IsRevoked checks a certificate's key and CA;
 //   - a @revoked certificate line revokes the key inside the certificate;
-//   - knownhosts doesn't fall back to the plain key itself.
+//   - knownhosts doesn't fall back to the plain key itself;
+//   - CheckCert checks nothing beyond what verifyCertSignature sets up to pass.
 func TestVerifyHostKey(t *testing.T) {
 	const host = "host.example.com"
 	hostKey, otherKey, ca := newEd25519Signer(t), newEd25519Signer(t), newEd25519Signer(t)
@@ -279,6 +282,16 @@ func TestVerifyHostKey(t *testing.T) {
 	userCert := newCert(ca, func(c *ssh.Certificate) { c.CertType = ssh.UserCert })
 	rsaSHA1CA, rsaSHA2CA := newRSASigner(t, ssh.KeyAlgoRSA), newRSASigner(t, ssh.KeyAlgoRSASHA512)
 	sha1Signed, sha2Signed := newCert(rsaSHA1CA, nil), newCert(rsaSHA2CA, nil)
+	badSignature := func(cert *ssh.Certificate) *ssh.Certificate {
+		bad, sig := *cert, *cert.Signature
+		sig.Blob = slices.Clone(sig.Blob)
+		sig.Blob[0] ^= 1
+		bad.Signature = &sig
+		return &bad
+	}
+	// Removing the principals after signing breaks the signature, too.
+	noPrincipals := *valid
+	noPrincipals.ValidPrincipals = nil
 
 	line := func(prefix string, key ssh.PublicKey) string {
 		return prefix + " " + strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
@@ -318,6 +331,12 @@ func TestVerifyHostKey(t *testing.T) {
 		{"trusted CA, expired, key revoked", expired, []string{trusted, listed, revokedKey}, ErrReasonServerHostKeyRevoked},
 		{"untrusted CA, key revoked", valid, []string{listed, revokedKey}, ErrReasonServerHostKeyRevoked},
 		{"untrusted CA, CA revoked", valid, []string{listed, revokedCA}, ErrReasonServerHostKeyRevoked},
+		{"trusted CA, bad signature, plain key listed", badSignature(valid), []string{trusted, listed}, ErrReasonServerHostCertificateSignatureInvalid},
+		{"trusted CA, expired, bad signature, plain key listed", badSignature(expired), []string{trusted, listed}, ErrReasonServerHostCertificateSignatureInvalid},
+		{"untrusted CA, bad signature, plain key listed", badSignature(valid), []string{listed}, ErrReasonServerHostCertificateSignatureInvalid},
+		{"trusted CA, bad signature, key revoked", badSignature(valid), []string{trusted, listed, revokedKey}, ErrReasonServerHostCertificateSignatureInvalid},
+		// verifyCertSignature can't reach the signature check without principals.
+		{"trusted CA, no principals, bad signature, plain key listed", &noPrincipals, []string{trusted, listed}, ""},
 	}
 	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {

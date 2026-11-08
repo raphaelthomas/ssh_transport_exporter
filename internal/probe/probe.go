@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
+	"math"
 	"net"
 	"net/netip"
 	"slices"
@@ -29,25 +31,26 @@ const (
 
 // Why a probe failed, reported as Result.ErrorReason.
 const (
-	ErrReasonConnectionRefused            = "connection_refused"
-	ErrReasonNoRouteToHost                = "no_route_to_host"
-	ErrReasonNetworkUnreachable           = "network_unreachable"
-	ErrReasonDNSFailure                   = "dns_failure"
-	ErrReasonConnectionReset              = "connection_reset"
-	ErrReasonServerHostKeyUnknown         = "server_host_key_unknown"
-	ErrReasonServerHostKeyMismatch        = "server_host_key_mismatch"
-	ErrReasonServerHostKeyRevoked         = "server_host_key_revoked"
-	ErrReasonServerHostKeyRejected        = "server_host_key_rejected"
-	ErrReasonServerHostCertificateInvalid = "server_host_certificate_invalid"
-	ErrReasonTimeout                      = "timeout"
-	ErrReasonCanceled                     = "canceled"
-	ErrReasonUserAuthReached              = "user_auth_reached"
-	ErrReasonNoCommonKex                  = "no_common_kex_algorithm"
-	ErrReasonNoCommonHostKey              = "no_common_host_key_algorithm"
-	ErrReasonNoCommonCipher               = "no_common_cipher"
-	ErrReasonNoCommonMAC                  = "no_common_mac"
-	ErrReasonNoCommonAlgorithm            = "no_common_algorithm"
-	ErrReasonOther                        = "other"
+	ErrReasonConnectionRefused                     = "connection_refused"
+	ErrReasonNoRouteToHost                         = "no_route_to_host"
+	ErrReasonNetworkUnreachable                    = "network_unreachable"
+	ErrReasonDNSFailure                            = "dns_failure"
+	ErrReasonConnectionReset                       = "connection_reset"
+	ErrReasonServerHostKeyUnknown                  = "server_host_key_unknown"
+	ErrReasonServerHostKeyMismatch                 = "server_host_key_mismatch"
+	ErrReasonServerHostKeyRevoked                  = "server_host_key_revoked"
+	ErrReasonServerHostKeyRejected                 = "server_host_key_rejected"
+	ErrReasonServerHostCertificateInvalid          = "server_host_certificate_invalid"
+	ErrReasonServerHostCertificateSignatureInvalid = "server_host_certificate_signature_invalid"
+	ErrReasonTimeout                               = "timeout"
+	ErrReasonCanceled                              = "canceled"
+	ErrReasonUserAuthReached                       = "user_auth_reached"
+	ErrReasonNoCommonKex                           = "no_common_kex_algorithm"
+	ErrReasonNoCommonHostKey                       = "no_common_host_key_algorithm"
+	ErrReasonNoCommonCipher                        = "no_common_cipher"
+	ErrReasonNoCommonMAC                           = "no_common_mac"
+	ErrReasonNoCommonAlgorithm                     = "no_common_algorithm"
+	ErrReasonOther                                 = "other"
 )
 
 // Result is the outcome of one probe against one target.
@@ -408,9 +411,12 @@ func isHostname(target string) bool {
 // errHostCertificateInvalid marks an invalid SSH host certificate signed by a CA trusted for the host.
 var errHostCertificateInvalid = errors.New("host certificate from a trusted CA is invalid")
 
+// errHostCertificateSignatureInvalid marks an SSH host certificate whose CA signature doesn't verify.
+var errHostCertificateSignatureInvalid = errors.New("host certificate CA signature does not verify")
+
 // verifyHostKey checks key against known_hosts like OpenSSH's check_host_key. An
-// invalid SSH host certificate falls back to the host key inside it, unless that
-// key or the certificate's CA is @revoked.
+// invalid SSH host certificate falls back to the host key inside it. A bad CA
+// signature, or a @revoked key or CA, fails without fallback.
 func verifyHostKey(cb ssh.HostKeyCallback, hostname string, remote net.Addr, key ssh.PublicKey) error {
 	check := func(k ssh.PublicKey) error { return cb(hostname, remote, k) }
 
@@ -418,6 +424,10 @@ func verifyHostKey(cb ssh.HostKeyCallback, hostname string, remote net.Addr, key
 	cert, ok := key.(*ssh.Certificate)
 	if !ok {
 		return check(key)
+	}
+	// OpenSSH rejects a bad CA signature when parsing the key, before known_hosts.
+	if err := verifyCertSignature(cert); err != nil {
+		return err
 	}
 	// Validate the certificate like OpenSSH, including its CA signature algorithm.
 	certErr := check(cert)
@@ -440,7 +450,34 @@ func verifyHostKey(cb ssh.HostKeyCallback, hostname string, remote net.Addr, key
 	return plainErr
 }
 
+// verifyCertSignature checks only cert's CA signature, by calling CheckCert with
+// cert's own principal, critical options and valid-after time, so that nothing
+// else can fail. A certificate without principals or validity window passes unchecked.
+func verifyCertSignature(cert *ssh.Certificate) error {
+	i := slices.IndexFunc(cert.ValidPrincipals, func(p string) bool { return p != "" })
+	inWindow := cert.ValidBefore == ssh.CertTimeInfinity ||
+		(cert.ValidBefore > cert.ValidAfter && cert.ValidBefore <= math.MaxInt64)
+	if i < 0 || !inWindow {
+		return nil
+	}
+	if cert.ValidAfter > math.MaxInt64 {
+		return nil
+	}
+	now := time.Unix(int64(cert.ValidAfter), 0)
+	checker := ssh.CertChecker{
+		Clock:                    func() time.Time { return now },
+		SupportedCriticalOptions: slices.Collect(maps.Keys(cert.CriticalOptions)),
+	}
+	if err := checker.CheckCert(cert.ValidPrincipals[i], cert); err != nil {
+		return fmt.Errorf("%w: %w", errHostCertificateSignatureInvalid, err)
+	}
+	return nil
+}
+
 func classifyHostKeyVerifyError(err error) string {
+	if errors.Is(err, errHostCertificateSignatureInvalid) {
+		return ErrReasonServerHostCertificateSignatureInvalid
+	}
 	if errors.Is(err, errHostCertificateInvalid) {
 		return ErrReasonServerHostCertificateInvalid
 	}
