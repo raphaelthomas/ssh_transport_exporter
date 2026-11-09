@@ -204,6 +204,17 @@ vouches for the key, through a CA or directly.
   get a key of another type and report `server_host_key_mismatch` where
   OpenSSH connects.
 
+#### Time
+
+- The probe checks a host certificate's validity period against the clock of
+  the host the exporter runs on.
+- A clock that runs behind may report new certificates as
+  `server_host_certificate_not_yet_valid`.
+- A clock that runs ahead may report certificates as
+  `server_host_certificate_expired` early.
+- A certificate whose validity starts or ends in the exact second of the
+  probe may be reported with a wrong reason.
+
 ### TLS and basic auth
 
 `--web.config.file` enables TLS and basic auth, using the
