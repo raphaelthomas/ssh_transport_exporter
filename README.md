@@ -182,14 +182,16 @@ The probe checks the server's host key against `known_hosts`, like OpenSSH:
 - A plain host key must be listed for the target.
 - A host certificate must be signed by a CA whose `@cert-authority` line
   matches the target.
-- If the certificate fails, e.g. because it expired, the probe checks the
-  host key inside the certificate instead. A `@revoked` key or CA, or a bad
-  CA signature, always fails.
+- A bad CA signature fails, with one exception under
+  [Differences from OpenSSH](#differences-from-openssh).
+- A `@revoked` key or CA fails.
+- If the certificate verification fails, the probe checks the host key
+  inside the certificate instead.
 
 So `ssh_transport_server_host_key_verify_success 1` means `known_hosts`
 vouches for the key, through a CA or directly.
 
-Differences from OpenSSH:
+#### Differences from OpenSSH
 
 - `@revoked` lines apply to all hosts, whatever their host pattern.
 - The probe doesn't support wildcard principals in host certificates, e.g.
