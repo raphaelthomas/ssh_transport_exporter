@@ -204,7 +204,12 @@ func TestClassifyHostKeyVerifyError(t *testing.T) {
 		{"mismatch (non-empty Want)", &knownhosts.KeyError{Want: []knownhosts.KnownKey{{}}}, ErrReasonServerHostKeyMismatch},
 		{"revoked", &knownhosts.RevokedError{}, ErrReasonServerHostKeyRevoked},
 		{"wrapped mismatch", fmt.Errorf("verify: %w", &knownhosts.KeyError{Want: []knownhosts.KnownKey{{}}}), ErrReasonServerHostKeyMismatch},
-		{"certificate invalid", fmt.Errorf("%w: %w", errHostCertificateInvalid, errors.New("ssh: cert has expired")), ErrReasonServerHostCertificateOther},
+		{"certificate CA unknown", fmt.Errorf("%w: %w", errHostCertificateCAUnknown, &knownhosts.KeyError{}), ErrReasonServerHostCertificateCAUnknown},
+		{"certificate not yet valid", fmt.Errorf("%w: %w", errHostCertificateNotYetValid, errors.New("ssh: cert is not yet valid")), ErrReasonServerHostCertificateNotYetValid},
+		{"certificate expired", fmt.Errorf("%w: %w", errHostCertificateExpired, errors.New("ssh: cert has expired")), ErrReasonServerHostCertificateExpired},
+		{"certificate principal not listed", fmt.Errorf("%w: %w", errHostCertificatePrincipalNotListed, errors.New("ssh: principal not in the set")), ErrReasonServerHostCertificatePrincipalNotListed},
+		{"certificate signature algorithm disallowed", fmt.Errorf("%w: %w", errHostCertificateSignatureAlgorithmDisallowed, errors.New(`CA signature algorithm "ssh-rsa" not allowed`)), ErrReasonServerHostCertificateSignatureAlgorithmDisallowed},
+		{"certificate invalid", fmt.Errorf("%w: %w", errHostCertificateInvalid, errors.New("ssh: certificate presented as a host key has type 1")), ErrReasonServerHostCertificateOther},
 		{"certificate signature invalid", fmt.Errorf("%w: %w", errHostCertificateSignatureInvalid, errors.New("ssh: certificate signature does not verify")), ErrReasonServerHostCertificateSignatureInvalid},
 		{"rejected", errors.New("nope"), ErrReasonServerHostKeyRejected},
 	}
@@ -300,8 +305,20 @@ func TestVerifyHostKey(t *testing.T) {
 	expired := newCert(ca, func(c *ssh.Certificate) { c.ValidBefore = uint64(time.Now().Add(-time.Hour).Unix()) })
 	wrongPrincipal := newCert(ca, func(c *ssh.Certificate) { c.ValidPrincipals = []string{"other.example.com"} })
 	userCert := newCert(ca, func(c *ssh.Certificate) { c.CertType = ssh.UserCert })
+	notYetValid := newCert(ca, func(c *ssh.Certificate) { c.ValidAfter = uint64(time.Now().Add(time.Hour).Unix()) })
+	criticalOption := newCert(ca, func(c *ssh.Certificate) { c.CriticalOptions = map[string]string{"unknown@example.com": ""} })
+	// x/crypto checks critical options and principals before validity, OpenSSH after.
+	expiredCriticalOption := newCert(ca, func(c *ssh.Certificate) {
+		c.ValidBefore = expired.ValidBefore
+		c.CriticalOptions = criticalOption.CriticalOptions
+	})
+	expiredWrongPrincipal := newCert(ca, func(c *ssh.Certificate) {
+		c.ValidBefore = expired.ValidBefore
+		c.ValidPrincipals = wrongPrincipal.ValidPrincipals
+	})
 	rsaSHA1CA, rsaSHA2CA := newRSASigner(t, ssh.KeyAlgoRSA), newRSASigner(t, ssh.KeyAlgoRSASHA512)
 	sha1Signed, sha2Signed := newCert(rsaSHA1CA, nil), newCert(rsaSHA2CA, nil)
+	sha1WrongPrincipal := newCert(rsaSHA1CA, func(c *ssh.Certificate) { c.ValidPrincipals = wrongPrincipal.ValidPrincipals })
 	badSignature := func(cert *ssh.Certificate) *ssh.Certificate {
 		bad, sig := *cert, *cert.Signature
 		sig.Blob = slices.Clone(sig.Blob)
@@ -326,44 +343,57 @@ func TestVerifyHostKey(t *testing.T) {
 		key        ssh.PublicKey
 		knownHosts []string
 		want       string // which key verified it, or the error reason
+		certReason string // the certificate's error reason, if its plain key verified
 	}{
-		{"plain key, listed", hostPub, []string{listed}, VerifiedByPlainKey},
-		{"plain key, not listed", hostPub, nil, ErrReasonServerHostKeyUnknown},
-		{"plain key, other key listed", hostPub, []string{listedOther}, ErrReasonServerHostKeyMismatch},
-		{"trusted CA, valid", valid, []string{trusted}, VerifiedByCAKey},
-		{"trusted CA, rsa-sha2-512 CA signature", sha2Signed, []string{authority(rsaSHA2CA.PublicKey())}, VerifiedByCAKey},
-		{"trusted CA, expired, plain key listed", expired, []string{trusted, listed}, VerifiedByPlainKey},
-		{"trusted CA, expired, plain key not listed", expired, []string{trusted}, ErrReasonServerHostCertificateOther},
-		{"trusted CA, expired, other plain key listed", expired, []string{trusted, listedOther}, ErrReasonServerHostCertificateOther},
-		{"trusted CA, wrong principal, plain key not listed", wrongPrincipal, []string{trusted}, ErrReasonServerHostCertificateOther},
-		{"trusted CA, user certificate, plain key not listed", userCert, []string{trusted}, ErrReasonServerHostCertificateOther},
-		{"trusted CA, ssh-rsa CA signature, plain key not listed", sha1Signed, []string{authority(rsaSHA1CA.PublicKey())}, ErrReasonServerHostCertificateOther},
-		{"trusted CA, ssh-rsa CA signature, plain key listed", sha1Signed, []string{authority(rsaSHA1CA.PublicKey()), listed}, VerifiedByPlainKey},
-		{"untrusted CA, plain key listed", valid, []string{listed}, VerifiedByPlainKey},
-		{"untrusted CA, plain key not listed", valid, nil, ErrReasonServerHostKeyUnknown},
-		{"untrusted CA, other plain key listed", valid, []string{listedOther}, ErrReasonServerHostKeyMismatch},
-		{"trusted CA, key revoked", valid, []string{trusted, listed, revokedKey}, ErrReasonServerHostKeyRevoked},
-		{"trusted CA, CA revoked", valid, []string{trusted, listed, revokedCA}, ErrReasonServerHostKeyRevoked},
-		{"trusted CA, certificate revoked", valid, []string{trusted, listed, revokedCert}, ErrReasonServerHostKeyRevoked},
-		{"trusted CA, expired, key revoked", expired, []string{trusted, listed, revokedKey}, ErrReasonServerHostKeyRevoked},
-		{"untrusted CA, key revoked", valid, []string{listed, revokedKey}, ErrReasonServerHostKeyRevoked},
-		{"untrusted CA, CA revoked", valid, []string{listed, revokedCA}, ErrReasonServerHostKeyRevoked},
-		{"trusted CA, bad signature, plain key listed", badSignature(valid), []string{trusted, listed}, ErrReasonServerHostCertificateSignatureInvalid},
-		{"trusted CA, expired, bad signature, plain key listed", badSignature(expired), []string{trusted, listed}, ErrReasonServerHostCertificateSignatureInvalid},
-		{"untrusted CA, bad signature, plain key listed", badSignature(valid), []string{listed}, ErrReasonServerHostCertificateSignatureInvalid},
-		{"trusted CA, bad signature, key revoked", badSignature(valid), []string{trusted, listed, revokedKey}, ErrReasonServerHostCertificateSignatureInvalid},
+		{"plain key, listed", hostPub, []string{listed}, VerifiedByPlainKey, ""},
+		{"plain key, not listed", hostPub, nil, ErrReasonServerHostKeyUnknown, ""},
+		{"plain key, other key listed", hostPub, []string{listedOther}, ErrReasonServerHostKeyMismatch, ""},
+		{"trusted CA, valid", valid, []string{trusted}, VerifiedByCAKey, ""},
+		{"trusted CA, rsa-sha2-512 CA signature", sha2Signed, []string{authority(rsaSHA2CA.PublicKey())}, VerifiedByCAKey, ""},
+		{"trusted CA, expired, plain key listed", expired, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateExpired},
+		{"trusted CA, expired, plain key not listed", expired, []string{trusted}, ErrReasonServerHostCertificateOther, ""},
+		{"trusted CA, expired, other plain key listed", expired, []string{trusted, listedOther}, ErrReasonServerHostCertificateOther, ""},
+		{"trusted CA, wrong principal, plain key not listed", wrongPrincipal, []string{trusted}, ErrReasonServerHostCertificateOther, ""},
+		{"trusted CA, user certificate, plain key not listed", userCert, []string{trusted}, ErrReasonServerHostCertificateOther, ""},
+		{"trusted CA, ssh-rsa CA signature, plain key not listed", sha1Signed, []string{authority(rsaSHA1CA.PublicKey())}, ErrReasonServerHostCertificateOther, ""},
+		{"trusted CA, ssh-rsa CA signature, plain key listed", sha1Signed, []string{authority(rsaSHA1CA.PublicKey()), listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateSignatureAlgorithmDisallowed},
+		{"untrusted CA, plain key listed", valid, []string{listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateCAUnknown},
+		{"trusted CA, not yet valid, plain key listed", notYetValid, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateNotYetValid},
+		{"trusted CA, wrong principal, plain key listed", wrongPrincipal, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificatePrincipalNotListed},
+		{"trusted CA, user certificate, plain key listed", userCert, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateOther},
+		{"trusted CA, unsupported critical option, plain key listed", criticalOption, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateOther},
+		{"trusted CA, expired, unsupported critical option, plain key listed", expiredCriticalOption, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateExpired},
+		{"trusted CA, expired, wrong principal, plain key listed", expiredWrongPrincipal, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateExpired},
+		{"trusted CA, wrong principal, ssh-rsa CA signature, plain key listed", sha1WrongPrincipal, []string{authority(rsaSHA1CA.PublicKey()), listed}, VerifiedByPlainKey, ErrReasonServerHostCertificatePrincipalNotListed},
+		{"untrusted CA, expired, plain key listed", expired, []string{listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateCAUnknown},
+		{"untrusted CA, plain key not listed", valid, nil, ErrReasonServerHostKeyUnknown, ""},
+		{"untrusted CA, other plain key listed", valid, []string{listedOther}, ErrReasonServerHostKeyMismatch, ""},
+		{"trusted CA, key revoked", valid, []string{trusted, listed, revokedKey}, ErrReasonServerHostKeyRevoked, ""},
+		{"trusted CA, CA revoked", valid, []string{trusted, listed, revokedCA}, ErrReasonServerHostKeyRevoked, ""},
+		{"trusted CA, certificate revoked", valid, []string{trusted, listed, revokedCert}, ErrReasonServerHostKeyRevoked, ""},
+		{"trusted CA, expired, key revoked", expired, []string{trusted, listed, revokedKey}, ErrReasonServerHostKeyRevoked, ""},
+		{"untrusted CA, key revoked", valid, []string{listed, revokedKey}, ErrReasonServerHostKeyRevoked, ""},
+		{"untrusted CA, CA revoked", valid, []string{listed, revokedCA}, ErrReasonServerHostKeyRevoked, ""},
+		{"trusted CA, bad signature, plain key listed", badSignature(valid), []string{trusted, listed}, ErrReasonServerHostCertificateSignatureInvalid, ""},
+		{"trusted CA, expired, bad signature, plain key listed", badSignature(expired), []string{trusted, listed}, ErrReasonServerHostCertificateSignatureInvalid, ""},
+		{"untrusted CA, bad signature, plain key listed", badSignature(valid), []string{listed}, ErrReasonServerHostCertificateSignatureInvalid, ""},
+		{"trusted CA, bad signature, key revoked", badSignature(valid), []string{trusted, listed, revokedKey}, ErrReasonServerHostCertificateSignatureInvalid, ""},
 		// verifyCertSignature can't reach the signature check without principals.
-		{"trusted CA, no principals, bad signature, plain key listed", &noPrincipals, []string{trusted, listed}, VerifiedByPlainKey},
+		{"trusted CA, no principals, bad signature, plain key listed", &noPrincipals, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificatePrincipalNotListed},
 	}
 	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := verifyHostKey(knownHostsCallback(t, tt.knownHosts), host+":22", remote, tt.key)
+			got, certErr, err := verifyHostKey(knownHostsCallback(t, tt.knownHosts), host+":22", remote, tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
-			if got != tt.want {
-				t.Errorf("verifyHostKey() = %v (%q), want %q", err, got, tt.want)
+			certReason := ""
+			if certErr != nil {
+				certReason = classifyHostKeyVerifyError(certErr)
+			}
+			if got != tt.want || certReason != tt.certReason {
+				t.Errorf("verifyHostKey() = %q, %v, %v, want %q, %q", got, certErr, err, tt.want, tt.certReason)
 			}
 		})
 	}

@@ -405,11 +405,12 @@ func TestRunHostCertificate(t *testing.T) {
 		validBefore    uint64
 		plainListed    bool
 		wantVerifiedBy string
+		wantCertReason string
 		wantReason     string
 	}{
-		{"trusted CA, valid", ssh.CertTimeInfinity, false, VerifiedByCAKey, ""},
-		{"trusted CA, expired, plain key listed", expired, true, VerifiedByPlainKey, ""},
-		{"trusted CA, expired, plain key not listed", expired, false, "", ErrReasonServerHostCertificateOther},
+		{"trusted CA, valid", ssh.CertTimeInfinity, false, VerifiedByCAKey, "", ""},
+		{"trusted CA, expired, plain key listed", expired, true, VerifiedByPlainKey, ErrReasonServerHostCertificateExpired, ""},
+		{"trusted CA, expired, plain key not listed", expired, false, "", "", ErrReasonServerHostCertificateOther},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -441,9 +442,11 @@ func TestRunHostCertificate(t *testing.T) {
 
 			result := Run(ctx, srv.Addr, Options{HostKeyCallback: knownHostsCallback(t, knownHosts)})
 
-			if result.ServerHostKeyVerifiedBy != tt.wantVerifiedBy || result.ErrorReason != tt.wantReason || result.Success != (tt.wantReason == "") {
-				t.Errorf("ServerHostKeyVerifiedBy = %q, ErrorReason = %q, Success = %t, want %q, %q",
-					result.ServerHostKeyVerifiedBy, result.ErrorReason, result.Success, tt.wantVerifiedBy, tt.wantReason)
+			if result.ServerHostKeyVerifiedBy != tt.wantVerifiedBy || result.ServerHostCertificateErrorReason != tt.wantCertReason ||
+				result.ErrorReason != tt.wantReason || result.Success != (tt.wantReason == "") {
+				t.Errorf("ServerHostKeyVerifiedBy = %q, ServerHostCertificateErrorReason = %q, ErrorReason = %q, Success = %t, want %q, %q, %q",
+					result.ServerHostKeyVerifiedBy, result.ServerHostCertificateErrorReason, result.ErrorReason, result.Success,
+					tt.wantVerifiedBy, tt.wantCertReason, tt.wantReason)
 			}
 			if result.ServerHostKeyAlgorithm != ssh.CertAlgoED25519v01 {
 				t.Errorf("ServerHostKeyAlgorithm = %q, want %q", result.ServerHostKeyAlgorithm, ssh.CertAlgoED25519v01)

@@ -31,26 +31,31 @@ const (
 
 // Why a probe failed, reported as Result.ErrorReason.
 const (
-	ErrReasonConnectionRefused                     = "connection_refused"
-	ErrReasonNoRouteToHost                         = "no_route_to_host"
-	ErrReasonNetworkUnreachable                    = "network_unreachable"
-	ErrReasonDNSFailure                            = "dns_failure"
-	ErrReasonConnectionReset                       = "connection_reset"
-	ErrReasonServerHostKeyUnknown                  = "server_host_key_unknown"
-	ErrReasonServerHostKeyMismatch                 = "server_host_key_mismatch"
-	ErrReasonServerHostKeyRevoked                  = "server_host_key_revoked"
-	ErrReasonServerHostKeyRejected                 = "server_host_key_rejected"
-	ErrReasonServerHostCertificateOther            = "server_host_certificate_other"
-	ErrReasonServerHostCertificateSignatureInvalid = "server_host_certificate_signature_invalid"
-	ErrReasonTimeout                               = "timeout"
-	ErrReasonCanceled                              = "canceled"
-	ErrReasonUserAuthReached                       = "user_auth_reached"
-	ErrReasonNoCommonKex                           = "no_common_kex_algorithm"
-	ErrReasonNoCommonHostKey                       = "no_common_host_key_algorithm"
-	ErrReasonNoCommonCipher                        = "no_common_cipher"
-	ErrReasonNoCommonMAC                           = "no_common_mac"
-	ErrReasonNoCommonAlgorithm                     = "no_common_algorithm"
-	ErrReasonOther                                 = "other"
+	ErrReasonConnectionRefused                                 = "connection_refused"
+	ErrReasonNoRouteToHost                                     = "no_route_to_host"
+	ErrReasonNetworkUnreachable                                = "network_unreachable"
+	ErrReasonDNSFailure                                        = "dns_failure"
+	ErrReasonConnectionReset                                   = "connection_reset"
+	ErrReasonServerHostKeyUnknown                              = "server_host_key_unknown"
+	ErrReasonServerHostKeyMismatch                             = "server_host_key_mismatch"
+	ErrReasonServerHostKeyRevoked                              = "server_host_key_revoked"
+	ErrReasonServerHostKeyRejected                             = "server_host_key_rejected"
+	ErrReasonServerHostCertificateCAUnknown                    = "server_host_certificate_ca_unknown"
+	ErrReasonServerHostCertificateNotYetValid                  = "server_host_certificate_not_yet_valid"
+	ErrReasonServerHostCertificateExpired                      = "server_host_certificate_expired"
+	ErrReasonServerHostCertificatePrincipalNotListed           = "server_host_certificate_principal_not_listed"
+	ErrReasonServerHostCertificateSignatureAlgorithmDisallowed = "server_host_certificate_signature_algorithm_disallowed"
+	ErrReasonServerHostCertificateOther                        = "server_host_certificate_other"
+	ErrReasonServerHostCertificateSignatureInvalid             = "server_host_certificate_signature_invalid"
+	ErrReasonTimeout                                           = "timeout"
+	ErrReasonCanceled                                          = "canceled"
+	ErrReasonUserAuthReached                                   = "user_auth_reached"
+	ErrReasonNoCommonKex                                       = "no_common_kex_algorithm"
+	ErrReasonNoCommonHostKey                                   = "no_common_host_key_algorithm"
+	ErrReasonNoCommonCipher                                    = "no_common_cipher"
+	ErrReasonNoCommonMAC                                       = "no_common_mac"
+	ErrReasonNoCommonAlgorithm                                 = "no_common_algorithm"
+	ErrReasonOther                                             = "other"
 )
 
 // Which key listed in known_hosts verified the server host key, reported as
@@ -88,6 +93,9 @@ type Result struct {
 	// ServerHostKeyVerifiedBy is VerifiedByCAKey or VerifiedByPlainKey, empty
 	// unless verification succeeded.
 	ServerHostKeyVerifiedBy string
+	// ServerHostCertificateErrorReason is the error reason of a host certificate
+	// whose plain key verified, e.g. ErrReasonServerHostCertificateExpired.
+	ServerHostCertificateErrorReason string
 
 	// ServerHostCertificate reports whether the server presented a host
 	// certificate, verified or not. Its validity period is in Unix seconds;
@@ -210,10 +218,11 @@ func orDefault(algorithms, defaults []string) []string {
 // hostKeyResult moves the verification result off the goroutine that runs
 // HostKeyCallback; only the first key exchange is recorded.
 type hostKeyResult struct {
-	verified    bool
-	verifiedBy  string
-	errorReason string
-	cert        *ssh.Certificate // nil for a plain host key
+	verified               bool
+	verifiedBy             string
+	certificateErrorReason string
+	errorReason            string
+	cert                   *ssh.Certificate // nil for a plain host key
 }
 
 // identificationWatcher records the server's identification string and when it
@@ -338,9 +347,12 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		MACs:              orDefault(opts.MACs, defaultMACs),
 		HostKeyAlgorithms: orDefault(opts.HostKeyAlgorithms, defaultHostKeyAlgorithms),
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			verifiedBy, err := verifyHostKey(hostKeyCallback, hostname, remote, key)
+			verifiedBy, certErr, err := verifyHostKey(hostKeyCallback, hostname, remote, key)
 			hk := hostKeyResult{verified: err == nil, verifiedBy: verifiedBy}
 			hk.cert, _ = key.(*ssh.Certificate)
+			if certErr != nil {
+				hk.certificateErrorReason = classifyHostKeyVerifyError(certErr)
+			}
 			if err != nil {
 				hk.errorReason = classifyHostKeyVerifyError(err)
 				logger.Debug("host key verification failed", "target", target, "reason", hk.errorReason, "error", err)
@@ -409,6 +421,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 	case hk := <-hostKeyResultCh:
 		result.ServerHostKeyVerifySuccess = hk.verified
 		result.ServerHostKeyVerifiedBy = hk.verifiedBy
+		result.ServerHostCertificateErrorReason = hk.certificateErrorReason
 		if hk.cert != nil {
 			result.ServerHostCertificate = true
 			result.ServerHostCertificateValidAfter = hk.cert.ValidAfter
@@ -434,53 +447,100 @@ func isHostname(target string) bool {
 	return err != nil
 }
 
-// errHostCertificateInvalid marks an invalid SSH host certificate signed by a CA trusted for the host.
-var errHostCertificateInvalid = errors.New("host certificate from a trusted CA is invalid")
+// Why an SSH host certificate didn't verify through its CA.
+var (
+	errHostCertificateCAUnknown                    = errors.New("host certificate CA is not trusted for the host")
+	errHostCertificateNotYetValid                  = errors.New("host certificate is not yet valid")
+	errHostCertificateExpired                      = errors.New("host certificate has expired")
+	errHostCertificatePrincipalNotListed           = errors.New("host is not a listed principal of the host certificate")
+	errHostCertificateSignatureAlgorithmDisallowed = errors.New("host certificate CA signature algorithm is not allowed")
+	errHostCertificateInvalid                      = errors.New("host certificate from a trusted CA is invalid")
+)
 
 // errHostCertificateSignatureInvalid marks an SSH host certificate whose CA signature doesn't verify.
 var errHostCertificateSignatureInvalid = errors.New("host certificate CA signature does not verify")
 
 // verifyHostKey checks key against known_hosts like OpenSSH's check_host_key and
-// returns which listed key verified it. An invalid SSH host certificate falls
+// returns which listed key verified it and, for the plain key inside a host
+// certificate, why the certificate didn't. An invalid SSH host certificate falls
 // back to the host key inside it. A bad CA signature, or a @revoked key or CA,
 // fails without fallback.
-func verifyHostKey(cb ssh.HostKeyCallback, hostname string, remote net.Addr, key ssh.PublicKey) (string, error) {
+func verifyHostKey(cb ssh.HostKeyCallback, hostname string, remote net.Addr, key ssh.PublicKey) (verifiedBy string, certificateErr, err error) {
 	check := func(k ssh.PublicKey) error { return cb(hostname, remote, k) }
 
 	// Check a plain host key directly.
 	cert, ok := key.(*ssh.Certificate)
 	if !ok {
 		if err := check(key); err != nil {
-			return "", err
+			return "", nil, err
 		}
-		return VerifiedByPlainKey, nil
+		return VerifiedByPlainKey, nil, nil
 	}
 	// OpenSSH rejects a bad CA signature when parsing the key, before known_hosts.
 	if err := verifyCertSignature(cert); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	// Validate the certificate like OpenSSH, including its CA signature algorithm.
 	certErr := check(cert)
 	if certErr == nil {
 		if slices.Contains(caSignatureAlgorithms, cert.Signature.Format) {
-			return VerifiedByCAKey, nil
+			return VerifiedByCAKey, nil, nil
 		}
 		certErr = fmt.Errorf("CA signature algorithm %q not allowed", cert.Signature.Format)
 	}
 	// Checking the CA as a host key tells whether it is @revoked or trusted.
 	caErr := check(cert.SignatureKey)
 	if _, ok := errors.AsType[*knownhosts.RevokedError](caErr); ok {
-		return "", caErr
+		return "", nil, caErr
 	}
 	// Fall back to the host key inside the certificate.
 	plainErr := check(cert.Key)
 	if plainErr == nil {
-		return VerifiedByPlainKey, nil
+		return VerifiedByPlainKey, hostCertificateError(cert, hostname, certErr, caErr), nil
 	}
 	if _, ok := errors.AsType[*knownhosts.KeyError](plainErr); ok && caErr == nil {
-		return "", fmt.Errorf("%w: %w", errHostCertificateInvalid, certErr)
+		return "", nil, fmt.Errorf("%w: %w", errHostCertificateInvalid, certErr)
 	}
-	return "", plainErr
+	return "", nil, plainErr
+}
+
+// hostCertificateError tells why cert didn't verify through its CA, in the order
+// of OpenSSH's check_host_key and sshkey_cert_check_host. certErr and caErr are
+// the results of checking cert and its CA key; the certificate's fields only
+// name the reason.
+func hostCertificateError(cert *ssh.Certificate, hostname string, certErr, caErr error) error {
+	// x/crypto has already failed cert if hostname has no port.
+	host, _, _ := net.SplitHostPort(hostname)
+	now := time.Now().Unix()
+	var reason error
+	switch {
+	case caErr != nil:
+		reason = errHostCertificateCAUnknown
+	case cert.CertType != ssh.HostCert:
+		reason = errHostCertificateInvalid
+	case now < certUnix(cert.ValidAfter):
+		reason = errHostCertificateNotYetValid
+	case now >= certUnix(cert.ValidBefore):
+		reason = errHostCertificateExpired
+	case !slices.Contains(cert.ValidPrincipals, host):
+		reason = errHostCertificatePrincipalNotListed
+	case len(cert.CriticalOptions) > 0:
+		reason = errHostCertificateInvalid
+	case !slices.Contains(caSignatureAlgorithms, cert.Signature.Format):
+		reason = errHostCertificateSignatureAlgorithmDisallowed
+	default:
+		reason = errHostCertificateInvalid
+	}
+	return fmt.Errorf("%w: %w", reason, certErr)
+}
+
+// certUnix converts a certificate timestamp to Unix seconds. Timestamps past the
+// largest int64, such as ssh.CertTimeInfinity, become the largest int64.
+func certUnix(t uint64) int64 {
+	if t > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(t)
 }
 
 // verifyCertSignature checks only cert's CA signature, by calling CheckCert with
@@ -511,7 +571,18 @@ func classifyHostKeyVerifyError(err error) string {
 	if errors.Is(err, errHostCertificateSignatureInvalid) {
 		return ErrReasonServerHostCertificateSignatureInvalid
 	}
-	if errors.Is(err, errHostCertificateInvalid) {
+	switch {
+	case errors.Is(err, errHostCertificateCAUnknown):
+		return ErrReasonServerHostCertificateCAUnknown
+	case errors.Is(err, errHostCertificateNotYetValid):
+		return ErrReasonServerHostCertificateNotYetValid
+	case errors.Is(err, errHostCertificateExpired):
+		return ErrReasonServerHostCertificateExpired
+	case errors.Is(err, errHostCertificatePrincipalNotListed):
+		return ErrReasonServerHostCertificatePrincipalNotListed
+	case errors.Is(err, errHostCertificateSignatureAlgorithmDisallowed):
+		return ErrReasonServerHostCertificateSignatureAlgorithmDisallowed
+	case errors.Is(err, errHostCertificateInvalid):
 		return ErrReasonServerHostCertificateOther
 	}
 
