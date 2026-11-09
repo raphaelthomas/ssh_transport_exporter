@@ -525,7 +525,7 @@ The reason narrows down the cause within a phase.
 | `server_host_key_unknown` | `key_exchange` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
 | `server_host_key_mismatch` | `key_exchange` | The server's host key does **not** match the keys listed for the target. This points to a man-in-the-middle, an un-rotated key, or a plain host key where `known_hosts` has only a `@cert-authority` line for the target. |
 | `server_host_key_revoked` | `key_exchange` | The host key, or a certificate's key or CA, is marked `@revoked` in `known_hosts`. |
-| `server_host_certificate_invalid` | `key_exchange` | The server's host certificate is signed by a CA trusted for the target, but the certificate is invalid, e.g. expired. The host key inside the certificate doesn't match any key listed for the target either. |
+| `server_host_certificate_other` | `key_exchange` | The server's host certificate is signed by a CA trusted for the target, but the certificate is invalid, e.g. expired. The host key inside the certificate doesn't match any key listed for the target either. |
 | `server_host_certificate_signature_invalid` | `key_exchange` | The CA signature of the server's host certificate doesn't verify. |
 | `server_host_key_rejected` | `key_exchange` | The server host key was rejected for a reason other than the five above. |
 | `no_common_kex_algorithm` | `key_exchange` | The server supports none of the key exchange algorithms the probe offers (`kex_algorithms` in the module). |

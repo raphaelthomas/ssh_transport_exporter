@@ -40,7 +40,7 @@ const (
 	ErrReasonServerHostKeyMismatch                 = "server_host_key_mismatch"
 	ErrReasonServerHostKeyRevoked                  = "server_host_key_revoked"
 	ErrReasonServerHostKeyRejected                 = "server_host_key_rejected"
-	ErrReasonServerHostCertificateInvalid          = "server_host_certificate_invalid"
+	ErrReasonServerHostCertificateOther            = "server_host_certificate_other"
 	ErrReasonServerHostCertificateSignatureInvalid = "server_host_certificate_signature_invalid"
 	ErrReasonTimeout                               = "timeout"
 	ErrReasonCanceled                              = "canceled"
@@ -512,7 +512,7 @@ func classifyHostKeyVerifyError(err error) string {
 		return ErrReasonServerHostCertificateSignatureInvalid
 	}
 	if errors.Is(err, errHostCertificateInvalid) {
-		return ErrReasonServerHostCertificateInvalid
+		return ErrReasonServerHostCertificateOther
 	}
 
 	if keyErr, ok := errors.AsType[*knownhosts.KeyError](err); ok {

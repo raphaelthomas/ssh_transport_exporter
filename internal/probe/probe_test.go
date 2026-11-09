@@ -409,7 +409,7 @@ func TestRunHostCertificate(t *testing.T) {
 	}{
 		{"trusted CA, valid", ssh.CertTimeInfinity, false, VerifiedByCAKey, ""},
 		{"trusted CA, expired, plain key listed", expired, true, VerifiedByPlainKey, ""},
-		{"trusted CA, expired, plain key not listed", expired, false, "", ErrReasonServerHostCertificateInvalid},
+		{"trusted CA, expired, plain key not listed", expired, false, "", ErrReasonServerHostCertificateOther},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
