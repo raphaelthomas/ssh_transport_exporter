@@ -377,6 +377,10 @@ ssh_transport_server_host_certificate_valid_before_timestamp_seconds{algorithm="
 # TYPE ssh_transport_server_host_key_algorithm_info gauge
 ssh_transport_server_host_key_algorithm_info{algorithm="ssh-ed25519-cert-v01@openssh.com"} 1
 
+# HELP ssh_transport_server_host_key_verify_info Negotiated server host key algorithm, whether the server host key is a certificate or a plain key, and which key listed in known_hosts verified it. Absent unless verification and key exchange succeeded.
+# TYPE ssh_transport_server_host_key_verify_info gauge
+ssh_transport_server_host_key_verify_info{algorithm="ssh-ed25519-cert-v01@openssh.com",host_key="certificate",verified_by="ca_key"} 1
+
 # HELP ssh_transport_server_host_key_verify_success Whether the server host key was verified (RFC 4253 section 8).
 # TYPE ssh_transport_server_host_key_verify_success gauge
 ssh_transport_server_host_key_verify_success 1

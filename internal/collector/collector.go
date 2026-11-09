@@ -174,6 +174,15 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
+	serverHostKeyVerifyInfoDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemServerHostKey, "verify_info"),
+			"Negotiated server host key algorithm, whether the server host key is a certificate or a plain key, and which key listed in known_hosts verified it. Absent unless verification and key exchange succeeded.",
+			[]string{"algorithm", "host_key", "verified_by"},
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
 	serverHostKeyVerifySuccessDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemServerHostKey, "verify_success"),
@@ -268,6 +277,7 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- serverHostCertValidBeforeDesc.desc
 	ch <- encryptionAlgorithmInfoDesc.desc
 	ch <- macAlgorithmInfoDesc.desc
+	ch <- serverHostKeyVerifyInfoDesc.desc
 	ch <- serverHostKeyVerifySuccessDesc.desc
 	ch <- keyExchangeSuccessDesc.desc
 	ch <- keyExchangeDurationDesc.desc
@@ -303,6 +313,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"mac_client_to_server", result.MACClientToServer,
 			"mac_server_to_client", result.MACServerToClient,
 			"server_host_key_verify_success", result.ServerHostKeyVerifySuccess,
+			"server_host_key_verified_by", result.ServerHostKeyVerifiedBy,
 			"key_exchange_success", result.KeyExchangeSuccess,
 			"key_exchange_duration", result.KeyExchangeDuration,
 			"error_phase", result.ErrorPhase,
@@ -353,6 +364,13 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			}
 			ch <- serverHostCertValidAfterDesc.mustNewConstMetric(float64(result.ServerHostCertificateValidAfter), result.ServerHostKeyAlgorithm)
 			ch <- serverHostCertValidBeforeDesc.mustNewConstMetric(validBefore, result.ServerHostKeyAlgorithm)
+		}
+		if result.ServerHostKeyVerifiedBy != "" {
+			hostKey := "plain_key"
+			if result.ServerHostCertificate {
+				hostKey = "certificate"
+			}
+			ch <- serverHostKeyVerifyInfoDesc.mustNewConstMetric(1, result.ServerHostKeyAlgorithm, hostKey, result.ServerHostKeyVerifiedBy)
 		}
 	}
 

@@ -391,6 +391,48 @@ func TestCollectHostCertificate(t *testing.T) {
 	}
 }
 
+// verify_info tells a certificate verified through its CA from one verified
+// through the fallback to its plain key.
+func TestCollectServerHostKeyVerifyInfo(t *testing.T) {
+	t.Parallel()
+	const certAlgorithm = "ssh-ed25519-cert-v01@openssh.com"
+	for _, tt := range []struct {
+		name        string
+		result      probe.Result
+		wantHostKey string // empty when absent
+	}{
+		{"certificate through its CA", probe.Result{ServerHostKeyAlgorithm: certAlgorithm, ServerHostCertificate: true, ServerHostKeyVerifiedBy: probe.VerifiedByCAKey}, "certificate"},
+		{"certificate through the fallback", probe.Result{ServerHostKeyAlgorithm: certAlgorithm, ServerHostCertificate: true, ServerHostKeyVerifiedBy: probe.VerifiedByPlainKey}, "certificate"},
+		{"plain key", probe.Result{ServerHostKeyAlgorithm: "ssh-ed25519", ServerHostKeyVerifiedBy: probe.VerifiedByPlainKey}, "plain_key"},
+		{"verification failed", probe.Result{ServerHostKeyAlgorithm: certAlgorithm, ServerHostCertificate: true}, ""},
+		{"key exchange failed after verification", probe.Result{ServerHostKeyVerifiedBy: probe.VerifiedByPlainKey}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			const name = "ssh_transport_server_host_key_verify_info"
+			mfs := collectMetrics(t, tt.result)
+			if tt.wantHostKey == "" {
+				if _, ok := mfs[name]; ok {
+					t.Errorf("%s present, want absent", name)
+				}
+				return
+			}
+			for label, want := range map[string]string{
+				"algorithm":   tt.result.ServerHostKeyAlgorithm,
+				"host_key":    tt.wantHostKey,
+				"verified_by": tt.result.ServerHostKeyVerifiedBy,
+			} {
+				if got := labelValue(t, mfs, name, label); got != want {
+					t.Errorf("%s %s = %q, want %q", name, label, got, want)
+				}
+			}
+			if got := singleValue(t, mfs, name); got != 1 {
+				t.Errorf("%s = %v, want 1", name, got)
+			}
+		})
+	}
+}
+
 // A non-AEAD cipher agrees a MAC per direction, which is reported.
 func TestCollectMACInfo(t *testing.T) {
 	t.Parallel()
@@ -421,8 +463,8 @@ func TestDescribeEmitsAllDescriptors(t *testing.T) {
 	ch := make(chan *prometheus.Desc, 32)
 	c.Describe(ch)
 	close(ch)
-	if got := len(ch); got != 21 {
-		t.Errorf("Describe emitted %d descriptors, want 21", got)
+	if got := len(ch); got != 22 {
+		t.Errorf("Describe emitted %d descriptors, want 22", got)
 	}
 }
 
