@@ -494,12 +494,13 @@ func verifyHostKey(cb ssh.HostKeyCallback, hostname string, remote net.Addr, key
 		return "", nil, caErr
 	}
 	// Fall back to the host key inside the certificate.
+	hostCertErr := hostCertificateError(cert, hostname, certErr, caErr)
 	plainErr := check(cert.Key)
 	if plainErr == nil {
-		return VerifiedByPlainKey, hostCertificateError(cert, hostname, certErr, caErr), nil
+		return VerifiedByPlainKey, hostCertErr, nil
 	}
 	if _, ok := errors.AsType[*knownhosts.KeyError](plainErr); ok && caErr == nil {
-		return "", nil, fmt.Errorf("%w: %w", errHostCertificateInvalid, certErr)
+		return "", nil, hostCertErr
 	}
 	return "", nil, plainErr
 }

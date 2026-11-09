@@ -525,9 +525,13 @@ The reason narrows down the cause within a phase.
 | `server_host_key_unknown` | `key_exchange` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
 | `server_host_key_mismatch` | `key_exchange` | The server's host key does **not** match the keys listed for the target. This points to a man-in-the-middle, an un-rotated key, or a plain host key where `known_hosts` has only a `@cert-authority` line for the target. |
 | `server_host_key_revoked` | `key_exchange` | The host key, or a certificate's key or CA, is marked `@revoked` in `known_hosts`. |
-| `server_host_certificate_other` | `key_exchange` | The server's host certificate is signed by a CA trusted for the target, but the certificate is invalid, e.g. expired. The host key inside the certificate doesn't match any key listed for the target either. |
+| `server_host_certificate_not_yet_valid` | `key_exchange` | The server's host certificate isn't valid yet. |
+| `server_host_certificate_expired` | `key_exchange` | The server's host certificate has expired. |
+| `server_host_certificate_principal_not_listed` | `key_exchange` | The target isn't a principal of the server's host certificate. |
+| `server_host_certificate_signature_algorithm_disallowed` | `key_exchange` | The CA signed the server's host certificate with an algorithm OpenSSH doesn't accept, e.g. `ssh-rsa` (SHA-1). |
+| `server_host_certificate_other` | `key_exchange` | The server's host certificate is invalid for another reason, e.g. it is a user certificate. |
 | `server_host_certificate_signature_invalid` | `key_exchange` | The CA signature of the server's host certificate doesn't verify. |
-| `server_host_key_rejected` | `key_exchange` | The server host key was rejected for a reason other than the five above. |
+| `server_host_key_rejected` | `key_exchange` | The server host key was rejected for any other reason. |
 | `no_common_kex_algorithm` | `key_exchange` | The server supports none of the key exchange algorithms the probe offers (`kex_algorithms` in the module). |
 | `no_common_host_key_algorithm` | `key_exchange` | The server has no host key of a type the probe accepts (`host_key_algorithms` in the module), e.g. an ed25519-only server probed with RSA only. |
 | `no_common_cipher` | `key_exchange` | The server supports none of the ciphers the probe offers (`ciphers` in the module). |
