@@ -177,8 +177,8 @@ var (
 	serverHostKeyVerifyInfoDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemServerHostKey, "verify_info"),
-			"Negotiated server host key algorithm, whether the server host key is a certificate or a plain key, and which key listed in known_hosts verified it. Absent unless verification and key exchange succeeded.",
-			[]string{"algorithm", "host_key", "verified_by"},
+			"How the server host key was verified. Absent unless verification and key exchange succeeded.",
+			[]string{"algorithm", "certificate_error_reason", "host_key", "verified_by"},
 			nil,
 		),
 		prometheus.GaugeValue,
@@ -314,6 +314,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"mac_server_to_client", result.MACServerToClient,
 			"server_host_key_verify_success", result.ServerHostKeyVerifySuccess,
 			"server_host_key_verified_by", result.ServerHostKeyVerifiedBy,
+			"server_host_certificate_error_reason", result.ServerHostCertificateErrorReason,
 			"key_exchange_success", result.KeyExchangeSuccess,
 			"key_exchange_duration", result.KeyExchangeDuration,
 			"error_phase", result.ErrorPhase,
@@ -370,7 +371,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			if result.ServerHostCertificate {
 				hostKey = "certificate"
 			}
-			ch <- serverHostKeyVerifyInfoDesc.mustNewConstMetric(1, result.ServerHostKeyAlgorithm, hostKey, result.ServerHostKeyVerifiedBy)
+			ch <- serverHostKeyVerifyInfoDesc.mustNewConstMetric(1, result.ServerHostKeyAlgorithm, result.ServerHostCertificateErrorReason, hostKey, result.ServerHostKeyVerifiedBy)
 		}
 	}
 

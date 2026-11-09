@@ -402,7 +402,7 @@ func TestCollectServerHostKeyVerifyInfo(t *testing.T) {
 		wantHostKey string // empty when absent
 	}{
 		{"certificate through its CA", probe.Result{ServerHostKeyAlgorithm: certAlgorithm, ServerHostCertificate: true, ServerHostKeyVerifiedBy: probe.VerifiedByCAKey}, "certificate"},
-		{"certificate through the fallback", probe.Result{ServerHostKeyAlgorithm: certAlgorithm, ServerHostCertificate: true, ServerHostKeyVerifiedBy: probe.VerifiedByPlainKey}, "certificate"},
+		{"certificate through the fallback", probe.Result{ServerHostKeyAlgorithm: certAlgorithm, ServerHostCertificate: true, ServerHostKeyVerifiedBy: probe.VerifiedByPlainKey, ServerHostCertificateErrorReason: probe.ErrReasonServerHostCertificateExpired}, "certificate"},
 		{"plain key", probe.Result{ServerHostKeyAlgorithm: "ssh-ed25519", ServerHostKeyVerifiedBy: probe.VerifiedByPlainKey}, "plain_key"},
 		{"verification failed", probe.Result{ServerHostKeyAlgorithm: certAlgorithm, ServerHostCertificate: true}, ""},
 		{"key exchange failed after verification", probe.Result{ServerHostKeyVerifiedBy: probe.VerifiedByPlainKey}, ""},
@@ -418,9 +418,10 @@ func TestCollectServerHostKeyVerifyInfo(t *testing.T) {
 				return
 			}
 			for label, want := range map[string]string{
-				"algorithm":   tt.result.ServerHostKeyAlgorithm,
-				"host_key":    tt.wantHostKey,
-				"verified_by": tt.result.ServerHostKeyVerifiedBy,
+				"algorithm":                tt.result.ServerHostKeyAlgorithm,
+				"certificate_error_reason": tt.result.ServerHostCertificateErrorReason,
+				"host_key":                 tt.wantHostKey,
+				"verified_by":              tt.result.ServerHostKeyVerifiedBy,
 			} {
 				if got := labelValue(t, mfs, name, label); got != want {
 					t.Errorf("%s %s = %q, want %q", name, label, got, want)
