@@ -527,6 +527,7 @@ The reason narrows down the cause within a phase.
 | `server_host_key_unknown` | `key_exchange` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
 | `server_host_key_mismatch` | `key_exchange` | The server's host key does **not** match the keys listed for the target. This points to a man-in-the-middle, an un-rotated key, or a plain host key where `known_hosts` has only a `@cert-authority` line for the target. |
 | `server_host_key_revoked` | `key_exchange` | The host key, or a certificate's key or CA, is marked `@revoked` in `known_hosts`. |
+| `server_host_certificate_ca_unknown` | `key_exchange` | No `@cert-authority` line trusts the CA of the server's host certificate for the target. |
 | `server_host_certificate_not_yet_valid` | `key_exchange` | The server's host certificate isn't valid yet. |
 | `server_host_certificate_expired` | `key_exchange` | The server's host certificate has expired. |
 | `server_host_certificate_principal_not_listed` | `key_exchange` | The target isn't a principal of the server's host certificate. |
@@ -541,3 +542,7 @@ The reason narrows down the cause within a phase.
 | `no_common_algorithm` | `key_exchange` | Algorithm negotiation failed for a list not covered above. All five `no_common_*` reasons are certain: the probe itself found no common algorithm in the server's offer, so `error_reason=~"no_common_.*"` matches every negotiation failure. |
 | `user_auth_reached` | `key_exchange` | The probe went on to user authentication (RFC 4252) instead of aborting once the transport layer was established. This is a bug in the exporter or its `golang.org/x/crypto` fork, not a problem with the target; please open an issue. |
 | `other` | any | The failure did not match any of the classified cases above. If you see this frequently, please open an issue with the target and (debug-level) logs so the classification can be improved. |
+
+`ssh_transport_server_host_key_verify_info` reports in
+`certificate_error_reason` why a host certificate didn't verify when its plain
+key did, using the `server_host_certificate_*` reasons above.
