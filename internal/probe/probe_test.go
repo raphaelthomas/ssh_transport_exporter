@@ -58,6 +58,9 @@ func TestRunSuccess(t *testing.T) {
 	if result.ServerHostCertificate {
 		t.Error("ServerHostCertificate = true for a plain host key, want false")
 	}
+	if result.ServerHostKeyVerifiedBy != VerifiedByPlainKey {
+		t.Errorf("ServerHostKeyVerifiedBy = %q, want %q", result.ServerHostKeyVerifiedBy, VerifiedByPlainKey)
+	}
 	if want := (ServerIdentification{"SSH-2.0-TestServer_1.0", "2.0", "TestServer_1.0", "", true}); result.ServerIdentification != want {
 		t.Errorf("ServerIdentification = %+v, want %+v", result.ServerIdentification, want)
 	}
@@ -398,14 +401,15 @@ func TestRunHostCertificate(t *testing.T) {
 	expired := uint64(time.Now().Add(-time.Minute).Unix())
 
 	tests := []struct {
-		name        string
-		validBefore uint64
-		plainListed bool
-		want        string // empty when verified
+		name           string
+		validBefore    uint64
+		plainListed    bool
+		wantVerifiedBy string
+		wantReason     string
 	}{
-		{"trusted CA, valid", ssh.CertTimeInfinity, false, ""},
-		{"trusted CA, expired, plain key listed", expired, true, ""},
-		{"trusted CA, expired, plain key not listed", expired, false, ErrReasonServerHostCertificateInvalid},
+		{"trusted CA, valid", ssh.CertTimeInfinity, false, VerifiedByCAKey, ""},
+		{"trusted CA, expired, plain key listed", expired, true, VerifiedByPlainKey, ""},
+		{"trusted CA, expired, plain key not listed", expired, false, "", ErrReasonServerHostCertificateInvalid},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -437,8 +441,9 @@ func TestRunHostCertificate(t *testing.T) {
 
 			result := Run(ctx, srv.Addr, Options{HostKeyCallback: knownHostsCallback(t, knownHosts)})
 
-			if result.ErrorReason != tt.want || result.Success != (tt.want == "") {
-				t.Errorf("ErrorReason = %q, Success = %t, want %q", result.ErrorReason, result.Success, tt.want)
+			if result.ServerHostKeyVerifiedBy != tt.wantVerifiedBy || result.ErrorReason != tt.wantReason || result.Success != (tt.wantReason == "") {
+				t.Errorf("ServerHostKeyVerifiedBy = %q, ErrorReason = %q, Success = %t, want %q, %q",
+					result.ServerHostKeyVerifiedBy, result.ErrorReason, result.Success, tt.wantVerifiedBy, tt.wantReason)
 			}
 			if result.ServerHostKeyAlgorithm != ssh.CertAlgoED25519v01 {
 				t.Errorf("ServerHostKeyAlgorithm = %q, want %q", result.ServerHostKeyAlgorithm, ssh.CertAlgoED25519v01)

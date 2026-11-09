@@ -168,6 +168,9 @@ func TestHostCertificate(t *testing.T) {
 			if !strings.HasSuffix(result.ServerHostKeyAlgorithm, "-cert-v01@openssh.com") {
 				t.Errorf("host key algorithm = %q, want a certificate", result.ServerHostKeyAlgorithm)
 			}
+			if result.ServerHostKeyVerifiedBy != probe.VerifiedByCAKey {
+				t.Errorf("verified by %q, want %q", result.ServerHostKeyVerifiedBy, probe.VerifiedByCAKey)
+			}
 			// ssh-keygen signs for forever by default.
 			if !result.ServerHostCertificate || result.ServerHostCertificateValidAfter != 0 || result.ServerHostCertificateValidBefore != ssh.CertTimeInfinity {
 				t.Errorf("ServerHostCertificate = %t, valid %d to %d, want true, 0 to forever",

@@ -325,21 +325,21 @@ func TestVerifyHostKey(t *testing.T) {
 		name       string
 		key        ssh.PublicKey
 		knownHosts []string
-		want       string // empty when verified
+		want       string // which key verified it, or the error reason
 	}{
-		{"plain key, listed", hostPub, []string{listed}, ""},
+		{"plain key, listed", hostPub, []string{listed}, VerifiedByPlainKey},
 		{"plain key, not listed", hostPub, nil, ErrReasonServerHostKeyUnknown},
 		{"plain key, other key listed", hostPub, []string{listedOther}, ErrReasonServerHostKeyMismatch},
-		{"trusted CA, valid", valid, []string{trusted}, ""},
-		{"trusted CA, rsa-sha2-512 CA signature", sha2Signed, []string{authority(rsaSHA2CA.PublicKey())}, ""},
-		{"trusted CA, expired, plain key listed", expired, []string{trusted, listed}, ""},
+		{"trusted CA, valid", valid, []string{trusted}, VerifiedByCAKey},
+		{"trusted CA, rsa-sha2-512 CA signature", sha2Signed, []string{authority(rsaSHA2CA.PublicKey())}, VerifiedByCAKey},
+		{"trusted CA, expired, plain key listed", expired, []string{trusted, listed}, VerifiedByPlainKey},
 		{"trusted CA, expired, plain key not listed", expired, []string{trusted}, ErrReasonServerHostCertificateInvalid},
 		{"trusted CA, expired, other plain key listed", expired, []string{trusted, listedOther}, ErrReasonServerHostCertificateInvalid},
 		{"trusted CA, wrong principal, plain key not listed", wrongPrincipal, []string{trusted}, ErrReasonServerHostCertificateInvalid},
 		{"trusted CA, user certificate, plain key not listed", userCert, []string{trusted}, ErrReasonServerHostCertificateInvalid},
 		{"trusted CA, ssh-rsa CA signature, plain key not listed", sha1Signed, []string{authority(rsaSHA1CA.PublicKey())}, ErrReasonServerHostCertificateInvalid},
-		{"trusted CA, ssh-rsa CA signature, plain key listed", sha1Signed, []string{authority(rsaSHA1CA.PublicKey()), listed}, ""},
-		{"untrusted CA, plain key listed", valid, []string{listed}, ""},
+		{"trusted CA, ssh-rsa CA signature, plain key listed", sha1Signed, []string{authority(rsaSHA1CA.PublicKey()), listed}, VerifiedByPlainKey},
+		{"untrusted CA, plain key listed", valid, []string{listed}, VerifiedByPlainKey},
 		{"untrusted CA, plain key not listed", valid, nil, ErrReasonServerHostKeyUnknown},
 		{"untrusted CA, other plain key listed", valid, []string{listedOther}, ErrReasonServerHostKeyMismatch},
 		{"trusted CA, key revoked", valid, []string{trusted, listed, revokedKey}, ErrReasonServerHostKeyRevoked},
@@ -353,13 +353,12 @@ func TestVerifyHostKey(t *testing.T) {
 		{"untrusted CA, bad signature, plain key listed", badSignature(valid), []string{listed}, ErrReasonServerHostCertificateSignatureInvalid},
 		{"trusted CA, bad signature, key revoked", badSignature(valid), []string{trusted, listed, revokedKey}, ErrReasonServerHostCertificateSignatureInvalid},
 		// verifyCertSignature can't reach the signature check without principals.
-		{"trusted CA, no principals, bad signature, plain key listed", &noPrincipals, []string{trusted, listed}, ""},
+		{"trusted CA, no principals, bad signature, plain key listed", &noPrincipals, []string{trusted, listed}, VerifiedByPlainKey},
 	}
 	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := verifyHostKey(knownHostsCallback(t, tt.knownHosts), host+":22", remote, tt.key)
-			got := ""
+			got, err := verifyHostKey(knownHostsCallback(t, tt.knownHosts), host+":22", remote, tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}

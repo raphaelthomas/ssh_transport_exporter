@@ -53,6 +53,13 @@ const (
 	ErrReasonOther                                 = "other"
 )
 
+// Which key listed in known_hosts verified the server host key, reported as
+// Result.ServerHostKeyVerifiedBy.
+const (
+	VerifiedByCAKey    = "ca_key"
+	VerifiedByPlainKey = "plain_key"
+)
+
 // Result is the outcome of one probe against one target.
 type Result struct {
 	// DNSLookup reports whether the target is a hostname; IP literal targets
@@ -78,6 +85,9 @@ type Result struct {
 
 	ServerHostKeyVerifySuccess bool
 	ServerHostKeyAlgorithm     string
+	// ServerHostKeyVerifiedBy is VerifiedByCAKey or VerifiedByPlainKey, empty
+	// unless verification succeeded.
+	ServerHostKeyVerifiedBy string
 
 	// ServerHostCertificate reports whether the server presented a host
 	// certificate, verified or not. Its validity period is in Unix seconds;
@@ -201,6 +211,7 @@ func orDefault(algorithms, defaults []string) []string {
 // HostKeyCallback; only the first key exchange is recorded.
 type hostKeyResult struct {
 	verified    bool
+	verifiedBy  string
 	errorReason string
 	cert        *ssh.Certificate // nil for a plain host key
 }
@@ -327,10 +338,10 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		MACs:              orDefault(opts.MACs, defaultMACs),
 		HostKeyAlgorithms: orDefault(opts.HostKeyAlgorithms, defaultHostKeyAlgorithms),
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			hk := hostKeyResult{verified: true}
+			verifiedBy, err := verifyHostKey(hostKeyCallback, hostname, remote, key)
+			hk := hostKeyResult{verified: err == nil, verifiedBy: verifiedBy}
 			hk.cert, _ = key.(*ssh.Certificate)
-			if err := verifyHostKey(hostKeyCallback, hostname, remote, key); err != nil {
-				hk.verified = false
+			if err != nil {
 				hk.errorReason = classifyHostKeyVerifyError(err)
 				logger.Debug("host key verification failed", "target", target, "reason", hk.errorReason, "error", err)
 			}
@@ -397,6 +408,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 	select {
 	case hk := <-hostKeyResultCh:
 		result.ServerHostKeyVerifySuccess = hk.verified
+		result.ServerHostKeyVerifiedBy = hk.verifiedBy
 		if hk.cert != nil {
 			result.ServerHostCertificate = true
 			result.ServerHostCertificateValidAfter = hk.cert.ValidAfter
@@ -428,40 +440,47 @@ var errHostCertificateInvalid = errors.New("host certificate from a trusted CA i
 // errHostCertificateSignatureInvalid marks an SSH host certificate whose CA signature doesn't verify.
 var errHostCertificateSignatureInvalid = errors.New("host certificate CA signature does not verify")
 
-// verifyHostKey checks key against known_hosts like OpenSSH's check_host_key. An
-// invalid SSH host certificate falls back to the host key inside it. A bad CA
-// signature, or a @revoked key or CA, fails without fallback.
-func verifyHostKey(cb ssh.HostKeyCallback, hostname string, remote net.Addr, key ssh.PublicKey) error {
+// verifyHostKey checks key against known_hosts like OpenSSH's check_host_key and
+// returns which listed key verified it. An invalid SSH host certificate falls
+// back to the host key inside it. A bad CA signature, or a @revoked key or CA,
+// fails without fallback.
+func verifyHostKey(cb ssh.HostKeyCallback, hostname string, remote net.Addr, key ssh.PublicKey) (string, error) {
 	check := func(k ssh.PublicKey) error { return cb(hostname, remote, k) }
 
 	// Check a plain host key directly.
 	cert, ok := key.(*ssh.Certificate)
 	if !ok {
-		return check(key)
+		if err := check(key); err != nil {
+			return "", err
+		}
+		return VerifiedByPlainKey, nil
 	}
 	// OpenSSH rejects a bad CA signature when parsing the key, before known_hosts.
 	if err := verifyCertSignature(cert); err != nil {
-		return err
+		return "", err
 	}
 	// Validate the certificate like OpenSSH, including its CA signature algorithm.
 	certErr := check(cert)
 	if certErr == nil {
 		if slices.Contains(caSignatureAlgorithms, cert.Signature.Format) {
-			return nil
+			return VerifiedByCAKey, nil
 		}
 		certErr = fmt.Errorf("CA signature algorithm %q not allowed", cert.Signature.Format)
 	}
 	// Checking the CA as a host key tells whether it is @revoked or trusted.
 	caErr := check(cert.SignatureKey)
 	if _, ok := errors.AsType[*knownhosts.RevokedError](caErr); ok {
-		return caErr
+		return "", caErr
 	}
 	// Fall back to the host key inside the certificate.
 	plainErr := check(cert.Key)
-	if _, ok := errors.AsType[*knownhosts.KeyError](plainErr); ok && caErr == nil {
-		return fmt.Errorf("%w: %w", errHostCertificateInvalid, certErr)
+	if plainErr == nil {
+		return VerifiedByPlainKey, nil
 	}
-	return plainErr
+	if _, ok := errors.AsType[*knownhosts.KeyError](plainErr); ok && caErr == nil {
+		return "", fmt.Errorf("%w: %w", errHostCertificateInvalid, certErr)
+	}
+	return "", plainErr
 }
 
 // verifyCertSignature checks only cert's CA signature, by calling CheckCert with
