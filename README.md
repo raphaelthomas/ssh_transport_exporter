@@ -194,6 +194,9 @@ Differences from OpenSSH:
 - `@revoked` lines apply to all hosts, whatever their host pattern.
 - The probe doesn't support wildcard principals in host certificates, e.g.
   `*.example.com`. OpenSSH would accept them.
+- A host certificate with an empty principal list or an unusable validity
+  window, and with a bad CA signature, falls back to the host key inside it.
+  OpenSSH fails.
 - OpenSSH asks the server for a host key of a type that `known_hosts` has for
   the target. The probe asks for host key types in a fixed order. So it can
   get a key of another type and report `server_host_key_mismatch` where
