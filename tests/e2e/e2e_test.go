@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/knownhosts"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
 )
 
@@ -143,7 +143,8 @@ func TestHostCertificate(t *testing.T) {
 			hosts = append(hosts, "[127.0.0.1]:"+port)
 		}
 	}
-	// One pattern per server: x/crypto reads a pattern without a port as port 22.
+	// One pattern per server, so the line also suits x/crypto's knownhosts, which
+	// reads a pattern without a port as port 22.
 	path := filepath.Join(t.TempDir(), "known_hosts")
 	line := "@cert-authority " + strings.Join(hosts, ",") + " " + string(ca)
 	if err = os.WriteFile(path, []byte(line), 0o600); err != nil {

@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"golang.org/x/crypto/ssh/knownhosts"
-
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/knownhosts"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
 )
 

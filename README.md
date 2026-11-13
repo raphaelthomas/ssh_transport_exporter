@@ -193,7 +193,6 @@ vouches for the key, through a CA or directly.
 
 #### Differences from OpenSSH
 
-- `@revoked` lines apply to all hosts, whatever their host pattern.
 - The probe doesn't support wildcard principals in host certificates, e.g.
   `*.example.com`. OpenSSH would accept them.
 - A host certificate with an empty principal list or an unusable validity
