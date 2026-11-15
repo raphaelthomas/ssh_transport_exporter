@@ -52,6 +52,33 @@ func New(files ...string) (ssh.HostKeyCallback, error) {
 	return db.check, nil
 }
 
+// CertAuthorities reads the @cert-authority lines of files and returns whether
+// a KnownKey from the knownhosts callback is one of them.
+func CertAuthorities(files ...string) (func(knownhosts.KnownKey) bool, error) {
+	type position struct {
+		file string
+		line int
+	}
+	cas := make(map[position]ssh.PublicKey)
+	for _, file := range files {
+		lines, err := read(file)
+		if err != nil {
+			return nil, err
+		}
+		for _, l := range lines {
+			if l.marker == markerCert {
+				cas[position{file, l.known.Line}] = l.known.Key
+			}
+		}
+	}
+	// Comparing the key too keeps a line changed since the callback read it
+	// from passing as a CA line.
+	return func(k knownhosts.KnownKey) bool {
+		key, ok := cas[position{k.Filename, k.Line}]
+		return ok && keyEq(key, k.Key)
+	}, nil
+}
+
 // read parses file, skipping invalid lines like OpenSSH. Like x/crypto, it
 // fails if file has invalid lines and no valid one.
 func read(file string) ([]line, error) {

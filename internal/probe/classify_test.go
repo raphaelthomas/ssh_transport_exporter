@@ -260,6 +260,8 @@ func knownHostsLine(prefix string, key ssh.PublicKey) string {
 // TestVerifyHostKey checks that verifyHostKey decides like OpenSSH. It also
 // fails if x/crypto changes behavior verifyHostKey relies on:
 //   - a CA key passes as a host key if its @cert-authority line matches;
+//   - a KeyError's Want lists every matching line but @revoked ones, with file
+//     and line number;
 //   - IsRevoked checks a certificate's key and CA;
 //   - a @revoked certificate line revokes the key inside the certificate;
 //   - knownhosts doesn't fall back to the plain key itself;
@@ -317,6 +319,7 @@ func TestVerifyHostKey(t *testing.T) {
 	authority := func(key ssh.PublicKey) string { return knownHostsLine("@cert-authority *.example.com", key) }
 	listed := knownHostsLine(host, hostPub)
 	listedOther := knownHostsLine(host, otherKey.PublicKey())
+	listedCA := knownHostsLine(host, caPub)
 	trusted := authority(caPub)
 	revokedKey := knownHostsLine("@revoked *", hostPub)
 	revokedCA := knownHostsLine("@revoked *", caPub)
@@ -332,6 +335,10 @@ func TestVerifyHostKey(t *testing.T) {
 		{"plain key, listed", hostPub, []string{listed}, VerifiedByPlainKey, ""},
 		{"plain key, not listed", hostPub, nil, ErrReasonServerHostKeyUnknown, ""},
 		{"plain key, other key listed", hostPub, []string{listedOther}, ErrReasonServerHostKeyMismatch, ""},
+		{"plain key, not listed, @cert-authority line only", hostPub, []string{trusted}, ErrReasonServerHostKeyUnknown, ""},
+		{"CA key as plain key, @cert-authority line only", caPub, []string{trusted}, ErrReasonServerHostKeyUnknown, ""},
+		{"CA on a plain line, plain key not listed", valid, []string{listedCA}, ErrReasonServerHostKeyMismatch, ""},
+		{"CA on a plain line, plain key listed", valid, []string{listedCA, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateCAUnknown},
 		{"trusted CA, valid", valid, []string{trusted}, VerifiedByCAKey, ""},
 		{"trusted CA, rsa-sha2-512 CA signature", sha2Signed, []string{authority(rsaSHA2CA.PublicKey())}, VerifiedByCAKey, ""},
 		{"trusted CA, expired, plain key listed", expired, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateExpired},
@@ -374,7 +381,8 @@ func TestVerifyHostKey(t *testing.T) {
 	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, certErr, err := verifyHostKey(knownHostsCallback(t, tt.knownHosts), host+":22", remote, tt.key)
+			cb, isCA := loadKnownHosts(t, tt.knownHosts)
+			got, certErr, err := verifyHostKey(cb, isCA, host+":22", remote, tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}

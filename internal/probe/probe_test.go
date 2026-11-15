@@ -440,7 +440,8 @@ func TestRunHostCertificate(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: knownHostsCallback(t, knownHosts)})
+			callback, isCA := loadKnownHosts(t, knownHosts)
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA})
 
 			if result.ServerHostKeyVerifiedBy != tt.wantVerifiedBy || result.ServerHostCertificateErrorReason != tt.wantCertReason ||
 				result.ErrorReason != tt.wantReason || result.Success != (tt.wantReason == "") {

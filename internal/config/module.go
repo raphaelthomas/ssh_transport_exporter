@@ -34,6 +34,10 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 		if err != nil {
 			return nil, fmt.Errorf("module %q: loading known_hosts: %w", name, err)
 		}
+		isCertAuthority, err := knownhosts.CertAuthorities(mod.KnownHostsFile)
+		if err != nil {
+			return nil, fmt.Errorf("module %q: loading known_hosts: %w", name, err)
+		}
 
 		allowedTargets, err := resolveAllowedTargets(mod.AllowedTargets, raw.allowAllTargets)
 		if err != nil {
@@ -48,6 +52,7 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 		modules[name] = Module{
 			Options: probe.Options{
 				HostKeyCallback:   hostKeyCallback,
+				IsCertAuthority:   isCertAuthority,
 				Ciphers:           mod.Ciphers,
 				KeyExchanges:      mod.KeyExchanges,
 				MACs:              mod.MACs,

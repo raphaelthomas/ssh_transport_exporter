@@ -154,6 +154,10 @@ func TestHostCertificate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	isCA, err := knownhosts.CertAuthorities(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for _, s := range certServers {
 		t.Run(s.name, func(t *testing.T) {
@@ -162,7 +166,7 @@ func TestHostCertificate(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 			defer cancel()
-			result := probe.Run(ctx, s.addr, probe.Options{HostKeyCallback: callback})
+			result := probe.Run(ctx, s.addr, probe.Options{HostKeyCallback: callback, IsCertAuthority: isCA})
 			if !result.Success {
 				t.Fatalf("probe failed: %s/%s", result.ErrorPhase, result.ErrorReason)
 			}
