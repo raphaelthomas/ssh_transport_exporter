@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
@@ -243,5 +244,49 @@ func TestInvalidLines(t *testing.T) {
 	}
 	if _, err := New(os.DevNull); err != nil {
 		t.Errorf("New(%s): %v", os.DevNull, err)
+	}
+}
+
+// TestCertAuthorities checks that CertAuthorities labels the lines both
+// implementations list in a KeyError, and that a line whose key changed after
+// the read is no CA line.
+func TestCertAuthorities(t *testing.T) {
+	ca, host, unlisted := newSigner(t).PublicKey(), newSigner(t).PublicKey(), newSigner(t).PublicKey()
+	lines := []string{"# comment", "", knownHostsLine("@cert-authority h", ca), knownHostsLine("h", host)}
+	path := writeKnownHosts(t, lines)
+	isCA, err := CertAuthorities(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := func(t *testing.T, load func(...string) (ssh.HostKeyCallback, error)) map[int]bool {
+		t.Helper()
+		cb, err := load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keyErr, ok := errors.AsType[*knownhosts.KeyError](cb("h:22", remote, unlisted))
+		if !ok {
+			t.Fatalf("callback didn't return a KeyError")
+		}
+		got := make(map[int]bool)
+		for _, w := range keyErr.Want {
+			got[w.Line] = isCA(w)
+		}
+		return got
+	}
+
+	for _, impl := range implementations {
+		if got, want := labels(t, impl.load), map[int]bool{3: true, 4: false}; !maps.Equal(got, want) {
+			t.Errorf("%s: CA lines = %v, want %v", impl.name, got, want)
+		}
+	}
+	lines[2] = knownHostsLine("@cert-authority h", newSigner(t).PublicKey())
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, impl := range implementations {
+		if got, want := labels(t, impl.load), map[int]bool{3: false, 4: false}; !maps.Equal(got, want) {
+			t.Errorf("%s, changed line: CA lines = %v, want %v", impl.name, got, want)
+		}
 	}
 }

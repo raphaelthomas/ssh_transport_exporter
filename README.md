@@ -535,7 +535,7 @@ The reason narrows down the cause within a phase.
 | `timeout` | `dns_lookup`, `tcp_connect`, `version_exchange`, `key_exchange` | The operation exceeded its deadline (the effective probe timeout, or a network-level timeout). |
 | `canceled` | `dns_lookup`, `tcp_connect`, `version_exchange`, `key_exchange` | The caller went away before the probe finished, typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
 | `server_host_key_unknown` | `key_exchange` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
-| `server_host_key_mismatch` | `key_exchange` | The server's host key does **not** match the keys listed for the target. This points to a man-in-the-middle, an un-rotated key, or a plain host key where `known_hosts` has only a `@cert-authority` line for the target. |
+| `server_host_key_mismatch` | `key_exchange` | The server's host key does **not** match the keys listed for the target. This points to a man-in-the-middle or an un-rotated key. |
 | `server_host_key_revoked` | `key_exchange` | The host key, or a certificate's key or CA, is marked `@revoked` in `known_hosts`. |
 | `server_host_certificate_ca_unknown` | `key_exchange` | No `@cert-authority` line trusts the CA of the server's host certificate for the target. |
 | `server_host_certificate_not_yet_valid` | `key_exchange` | The server's host certificate isn't valid yet. |
