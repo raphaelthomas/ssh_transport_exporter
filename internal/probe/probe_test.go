@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -491,6 +492,38 @@ func TestRunOrdersHostKeyAlgorithms(t *testing.T) {
 			if result.ServerHostKeyAlgorithm != tt.wantAlgorithm || result.ErrorReason != tt.wantReason {
 				t.Errorf("ServerHostKeyAlgorithm = %q, ErrorReason = %q, want %q, %q",
 					result.ServerHostKeyAlgorithm, result.ErrorReason, tt.wantAlgorithm, tt.wantReason)
+			}
+		})
+	}
+}
+
+func TestRunKnownHostsLine(t *testing.T) {
+	t.Parallel()
+	ecdsaKey, err := ssh.NewSignerFromKey(mustECDSA(t, elliptic.P256()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name              string
+		hostKeyAlgorithms []string
+		wantSuccess       bool
+	}{
+		{"verified", nil, true},
+		{"mismatch", []string{ssh.KeyAlgoED25519}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := sshtest.NewServer(t, sshtest.Options{HostKeys: []ssh.Signer{ecdsaKey}})
+			callback, isCA := loadKnownHosts(t, []string{"# comment", knownHostsLine("[127.0.0.1]:"+srv.Port(t), ecdsaKey.PublicKey())})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, HostKeyAlgorithms: tt.hostKeyAlgorithms})
+
+			if result.Success != tt.wantSuccess || result.ServerHostKeyKnownHostsLine != 2 || filepath.Base(result.ServerHostKeyKnownHostsFile) != "known_hosts" {
+				t.Errorf("Success = %t, known_hosts line = %s:%d, want %t, known_hosts:2",
+					result.Success, result.ServerHostKeyKnownHostsFile, result.ServerHostKeyKnownHostsLine, tt.wantSuccess)
 			}
 		})
 	}
