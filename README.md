@@ -193,8 +193,6 @@ vouches for the key, through a CA or directly.
 
 #### Differences from OpenSSH
 
-- The probe doesn't support wildcard principals in host certificates, e.g.
-  `*.example.com`. OpenSSH would accept them.
 - A host certificate with an empty principal list or an unusable validity
   window, and with a bad CA signature, falls back to the host key inside it.
   OpenSSH fails.
@@ -540,7 +538,7 @@ The reason narrows down the cause within a phase.
 | `server_host_certificate_ca_unknown` | `key_exchange` | No `@cert-authority` line trusts the CA of the server's host certificate for the target. |
 | `server_host_certificate_not_yet_valid` | `key_exchange` | The server's host certificate isn't valid yet. |
 | `server_host_certificate_expired` | `key_exchange` | The server's host certificate has expired. |
-| `server_host_certificate_principal_not_listed` | `key_exchange` | The target isn't a principal of the server's host certificate. |
+| `server_host_certificate_principal_not_listed` | `key_exchange` | No principal of the server's host certificate matches the target. |
 | `server_host_certificate_signature_algorithm_disallowed` | `key_exchange` | The CA signed the server's host certificate with an algorithm OpenSSH doesn't accept, e.g. `ssh-rsa` (SHA-1). |
 | `server_host_certificate_other` | `key_exchange` | The server's host certificate is invalid for another reason, e.g. it is a user certificate. |
 | `server_host_certificate_signature_invalid` | `key_exchange` | The CA signature of the server's host certificate doesn't verify. |
