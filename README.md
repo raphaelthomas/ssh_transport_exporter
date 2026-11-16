@@ -191,15 +191,14 @@ The probe checks the server's host key against `known_hosts`, like OpenSSH:
 So `ssh_transport_server_host_key_verify_success 1` means `known_hosts`
 vouches for the key, through a CA or directly.
 
+Without `host_key_algorithms`, the probe first asks for the host key types
+that `known_hosts` lists for the target, like OpenSSH.
+
 #### Differences from OpenSSH
 
 - A host certificate with an empty principal list or an unusable validity
   window, and with a bad CA signature, falls back to the host key inside it.
   OpenSSH fails.
-- OpenSSH asks the server for a host key of a type that `known_hosts` has for
-  the target. The probe asks for host key types in a fixed order. So it can
-  get a key of another type and report `server_host_key_mismatch` where
-  OpenSSH connects.
 
 #### Time
 

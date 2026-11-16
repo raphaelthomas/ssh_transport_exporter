@@ -2,7 +2,9 @@ package probe
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
@@ -412,7 +414,8 @@ func TestVerifyHostKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
-			got, certErr, err := verifyHostKey(cb, isCA, host+":22", remote, tt.key)
+			lines := knownHostsLines(cb, isCA, host+":22", remote)
+			got, certErr, err := verifyHostKey(cb, isCA, lines, host+":22", remote, tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -425,4 +428,79 @@ func TestVerifyHostKey(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOrderHostKeyAlgorithms(t *testing.T) {
+	const host = "host.example.com"
+	ed, edOther, ca := newEd25519Signer(t).PublicKey(), newEd25519Signer(t).PublicKey(), newEd25519Signer(t).PublicKey()
+	rsaKey := newRSASigner(t, ssh.KeyAlgoRSASHA512).PublicKey()
+	ecdsa384, err := ssh.NewSignerFromKey(mustECDSA(t, elliptic.P384()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := &ssh.Certificate{Key: ed, CertType: ssh.HostCert, ValidPrincipals: []string{host}, ValidBefore: ssh.CertTimeInfinity}
+	if err := cert.SignCert(rand.Reader, newEd25519Signer(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	certs := defaultHostKeyAlgorithms[:6]
+	rsaFirst := []string{
+		ssh.CertAlgoRSASHA512v01, ssh.CertAlgoRSASHA256v01, ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256,
+		ssh.CertAlgoED25519v01, ssh.CertAlgoECDSA256v01, ssh.CertAlgoECDSA384v01, ssh.CertAlgoECDSA521v01,
+		ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521,
+	}
+	tests := []struct {
+		name       string
+		knownHosts []string
+		want       []string
+	}{
+		{"no lines", nil, defaultHostKeyAlgorithms},
+		{"plain ed25519", []string{knownHostsLine(host, ed)}, defaultHostKeyAlgorithms},
+		{"plain ed25519 and plain rsa", []string{knownHostsLine(host, ed), knownHostsLine(host, rsaKey)}, defaultHostKeyAlgorithms},
+		{"plain rsa", []string{knownHostsLine(host, rsaKey)}, rsaFirst},
+		{"plain ecdsa nistp384", []string{knownHostsLine(host, ecdsa384.PublicKey())}, []string{
+			ssh.CertAlgoECDSA384v01, ssh.KeyAlgoECDSA384,
+			ssh.CertAlgoED25519v01, ssh.CertAlgoECDSA256v01, ssh.CertAlgoECDSA521v01, ssh.CertAlgoRSASHA512v01, ssh.CertAlgoRSASHA256v01,
+			ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA521, ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256,
+		}},
+		{"@cert-authority line only", []string{knownHostsLine("@cert-authority "+host, ca)}, defaultHostKeyAlgorithms},
+		{"@cert-authority line and plain rsa", []string{knownHostsLine("@cert-authority "+host, ca), knownHostsLine(host, rsaKey)}, append(slices.Clone(certs),
+			ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521)},
+		{"plain ed25519 revoked, plain rsa", []string{knownHostsLine(host, ed), knownHostsLine("@revoked *", ed), knownHostsLine(host, rsaKey)}, rsaFirst},
+		{"first plain ed25519 revoked, a later one not, plain rsa", []string{
+			knownHostsLine(host, ed), knownHostsLine(host, edOther), knownHostsLine("@revoked *", ed), knownHostsLine(host, rsaKey),
+		}, rsaFirst},
+		{"plain line holding a certificate", []string{knownHostsLine(host, cert)}, defaultHostKeyAlgorithms},
+	}
+	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cb, isCA := loadKnownHosts(t, tt.knownHosts)
+			revoked := func(k ssh.PublicKey) bool {
+				_, ok := errors.AsType[*knownhosts.RevokedError](cb(host+":22", remote, k))
+				return ok
+			}
+			got := orderHostKeyAlgorithms(defaultHostKeyAlgorithms, knownHostsLines(cb, isCA, host+":22", remote), isCA, revoked)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("orderHostKeyAlgorithms() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHostKeyTypes(t *testing.T) {
+	for _, alg := range defaultHostKeyAlgorithms {
+		if _, ok := hostKeyTypes[alg]; !ok {
+			t.Errorf("no key type for %s", alg)
+		}
+	}
+}
+
+func mustECDSA(t *testing.T, curve elliptic.Curve) *ecdsa.PrivateKey {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(curve, rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return priv
 }
