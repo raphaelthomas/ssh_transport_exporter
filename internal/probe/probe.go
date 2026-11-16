@@ -20,6 +20,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/match"
 )
 
 // Phases a probe can fail at, reported as Result.ErrorPhase.
@@ -528,14 +530,9 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 	if err := verifyCertSignature(cert); err != nil {
 		return "", nil, err
 	}
-	// Validate the certificate like OpenSSH, including its CA signature algorithm.
+	// Run dials hostname, so it has a port.
+	host, _, _ := net.SplitHostPort(hostname)
 	certErr := check(cert)
-	if certErr == nil {
-		if slices.Contains(caSignatureAlgorithms, cert.Signature.Format) {
-			return VerifiedByCAKey, nil, nil
-		}
-		certErr = fmt.Errorf("CA signature algorithm %q not allowed", cert.Signature.Format)
-	}
 	// Checking the CA as a host key tells whether it is @revoked or listed, but
 	// also passes on a plain line; OpenSSH trusts only a @cert-authority line.
 	caErr := check(cert.SignatureKey)
@@ -543,8 +540,26 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 		return "", nil, caErr
 	}
 	caTrusted := caErr == nil && (isCA == nil || listed(cert.SignatureKey, true))
+	// x/crypto matches principals exactly, OpenSSH 10.3+ as patterns: check
+	// again with the principal that matches.
+	if p := hostCertPrincipal(cert, host); certErr != nil && cert.CertType == ssh.HostCert && caTrusted && p != "" {
+		checker := ssh.CertChecker{
+			IsRevoked: func(c *ssh.Certificate) bool {
+				_, ok := errors.AsType[*knownhosts.RevokedError](check(c.Key))
+				return ok
+			},
+		}
+		certErr = checker.CheckCert(p, cert)
+	}
+	// Validate the certificate like OpenSSH, including its CA signature algorithm.
+	if certErr == nil {
+		if slices.Contains(caSignatureAlgorithms, cert.Signature.Format) {
+			return VerifiedByCAKey, nil, nil
+		}
+		certErr = fmt.Errorf("CA signature algorithm %q not allowed", cert.Signature.Format)
+	}
 	// Fall back to the host key inside the certificate.
-	hostCertErr := hostCertificateError(cert, hostname, certErr, caTrusted)
+	hostCertErr := hostCertificateError(cert, host, certErr, caTrusted)
 	plainErr := checkPlain(cert.Key)
 	if plainErr == nil {
 		return VerifiedByPlainKey, hostCertErr, nil
@@ -559,9 +574,7 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 // of OpenSSH's check_host_key and sshkey_cert_check_host. certErr is the result
 // of checking cert, caTrusted whether a @cert-authority line lists its CA; the
 // certificate's fields only name the reason.
-func hostCertificateError(cert *ssh.Certificate, hostname string, certErr error, caTrusted bool) error {
-	// x/crypto has already failed cert if hostname has no port.
-	host, _, _ := net.SplitHostPort(hostname)
+func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caTrusted bool) error {
 	now := time.Now().Unix()
 	var reason error
 	switch {
@@ -573,7 +586,7 @@ func hostCertificateError(cert *ssh.Certificate, hostname string, certErr error,
 		reason = errHostCertificateNotYetValid
 	case now >= certUnix(cert.ValidBefore):
 		reason = errHostCertificateExpired
-	case !slices.Contains(cert.ValidPrincipals, host):
+	case hostCertPrincipal(cert, host) == "":
 		reason = errHostCertificatePrincipalNotListed
 	case len(cert.CriticalOptions) > 0:
 		reason = errHostCertificateInvalid
@@ -583,6 +596,17 @@ func hostCertificateError(cert *ssh.Certificate, hostname string, certErr error,
 		reason = errHostCertificateInvalid
 	}
 	return fmt.Errorf("%w: %w", reason, certErr)
+}
+
+// hostCertPrincipal returns the first of cert's principals that matches host
+// like OpenSSH's match_pattern, or "" if none does.
+func hostCertPrincipal(cert *ssh.Certificate, host string) string {
+	for _, p := range cert.ValidPrincipals {
+		if match.Pattern(host, p) {
+			return p
+		}
+	}
+	return ""
 }
 
 // certUnix converts a certificate timestamp to Unix seconds. Timestamps past the

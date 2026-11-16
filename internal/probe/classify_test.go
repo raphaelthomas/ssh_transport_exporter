@@ -312,7 +312,27 @@ func TestVerifyHostKey(t *testing.T) {
 		bad.Signature = &sig
 		return &bad
 	}
-	// Removing the principals after signing breaks the signature, too.
+	principals := func(ps ...string) func(*ssh.Certificate) {
+		return func(c *ssh.Certificate) { c.ValidPrincipals = ps }
+	}
+	wildcard := newCert(ca, principals("*.example.com"))
+	questionMark := newCert(ca, principals("h?st.example.com"))
+	otherWildcard := newCert(ca, principals("*.other.com"))
+	sha1Wildcard := newCert(rsaSHA1CA, principals("*.example.com"))
+	wildcardExpired := newCert(ca, func(c *ssh.Certificate) {
+		c.ValidPrincipals = wildcard.ValidPrincipals
+		c.ValidBefore = expired.ValidBefore
+	})
+	wildcardCriticalOption := newCert(ca, func(c *ssh.Certificate) {
+		c.ValidPrincipals = wildcard.ValidPrincipals
+		c.CriticalOptions = criticalOption.CriticalOptions
+	})
+	wildcardUserCert := newCert(ca, func(c *ssh.Certificate) {
+		c.ValidPrincipals = wildcard.ValidPrincipals
+		c.CertType = ssh.UserCert
+	})
+	// SignCert refuses a certificate without principals; removing them after
+	// signing breaks the signature, too.
 	noPrincipals := *valid
 	noPrincipals.ValidPrincipals = nil
 
@@ -377,6 +397,16 @@ func TestVerifyHostKey(t *testing.T) {
 		// verifyCertSignature can't reach the signature check without principals.
 		{"trusted CA, no principals, bad signature, plain key listed", &noPrincipals, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificatePrincipalNotListed},
 		{"trusted CA, no principals, bad signature, plain key not listed", &noPrincipals, []string{trusted}, ErrReasonServerHostCertificatePrincipalNotListed, ""},
+		{"trusted CA, wildcard principal", wildcard, []string{trusted}, VerifiedByCAKey, ""},
+		{"trusted CA, ? principal", questionMark, []string{trusted}, VerifiedByCAKey, ""},
+		{"trusted CA, other wildcard principal, plain key not listed", otherWildcard, []string{trusted}, ErrReasonServerHostCertificatePrincipalNotListed, ""},
+		{"trusted CA, wildcard principal, ssh-rsa CA signature, plain key not listed", sha1Wildcard, []string{authority(rsaSHA1CA.PublicKey())}, ErrReasonServerHostCertificateSignatureAlgorithmDisallowed, ""},
+		{"trusted CA, wildcard principal, key revoked", wildcard, []string{trusted, revokedKey}, ErrReasonServerHostKeyRevoked, ""},
+		{"trusted CA, wildcard principal, certificate revoked", wildcard, []string{trusted, knownHostsLine("@revoked *", wildcard)}, ErrReasonServerHostKeyRevoked, ""},
+		{"trusted CA, wildcard principal, expired, plain key not listed", wildcardExpired, []string{trusted}, ErrReasonServerHostCertificateExpired, ""},
+		{"trusted CA, wildcard principal, unsupported critical option, plain key not listed", wildcardCriticalOption, []string{trusted}, ErrReasonServerHostCertificateOther, ""},
+		{"CA on a plain line, wildcard principal, plain key not listed", wildcard, []string{listedCA}, ErrReasonServerHostKeyMismatch, ""},
+		{"trusted CA, wildcard principal, user certificate, plain key not listed", wildcardUserCert, []string{trusted}, ErrReasonServerHostCertificateOther, ""},
 	}
 	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
