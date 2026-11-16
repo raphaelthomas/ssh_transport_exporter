@@ -434,6 +434,22 @@ func TestCollectServerHostKeyVerifyInfo(t *testing.T) {
 	}
 }
 
+func TestCollectServerHostKeyVerifyKnownHostsLine(t *testing.T) {
+	t.Parallel()
+	const name = "ssh_transport_server_host_key_verify_known_hosts_line"
+	mfs := collectMetrics(t, probe.Result{ServerHostKeyKnownHostsFile: "/etc/known_hosts", ServerHostKeyKnownHostsLine: 12})
+	if got := labelValue(t, mfs, name, "file"); got != "/etc/known_hosts" {
+		t.Errorf("%s file = %q, want /etc/known_hosts", name, got)
+	}
+	if got := singleValue(t, mfs, name); got != 12 {
+		t.Errorf("%s = %v, want 12", name, got)
+	}
+
+	if _, ok := collectMetrics(t, probe.Result{})[name]; ok {
+		t.Errorf("%s present without a line, want absent", name)
+	}
+}
+
 // A non-AEAD cipher agrees a MAC per direction, which is reported.
 func TestCollectMACInfo(t *testing.T) {
 	t.Parallel()
@@ -464,8 +480,8 @@ func TestDescribeEmitsAllDescriptors(t *testing.T) {
 	ch := make(chan *prometheus.Desc, 32)
 	c.Describe(ch)
 	close(ch)
-	if got := len(ch); got != 22 {
-		t.Errorf("Describe emitted %d descriptors, want 22", got)
+	if got := len(ch); got != 23 {
+		t.Errorf("Describe emitted %d descriptors, want 23", got)
 	}
 }
 

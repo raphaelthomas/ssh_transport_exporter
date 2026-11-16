@@ -183,6 +183,15 @@ var (
 		),
 		prometheus.GaugeValue,
 	}
+	serverHostKeyVerifyKnownHostsLineDesc = typedDesc{
+		prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subSystemServerHostKey, "verify_known_hosts_line"),
+			`Number of the known_hosts line that decided the server host key verification, like OpenSSH's "Found key in" and "Offending key in". Absent unless one did.`,
+			[]string{"file"},
+			nil,
+		),
+		prometheus.GaugeValue,
+	}
 	serverHostKeyVerifySuccessDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemServerHostKey, "verify_success"),
@@ -278,6 +287,7 @@ func (c *SSHCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- encryptionAlgorithmInfoDesc.desc
 	ch <- macAlgorithmInfoDesc.desc
 	ch <- serverHostKeyVerifyInfoDesc.desc
+	ch <- serverHostKeyVerifyKnownHostsLineDesc.desc
 	ch <- serverHostKeyVerifySuccessDesc.desc
 	ch <- keyExchangeSuccessDesc.desc
 	ch <- keyExchangeDurationDesc.desc
@@ -314,6 +324,8 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 			"mac_server_to_client", result.MACServerToClient,
 			"server_host_key_verify_success", result.ServerHostKeyVerifySuccess,
 			"server_host_key_verified_by", result.ServerHostKeyVerifiedBy,
+			"server_host_key_known_hosts_file", result.ServerHostKeyKnownHostsFile,
+			"server_host_key_known_hosts_line", result.ServerHostKeyKnownHostsLine,
 			"server_host_certificate_error_reason", result.ServerHostCertificateErrorReason,
 			"key_exchange_success", result.KeyExchangeSuccess,
 			"key_exchange_duration", result.KeyExchangeDuration,
@@ -389,6 +401,9 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- macAlgorithmInfoDesc.mustNewConstMetric(1, "server_to_client", result.MACServerToClient)
 	}
 
+	if result.ServerHostKeyKnownHostsLine > 0 {
+		ch <- serverHostKeyVerifyKnownHostsLineDesc.mustNewConstMetric(float64(result.ServerHostKeyKnownHostsLine), result.ServerHostKeyKnownHostsFile)
+	}
 	ch <- serverHostKeyVerifySuccessDesc.mustNewConstMetric(boolToFloat64(result.ServerHostKeyVerifySuccess))
 
 	ch <- keyExchangeSuccessDesc.mustNewConstMetric(boolToFloat64(result.KeyExchangeSuccess))

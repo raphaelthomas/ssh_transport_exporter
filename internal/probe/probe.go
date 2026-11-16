@@ -97,6 +97,11 @@ type Result struct {
 	// ServerHostKeyVerifiedBy is VerifiedByCAKey or VerifiedByPlainKey, empty
 	// unless verification succeeded.
 	ServerHostKeyVerifiedBy string
+	// ServerHostKeyKnownHostsFile and ServerHostKeyKnownHostsLine name the
+	// known_hosts line that decided the verification, like OpenSSH's "Found key
+	// in" and "Offending key in"; the line is 0 for none.
+	ServerHostKeyKnownHostsFile string
+	ServerHostKeyKnownHostsLine int
 	// ServerHostCertificateErrorReason is the error reason of a host certificate
 	// whose plain key verified, e.g. ErrReasonServerHostCertificateExpired.
 	ServerHostCertificateErrorReason string
@@ -230,6 +235,7 @@ type hostKeyResult struct {
 	verifiedBy             string
 	certificateErrorReason string
 	errorReason            string
+	line                   knownhosts.KnownKey
 	cert                   *ssh.Certificate // nil for a plain host key
 }
 
@@ -368,6 +374,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			verifiedBy, certErr, err := verifyHostKey(hostKeyCallback, opts.IsCertAuthority, lines, hostname, remote, key)
 			hk := hostKeyResult{verified: err == nil, verifiedBy: verifiedBy}
+			hk.line, _ = decidingLine(lines, opts.IsCertAuthority, key, verifiedBy, err)
 			hk.cert, _ = key.(*ssh.Certificate)
 			if certErr != nil {
 				hk.certificateErrorReason = classifyHostKeyVerifyError(certErr)
@@ -441,6 +448,8 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		result.ServerHostKeyVerifySuccess = hk.verified
 		result.ServerHostKeyVerifiedBy = hk.verifiedBy
 		result.ServerHostCertificateErrorReason = hk.certificateErrorReason
+		result.ServerHostKeyKnownHostsFile = hk.line.Filename
+		result.ServerHostKeyKnownHostsLine = hk.line.Line
 		if hk.cert != nil {
 			result.ServerHostCertificate = true
 			result.ServerHostCertificateValidAfter = hk.cert.ValidAfter
@@ -562,9 +571,8 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 	check := func(k ssh.PublicKey) error { return cb(hostname, remote, k) }
 
 	listed := func(k ssh.PublicKey, ca bool) bool {
-		return slices.ContainsFunc(lines, func(l knownhosts.KnownKey) bool {
-			return isCA(l) == ca && bytes.Equal(l.Key.Marshal(), k.Marshal())
-		})
+		_, ok := firstLine(lines, isCA, k, ca)
+		return ok
 	}
 	// OpenSSH looks a plain host key up on plain lines only.
 	checkPlain := func(k ssh.PublicKey) error {
@@ -634,6 +642,54 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 		return "", nil, hostCertErr
 	}
 	return "", nil, plainErr
+}
+
+// decidingLine returns the known_hosts line that decided the verification of
+// key, like OpenSSH's "Found key in" and "Offending key in", or false for none.
+// verifiedBy and err are verifyHostKey's.
+func decidingLine(lines []knownhosts.KnownKey, isCA func(knownhosts.KnownKey) bool, key ssh.PublicKey, verifiedBy string, err error) (knownhosts.KnownKey, bool) {
+	if isCA == nil {
+		return knownhosts.KnownKey{}, false
+	}
+	cert, _ := key.(*ssh.Certificate)
+	switch verifiedBy {
+	case VerifiedByCAKey:
+		return firstLine(lines, isCA, cert.SignatureKey, true)
+	case VerifiedByPlainKey:
+		if cert != nil {
+			key = cert.Key
+		}
+		return firstLine(lines, isCA, key, false)
+	}
+	if revoked, ok := errors.AsType[*knownhosts.RevokedError](err); ok {
+		return revoked.Revoked, true
+	}
+	switch classifyHostKeyVerifyError(err) {
+	case ErrReasonServerHostKeyMismatch:
+		// Like OpenSSH, which reports the last plain line that didn't match.
+		for _, l := range slices.Backward(lines) {
+			if !isCA(l) {
+				return l, true
+			}
+		}
+	case ErrReasonServerHostCertificateNotYetValid, ErrReasonServerHostCertificateExpired,
+		ErrReasonServerHostCertificatePrincipalNotListed, ErrReasonServerHostCertificateSignatureAlgorithmDisallowed,
+		ErrReasonServerHostCertificateOther:
+		return firstLine(lines, isCA, cert.SignatureKey, true)
+	}
+	return knownhosts.KnownKey{}, false
+}
+
+// firstLine returns the first of lines that lists k, on a @cert-authority line
+// if ca, else on a plain line.
+func firstLine(lines []knownhosts.KnownKey, isCA func(knownhosts.KnownKey) bool, k ssh.PublicKey, ca bool) (knownhosts.KnownKey, bool) {
+	i := slices.IndexFunc(lines, func(l knownhosts.KnownKey) bool {
+		return isCA(l) == ca && bytes.Equal(l.Key.Marshal(), k.Marshal())
+	})
+	if i < 0 {
+		return knownhosts.KnownKey{}, false
+	}
+	return lines[i], true
 }
 
 // hostCertificateError tells why cert didn't verify through its CA, in the order

@@ -190,6 +190,9 @@ The probe checks the server's host key against `known_hosts`, like OpenSSH:
 
 So `ssh_transport_server_host_key_verify_success 1` means `known_hosts`
 vouches for the key, through a CA or directly.
+`ssh_transport_server_host_key_verify_known_hosts_line` gives the
+`known_hosts` line that decided, like OpenSSH's "Found key in" and "Offending
+key in".
 
 Without `host_key_algorithms`, the probe first asks for the host key types
 that `known_hosts` lists for the target, like OpenSSH.
@@ -389,6 +392,10 @@ ssh_transport_server_host_key_algorithm_info{algorithm="ssh-ed25519-cert-v01@ope
 # HELP ssh_transport_server_host_key_verify_info How the server host key was verified. Absent unless verification and key exchange succeeded.
 # TYPE ssh_transport_server_host_key_verify_info gauge
 ssh_transport_server_host_key_verify_info{algorithm="ssh-ed25519-cert-v01@openssh.com",certificate_error_reason="",host_key="certificate",verified_by="ca_key"} 1
+
+# HELP ssh_transport_server_host_key_verify_known_hosts_line Number of the known_hosts line that decided the server host key verification, like OpenSSH's "Found key in" and "Offending key in". Absent unless one did.
+# TYPE ssh_transport_server_host_key_verify_known_hosts_line gauge
+ssh_transport_server_host_key_verify_known_hosts_line{file="/etc/ssh/ssh_known_hosts"} 12
 
 # HELP ssh_transport_server_host_key_verify_success Whether the server host key was verified (RFC 4253 section 8).
 # TYPE ssh_transport_server_host_key_verify_success gauge
