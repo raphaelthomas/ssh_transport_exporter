@@ -42,6 +42,8 @@ type Options struct {
 	// HostCertificate returns a signed certificate for the host key, which the
 	// server then presents instead of the plain key. Nil presents the plain key.
 	HostCertificate func(t *testing.T, hostKey ssh.PublicKey) *ssh.Certificate
+	// HostKeys are offered besides the ed25519 host key.
+	HostKeys []ssh.Signer
 }
 
 // NewServer starts an SSH server on 127.0.0.1 with an ephemeral port and
@@ -85,6 +87,9 @@ func NewServer(t *testing.T, opts Options) *Server {
 		MACs:          opts.MACs,
 	}
 	cfg.AddHostKey(signer)
+	for _, k := range opts.HostKeys {
+		cfg.AddHostKey(k)
+	}
 
 	go func() {
 		for {

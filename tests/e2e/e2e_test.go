@@ -185,6 +185,36 @@ func TestHostCertificate(t *testing.T) {
 	}
 }
 
+// TestKnownHostsKeyType checks that the probe asks for the host key type
+// known_hosts lists, here only the rsa key of a server that also has ed25519.
+func TestKnownHostsKeyType(t *testing.T) {
+	s := lookup(t, "openssh-alpine")
+	rsaKey := trustOnFirstUse(t, s.addr, probe.Options{HostKeyAlgorithms: []string{ssh.KeyAlgoRSASHA512}})
+	_, port, _ := net.SplitHostPort(s.addr)
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(path, []byte("[127.0.0.1]:"+port+" "+string(ssh.MarshalAuthorizedKey(rsaKey))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	callback, err := knownhosts.New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	isCA, err := knownhosts.CertAuthorities(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	result := probe.Run(ctx, s.addr, probe.Options{HostKeyCallback: callback, IsCertAuthority: isCA})
+	if !result.Success {
+		t.Fatalf("probe failed: %s/%s", result.ErrorPhase, result.ErrorReason)
+	}
+	if result.ServerHostKeyAlgorithm != ssh.KeyAlgoRSASHA512 {
+		t.Errorf("host key algorithm = %q, want %q", result.ServerHostKeyAlgorithm, ssh.KeyAlgoRSASHA512)
+	}
+}
+
 func TestRSAHostKey(t *testing.T) {
 	rsaOnly := []string{ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSASHA512}
 	for _, name := range []string{"openssh-rocky8", "openssh-alpine"} {

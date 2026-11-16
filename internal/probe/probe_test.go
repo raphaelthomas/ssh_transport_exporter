@@ -3,6 +3,7 @@ package probe
 import (
 	"bytes"
 	"context"
+	"crypto/elliptic"
 	"crypto/rand"
 	"fmt"
 	"log/slog"
@@ -455,6 +456,41 @@ func TestRunHostCertificate(t *testing.T) {
 			if !result.ServerHostCertificate || result.ServerHostCertificateValidAfter != validAfter || result.ServerHostCertificateValidBefore != tt.validBefore {
 				t.Errorf("ServerHostCertificate = %t, valid %d to %d, want true, %d to %d",
 					result.ServerHostCertificate, result.ServerHostCertificateValidAfter, result.ServerHostCertificateValidBefore, validAfter, tt.validBefore)
+			}
+		})
+	}
+}
+
+// TestRunOrdersHostKeyAlgorithms checks that Run asks for the host key type
+// known_hosts lists, unless the module sets host_key_algorithms.
+func TestRunOrdersHostKeyAlgorithms(t *testing.T) {
+	t.Parallel()
+	ecdsaKey, err := ssh.NewSignerFromKey(mustECDSA(t, elliptic.P256()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name              string
+		hostKeyAlgorithms []string
+		wantAlgorithm     string
+		wantReason        string
+	}{
+		{"defaults", nil, ssh.KeyAlgoECDSA256, ""},
+		{"host_key_algorithms set", []string{ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256}, ssh.KeyAlgoED25519, ErrReasonServerHostKeyMismatch},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := sshtest.NewServer(t, sshtest.Options{HostKeys: []ssh.Signer{ecdsaKey}})
+			callback, isCA := loadKnownHosts(t, []string{knownHostsLine("[127.0.0.1]:"+srv.Port(t), ecdsaKey.PublicKey())})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, HostKeyAlgorithms: tt.hostKeyAlgorithms})
+
+			if result.ServerHostKeyAlgorithm != tt.wantAlgorithm || result.ErrorReason != tt.wantReason {
+				t.Errorf("ServerHostKeyAlgorithm = %q, ErrorReason = %q, want %q, %q",
+					result.ServerHostKeyAlgorithm, result.ErrorReason, tt.wantAlgorithm, tt.wantReason)
 			}
 		})
 	}
