@@ -178,6 +178,11 @@ type Options struct {
 	// like OpenSSH 10.3 to 10.6 and x/crypto.
 	HostCertificatePrincipalsOptional bool
 
+	// CertAuthorityLinesMatchPlainKeys checks a plain host key against
+	// @cert-authority lines, too, like x/crypto. False checks it against plain
+	// lines only, like OpenSSH.
+	CertAuthorityLinesMatchPlainKeys bool
+
 	StripServerIdentificationComments bool
 
 	Logger *slog.Logger
@@ -384,6 +389,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		noFallback:            opts.HostCertificateNoFallback,
 		exactPrincipals:       opts.HostCertificateExactPrincipals,
 		principalsOptional:    opts.HostCertificatePrincipalsOptional,
+		caLinesMatchPlainKeys: opts.CertAuthorityLinesMatchPlainKeys,
 	}
 
 	forceCloseOnCtxDone := context.AfterFunc(ctx, func() {
@@ -405,7 +411,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			verifiedBy, certErr, err := verifyHostKey(hostKeyCallback, opts.IsCertAuthority, lines, verify, hostname, remote, key)
 			hk := hostKeyResult{verified: err == nil, verifiedBy: verifiedBy}
-			hk.line, _ = decidingLine(lines, opts.IsCertAuthority, key, verifiedBy, err)
+			hk.line, _ = decidingLine(lines, opts.IsCertAuthority, verify.caLinesMatchPlainKeys, key, verifiedBy, err)
 			hk.cert, _ = key.(*ssh.Certificate)
 			if certErr != nil {
 				hk.certificateErrorReason = classifyHostKeyVerifyError(certErr)
@@ -605,6 +611,7 @@ type verifyOptions struct {
 	noFallback            bool
 	exactPrincipals       bool
 	principalsOptional    bool
+	caLinesMatchPlainKeys bool
 }
 
 // verifyHostKey checks key against known_hosts like OpenSSH's check_host_key and
@@ -621,10 +628,10 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 		_, ok := firstLine(lines, isCA, k, ca)
 		return ok
 	}
-	// OpenSSH looks a plain host key up on plain lines only.
+	// OpenSSH looks a plain host key up on plain lines only, x/crypto on all.
 	checkPlain := func(k ssh.PublicKey) error {
 		err := check(k)
-		if _, ok := errors.AsType[*knownhosts.KeyError](err); isCA == nil || (err != nil && !ok) {
+		if _, ok := errors.AsType[*knownhosts.KeyError](err); isCA == nil || opts.caLinesMatchPlainKeys || (err != nil && !ok) {
 			return err
 		}
 		if err == nil && listed(k, false) {
@@ -705,10 +712,15 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 
 // decidingLine returns the known_hosts line that decided the verification of
 // key, like OpenSSH's "Found key in" and "Offending key in", or false for none.
-// verifiedBy and err are verifyHostKey's.
-func decidingLine(lines []knownhosts.KnownKey, isCA func(knownhosts.KnownKey) bool, key ssh.PublicKey, verifiedBy string, err error) (knownhosts.KnownKey, bool) {
+// verifiedBy and err are verifyHostKey's, which looked a plain host key up on
+// @cert-authority lines, too, if caLinesMatchPlainKeys.
+func decidingLine(lines []knownhosts.KnownKey, isCA func(knownhosts.KnownKey) bool, caLinesMatchPlainKeys bool, key ssh.PublicKey, verifiedBy string, err error) (knownhosts.KnownKey, bool) {
 	if isCA == nil {
 		return knownhosts.KnownKey{}, false
+	}
+	plainIsCA := isCA
+	if caLinesMatchPlainKeys {
+		plainIsCA = func(knownhosts.KnownKey) bool { return false }
 	}
 	cert, _ := key.(*ssh.Certificate)
 	switch verifiedBy {
@@ -718,7 +730,7 @@ func decidingLine(lines []knownhosts.KnownKey, isCA func(knownhosts.KnownKey) bo
 		if cert != nil {
 			key = cert.Key
 		}
-		return firstLine(lines, isCA, key, false)
+		return firstLine(lines, plainIsCA, key, false)
 	}
 	if revoked, ok := errors.AsType[*knownhosts.RevokedError](err); ok {
 		return revoked.Revoked, true
@@ -727,7 +739,7 @@ func decidingLine(lines []knownhosts.KnownKey, isCA func(knownhosts.KnownKey) bo
 	case ErrReasonServerHostKeyMismatch:
 		// Like OpenSSH, which reports the last plain line that didn't match.
 		for _, l := range slices.Backward(lines) {
-			if !isCA(l) {
+			if !plainIsCA(l) {
 				return l, true
 			}
 		}

@@ -79,6 +79,8 @@ type rawConfigModule struct {
 	// HostCertificateRequirePrincipals is nil when left out, i.e. true.
 	HostCertificateRequirePrincipals *bool `yaml:"host_certificate_require_principals,omitempty"`
 
+	CertAuthorityLinesMatchPlainKeys bool `yaml:"cert_authority_lines_match_plain_keys,omitempty"`
+
 	StripServerIdentificationComments bool `yaml:"strip_server_identification_comments,omitempty"`
 }
 
