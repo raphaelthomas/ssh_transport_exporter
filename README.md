@@ -204,6 +204,9 @@ A host certificate without principals fails, like OpenSSH 10.3 to 10.6. With
 `host_certificate_require_principals: false`, it covers any target, like older
 OpenSSH.
 
+With `cert_authority_lines_match_plain_keys: true`, a plain host key is also
+checked against `@cert-authority` lines, like x/crypto.
+
 The probe first asks for the host key types that `known_hosts` lists for the
 target, like OpenSSH without `HostKeyAlgorithms` or with its `+` and `-` forms.
 That holds for a set `host_key_algorithms` too. With

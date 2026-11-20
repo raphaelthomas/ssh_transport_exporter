@@ -67,6 +67,7 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 				HostCertificateNoFallback:         !plainKeyFallback,
 				HostCertificateExactPrincipals:    !wildcardPrincipals,
 				HostCertificatePrincipalsOptional: !requirePrincipals,
+				CertAuthorityLinesMatchPlainKeys:  mod.CertAuthorityLinesMatchPlainKeys,
 
 				StripServerIdentificationComments: mod.StripServerIdentificationComments,
 				Logger:                            logger,
@@ -90,6 +91,7 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			"host_certificate_allow_plain_key_fallback", plainKeyFallback,
 			"host_certificate_allow_wildcard_principals", wildcardPrincipals,
 			"host_certificate_require_principals", requirePrincipals,
+			"cert_authority_lines_match_plain_keys", mod.CertAuthorityLinesMatchPlainKeys,
 			"strip_server_identification_comments", mod.StripServerIdentificationComments,
 		)
 	}

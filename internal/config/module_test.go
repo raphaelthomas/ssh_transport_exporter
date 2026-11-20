@@ -257,6 +257,29 @@ modules:
 	}
 }
 
+func TestLoadCertAuthorityLinesMatchPlainKeys(t *testing.T) {
+	content := fmt.Sprintf(`
+known_hosts_file: %q
+allowed_targets: ["example.com"]
+modules:
+  left_out: {}
+  plain_lines:
+    cert_authority_lines_match_plain_keys: false
+  all_lines:
+    cert_authority_lines_match_plain_keys: true
+`, writeKnownHosts(t, knownhosts.Line([]string{"example.com:22"}, newHostKey(t))))
+
+	modules, err := Load(writeConfig(t, content), false, discardLogger())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for name, want := range map[string]bool{"left_out": false, "plain_lines": false, "all_lines": true} {
+		if got := modules[name].Options.CertAuthorityLinesMatchPlainKeys; got != want {
+			t.Errorf("%s: CertAuthorityLinesMatchPlainKeys = %t, want %t", name, got, want)
+		}
+	}
+}
+
 func TestLoadAllowAllTargets(t *testing.T) {
 	pub := newHostKey(t)
 	line := knownhosts.Line([]string{"example.com:22"}, pub)

@@ -380,6 +380,11 @@ func TestLoadRawConfigAlgorithmValidation(t *testing.T) {
 			"cannot unmarshal",
 		},
 		{
+			"non-boolean cert_authority_lines_match_plain_keys",
+			"known_hosts_file: \"k\"\nmodules:\n  m:\n    cert_authority_lines_match_plain_keys: all\n",
+			"cannot unmarshal",
+		},
+		{
 			"every offending host key algorithm is reported",
 			"known_hosts_file: \"k\"\nmodules:\n  m:\n    host_key_algorithms: [sk-ssh-ed25519@openssh.com, ssh-ed25519, sk-ecdsa-sha2-nistp256@openssh.com]\n",
 			`unknown host key algorithms ["sk-ssh-ed25519@openssh.com" "sk-ecdsa-sha2-nistp256@openssh.com"]`,

@@ -106,6 +106,8 @@ modules:
     host_certificate_allow_wildcard_principals: true
     # false lets a host certificate without principals cover any target.
     host_certificate_require_principals: true
+    # true also checks a plain host key against @cert-authority lines.
+    cert_authority_lines_match_plain_keys: false
   # Module named "weak_audit". Advertises ONLY the insecure ciphers and host key
   # algorithms x/crypto/ssh still supports. Because these are never negotiated
   # by default, a successful probe with this module means the target agreed to a

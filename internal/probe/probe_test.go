@@ -618,6 +618,36 @@ func TestRunHostCertificatePrincipalsOptional(t *testing.T) {
 	}
 }
 
+// TestRunCertAuthorityLinesMatchPlainKeys checks that Run passes
+// CertAuthorityLinesMatchPlainKeys on to the host key check.
+func TestRunCertAuthorityLinesMatchPlainKeys(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		match      bool
+		wantReason string
+		wantLine   int // the deciding known_hosts line, 0 for none
+	}{
+		{"plain lines only", false, ErrReasonServerHostKeyUnknown, 0},
+		{"@cert-authority lines too", true, "", 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := sshtest.NewServer(t, sshtest.Options{})
+			callback, isCA := loadKnownHosts(t, []string{knownHostsLine("@cert-authority [127.0.0.1]:"+srv.Port(t), srv.HostKey)})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, CertAuthorityLinesMatchPlainKeys: tt.match})
+
+			if result.ErrorReason != tt.wantReason || result.ServerHostKeyKnownHostsLine != tt.wantLine {
+				t.Errorf("ErrorReason = %q, known_hosts line = %d, want %q, %d", result.ErrorReason, result.ServerHostKeyKnownHostsLine, tt.wantReason, tt.wantLine)
+			}
+		})
+	}
+}
+
 // TestRunOrdersHostKeyAlgorithms checks that Run asks for the host key type
 // known_hosts lists, unless HostKeyAlgorithmsFixedOrder is set.
 func TestRunOrdersHostKeyAlgorithms(t *testing.T) {
