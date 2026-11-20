@@ -53,6 +53,14 @@ services:
   openssh-alpine:
     build: openssh-alpine
     ports: ["127.0.0.1:2209:22"]
+  # Signs its host keys without -n, so without principals.
+  openssh-debian13-no-principals:
+    build:
+      context: openssh-debian
+      args: { IMAGE: "debian:13" }
+    command: ["/bin/sh", "-c", "ssh-keygen -q -s /ca/ca -h -I e2e /etc/ssh/ssh_host_*_key.pub && exec /usr/sbin/sshd -D -e"]
+    ports: ["127.0.0.1:2210:22"]
+    volumes: [*ca-volume]
 
   dropbear:
     build: dropbear

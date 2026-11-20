@@ -173,6 +173,11 @@ type Options struct {
 	// them as patterns, like OpenSSH 10.3 to 10.6.
 	HostCertificateExactPrincipals bool
 
+	// HostCertificatePrincipalsOptional lets a host certificate without
+	// principals cover any target, like OpenSSH before 10.3. False fails it,
+	// like OpenSSH 10.3 to 10.6 and x/crypto.
+	HostCertificatePrincipalsOptional bool
+
 	StripServerIdentificationComments bool
 
 	Logger *slog.Logger
@@ -378,6 +383,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		caSignatureAlgorithms: orDefault(opts.CASignatureAlgorithms, defaultCASignatureAlgorithms),
 		noFallback:            opts.HostCertificateNoFallback,
 		exactPrincipals:       opts.HostCertificateExactPrincipals,
+		principalsOptional:    opts.HostCertificatePrincipalsOptional,
 	}
 
 	forceCloseOnCtxDone := context.AfterFunc(ctx, func() {
@@ -598,6 +604,7 @@ type verifyOptions struct {
 	caSignatureAlgorithms []string
 	noFallback            bool
 	exactPrincipals       bool
+	principalsOptional    bool
 }
 
 // verifyHostKey checks key against known_hosts like OpenSSH's check_host_key and
@@ -655,15 +662,19 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 	}
 	caTrusted := caErr == nil && (isCA == nil || listed(cert.SignatureKey, true))
 	// x/crypto matches principals exactly, OpenSSH 10.3 to 10.6 as patterns:
-	// check again with the principal that matches.
-	if p := hostCertPrincipal(cert, host, opts.exactPrincipals); certErr != nil && cert.CertType == ssh.HostCert && caTrusted && p != "" {
-		checker := ssh.CertChecker{
-			IsRevoked: func(c *ssh.Certificate) bool {
-				_, ok := errors.AsType[*knownhosts.RevokedError](check(c.Key))
-				return ok
-			},
+	// check again with the principal that matches. x/crypto can't check a
+	// certificate without principals at all.
+	if certErr != nil && cert.CertType == ssh.HostCert && caTrusted {
+		isRevoked := func(c *ssh.Certificate) bool {
+			_, ok := errors.AsType[*knownhosts.RevokedError](check(c.Key))
+			return ok
 		}
-		certErr = checker.CheckCert(p, cert)
+		if p := hostCertPrincipal(cert, host, opts.exactPrincipals); p != "" {
+			checker := ssh.CertChecker{IsRevoked: isRevoked}
+			certErr = checker.CheckCert(p, cert)
+		} else if len(cert.ValidPrincipals) == 0 && opts.principalsOptional {
+			certErr = checkCertWithoutPrincipals(cert, isRevoked)
+		}
 	}
 	// Validate the certificate like OpenSSH, including its CA signature algorithm.
 	if certErr == nil {
@@ -756,7 +767,7 @@ func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caT
 		reason = errHostCertificateNotYetValid
 	case now >= certUnix(cert.ValidBefore):
 		reason = errHostCertificateExpired
-	case hostCertPrincipal(cert, host, opts.exactPrincipals) == "":
+	case hostCertPrincipal(cert, host, opts.exactPrincipals) == "" && (len(cert.ValidPrincipals) > 0 || !opts.principalsOptional):
 		reason = errHostCertificatePrincipalNotListed
 	case len(cert.CriticalOptions) > 0:
 		reason = errHostCertificateInvalid
@@ -779,6 +790,23 @@ func hostCertPrincipal(cert *ssh.Certificate, host string, exact bool) string {
 	return ""
 }
 
+// checkCertWithoutPrincipals checks a host certificate without principals like
+// CheckCert would, if it could; verifyCertSignature checked its CA signature.
+func checkCertWithoutPrincipals(cert *ssh.Certificate, isRevoked func(*ssh.Certificate) bool) error {
+	now := time.Now().Unix()
+	switch {
+	case isRevoked(cert):
+		return errors.New("certificate revoked")
+	case now < certUnix(cert.ValidAfter):
+		return errors.New("certificate not yet valid")
+	case now >= certUnix(cert.ValidBefore):
+		return errors.New("certificate expired")
+	case len(cert.CriticalOptions) > 0:
+		return errors.New("certificate has critical options")
+	}
+	return nil
+}
+
 // certUnix converts a certificate timestamp to Unix seconds. Timestamps past the
 // largest int64, such as ssh.CertTimeInfinity, become the largest int64.
 func certUnix(t uint64) int64 {
@@ -790,15 +818,20 @@ func certUnix(t uint64) int64 {
 
 // verifyCertSignature checks only cert's CA signature, by calling CheckCert with
 // cert's own principal, critical options and valid-after time, so that nothing
-// else can fail. A certificate without principals or validity window passes unchecked.
+// else can fail. A certificate without principals or validity window can't be
+// set up that way; it verifies the signature itself.
 func verifyCertSignature(cert *ssh.Certificate) error {
 	i := slices.IndexFunc(cert.ValidPrincipals, func(p string) bool { return p != "" })
 	inWindow := cert.ValidBefore == ssh.CertTimeInfinity ||
 		(cert.ValidBefore > cert.ValidAfter && cert.ValidBefore <= math.MaxInt64)
-	if i < 0 || !inWindow {
-		return nil
-	}
-	if cert.ValidAfter > math.MaxInt64 {
+	if i < 0 || !inWindow || cert.ValidAfter > math.MaxInt64 {
+		// The CA signs the certificate up to its last field, the signature.
+		// Unlike CheckCert, Verify requires user presence on an sk-* CA's signature.
+		signed := cert.Marshal()
+		signed = signed[:len(signed)-4-len(ssh.Marshal(cert.Signature))]
+		if err := cert.SignatureKey.Verify(signed, cert.Signature); err != nil {
+			return fmt.Errorf("%w: %w", errHostCertificateSignatureInvalid, err)
+		}
 		return nil
 	}
 	now := time.Unix(int64(cert.ValidAfter), 0)

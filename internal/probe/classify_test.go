@@ -333,10 +333,13 @@ func TestVerifyHostKey(t *testing.T) {
 		c.ValidPrincipals = wildcard.ValidPrincipals
 		c.CertType = ssh.UserCert
 	})
-	// SignCert refuses a certificate without principals; removing them after
-	// signing breaks the signature, too.
-	noPrincipals := *valid
-	noPrincipals.ValidPrincipals = nil
+	noPrincipals := &ssh.Certificate{Key: hostPub, CertType: ssh.HostCert, ValidBefore: ssh.CertTimeInfinity}
+	signWithoutPrincipals(t, noPrincipals, ca)
+	// Not yet valid, and expired before that.
+	noWindow := newCert(ca, func(c *ssh.Certificate) {
+		c.ValidAfter = uint64(time.Now().Add(2 * time.Hour).Unix())
+		c.ValidBefore = uint64(time.Now().Add(time.Hour).Unix())
+	})
 
 	authority := func(key ssh.PublicKey) string { return knownHostsLine("@cert-authority *.example.com", key) }
 	listed := knownHostsLine(host, hostPub)
@@ -396,9 +399,11 @@ func TestVerifyHostKey(t *testing.T) {
 		{"trusted CA, expired, bad signature, plain key listed", badSignature(expired), []string{trusted, listed}, ErrReasonServerHostCertificateSignatureInvalid, ""},
 		{"untrusted CA, bad signature, plain key listed", badSignature(valid), []string{listed}, ErrReasonServerHostCertificateSignatureInvalid, ""},
 		{"trusted CA, bad signature, key revoked", badSignature(valid), []string{trusted, listed, revokedKey}, ErrReasonServerHostCertificateSignatureInvalid, ""},
-		// verifyCertSignature can't reach the signature check without principals.
-		{"trusted CA, no principals, bad signature, plain key listed", &noPrincipals, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificatePrincipalNotListed},
-		{"trusted CA, no principals, bad signature, plain key not listed", &noPrincipals, []string{trusted}, ErrReasonServerHostCertificatePrincipalNotListed, ""},
+		{"trusted CA, no principals, plain key listed", noPrincipals, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificatePrincipalNotListed},
+		{"trusted CA, no principals, plain key not listed", noPrincipals, []string{trusted}, ErrReasonServerHostCertificatePrincipalNotListed, ""},
+		{"trusted CA, no principals, bad signature, plain key listed", badSignature(noPrincipals), []string{trusted, listed}, ErrReasonServerHostCertificateSignatureInvalid, ""},
+		{"trusted CA, no validity window, plain key listed", noWindow, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateNotYetValid},
+		{"trusted CA, no validity window, bad signature, plain key listed", badSignature(noWindow), []string{trusted, listed}, ErrReasonServerHostCertificateSignatureInvalid, ""},
 		{"trusted CA, wildcard principal", wildcard, []string{trusted}, VerifiedByCAKey, ""},
 		{"trusted CA, ? principal", questionMark, []string{trusted}, VerifiedByCAKey, ""},
 		{"trusted CA, other wildcard principal, plain key not listed", otherWildcard, []string{trusted}, ErrReasonServerHostCertificatePrincipalNotListed, ""},
@@ -516,7 +521,7 @@ func TestVerifyHostKeyNoFallback(t *testing.T) {
 		{"trusted CA, valid", valid, []string{trusted}, VerifiedByCAKey},
 		{"trusted CA, key revoked", valid, []string{trusted, knownHostsLine("@revoked *", hostPub)}, ErrReasonServerHostKeyRevoked},
 		{"bad CA signature, plain key listed", &badSignature, []string{trusted, listed}, ErrReasonServerHostCertificateSignatureInvalid},
-		{"no principals, bad CA signature, plain key listed", &noPrincipals, []string{trusted, listed}, ErrReasonServerHostCertificatePrincipalNotListed},
+		{"no principals, bad CA signature, plain key listed", &noPrincipals, []string{trusted, listed}, ErrReasonServerHostCertificateSignatureInvalid},
 		{"plain key, listed", hostPub, []string{listed}, VerifiedByPlainKey},
 	}
 	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
@@ -570,6 +575,80 @@ func TestVerifyHostKeyExactPrincipals(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
 			lines := knownHostsLines(cb, isCA, host+":22", remote)
 			opts := verifyOptions{caSignatureAlgorithms: defaultCASignatureAlgorithms, exactPrincipals: true}
+			got, certErr, err := verifyHostKey(cb, isCA, lines, opts, host+":22", remote, tt.key)
+			if err != nil {
+				got = classifyHostKeyVerifyError(err)
+			}
+			certReason := ""
+			if certErr != nil {
+				certReason = classifyHostKeyVerifyError(certErr)
+			}
+			if got != tt.want || certReason != tt.certReason {
+				t.Errorf("verifyHostKey() = %q, %v, %v, want %q, %q", got, certErr, err, tt.want, tt.certReason)
+			}
+		})
+	}
+}
+
+// signWithoutPrincipals signs cert, which has no principals, with authority.
+// SignCert refuses such a certificate, so it signs the certificate's bytes
+// directly.
+func signWithoutPrincipals(t *testing.T, cert *ssh.Certificate, authority ssh.Signer) {
+	t.Helper()
+	cert.Nonce, cert.SignatureKey, cert.Signature = []byte("nonce"), authority.PublicKey(), nil
+	signed := cert.Marshal()
+	sig, err := authority.Sign(rand.Reader, signed[:len(signed)-4])
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert.Signature = sig
+}
+
+func TestVerifyHostKeyPrincipalsOptional(t *testing.T) {
+	const host = "host.example.com"
+	hostKey, ca, otherCA := newEd25519Signer(t), newEd25519Signer(t), newEd25519Signer(t)
+	hostPub, caPub := hostKey.PublicKey(), ca.PublicKey()
+	newCert := func(authority ssh.Signer, edit func(*ssh.Certificate)) *ssh.Certificate {
+		t.Helper()
+		cert := &ssh.Certificate{Key: hostPub, CertType: ssh.HostCert, ValidBefore: ssh.CertTimeInfinity}
+		if edit != nil {
+			edit(cert)
+		}
+		signWithoutPrincipals(t, cert, authority)
+		return cert
+	}
+	valid := newCert(ca, nil)
+	expired := newCert(ca, func(c *ssh.Certificate) { c.ValidBefore = uint64(time.Now().Add(-time.Hour).Unix()) })
+	criticalOption := newCert(ca, func(c *ssh.Certificate) { c.CriticalOptions = map[string]string{"unknown@example.com": ""} })
+	untrustedCA := newCert(otherCA, nil)
+	badSignature, sig := *valid, *valid.Signature
+	sig.Blob = slices.Clone(sig.Blob)
+	sig.Blob[0] ^= 1
+	badSignature.Signature = &sig
+
+	listed := knownHostsLine(host, hostPub)
+	trusted := knownHostsLine("@cert-authority "+host, caPub)
+
+	tests := []struct {
+		name       string
+		key        ssh.PublicKey
+		knownHosts []string
+		want       string // which key verified it, or the error reason
+		certReason string // the certificate's error reason, if its plain key verified
+	}{
+		{"trusted CA", valid, []string{trusted}, VerifiedByCAKey, ""},
+		{"trusted CA, expired, plain key not listed", expired, []string{trusted}, ErrReasonServerHostCertificateExpired, ""},
+		{"trusted CA, bad signature", &badSignature, []string{trusted}, ErrReasonServerHostCertificateSignatureInvalid, ""},
+		{"trusted CA, unsupported critical option, plain key not listed", criticalOption, []string{trusted}, ErrReasonServerHostCertificateOther, ""},
+		{"untrusted CA, plain key listed", untrustedCA, []string{listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateCAUnknown},
+		{"trusted CA, key revoked", valid, []string{trusted, knownHostsLine("@revoked *", hostPub)}, ErrReasonServerHostKeyRevoked, ""},
+	}
+	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cb, isCA := loadKnownHosts(t, tt.knownHosts)
+			lines := knownHostsLines(cb, isCA, host+":22", remote)
+			opts := verifyOptions{caSignatureAlgorithms: defaultCASignatureAlgorithms, principalsOptional: true}
 			got, certErr, err := verifyHostKey(cb, isCA, lines, opts, host+":22", remote, tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)

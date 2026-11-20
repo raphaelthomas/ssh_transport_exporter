@@ -41,6 +41,7 @@ var servers = []server{
 	{"openssh-debian13", "127.0.0.1:2207", "OpenSSH_"},
 	{"openssh-ubuntu2604", "127.0.0.1:2208", "OpenSSH_"},
 	{"openssh-alpine", "127.0.0.1:2209", "OpenSSH_"},
+	{"openssh-debian13-no-principals", "127.0.0.1:2210", "OpenSSH_"},
 	{"dropbear", "127.0.0.1:2221", "dropbear"},
 	{"tinyssh", "127.0.0.1:2222", "tinyssh"},
 	{"asyncssh", "127.0.0.1:2223", "AsyncSSH_"},
@@ -63,12 +64,17 @@ func lookup(t *testing.T, name string) server {
 func trustOnFirstUse(t *testing.T, addr string, opts probe.Options) ssh.PublicKey {
 	t.Helper()
 	var hostKey ssh.PublicKey
+	// The probe also checks a certificate's CA and plain key; the first call has
+	// the key the server presented.
 	opts.HostKeyCallback = func(_ string, _ net.Addr, key ssh.PublicKey) error {
-		hostKey = key
+		if hostKey == nil {
+			hostKey = key
+		}
 		return nil
 	}
 	deadline := time.Now().Add(readyTimeout)
 	for {
+		hostKey = nil
 		ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 		result := probe.Run(ctx, addr, opts)
 		cancel()
@@ -128,7 +134,8 @@ func TestServers(t *testing.T) {
 
 // TestHostCertificate verifies the host certificates that the OpenSSH servers
 // sign at start with the CA from make e2e, through a @cert-authority line.
-// openssh-alpine stays stock for TestNoCommonHostKeyAlgorithm.
+// openssh-alpine stays stock for TestNoCommonHostKeyAlgorithm;
+// openssh-debian13-no-principals serves TestHostCertificateWithoutPrincipals.
 func TestHostCertificate(t *testing.T) {
 	ca, err := os.ReadFile(filepath.Join(os.Getenv("E2E_CA_DIR"), "ca.pub"))
 	if err != nil {
@@ -137,7 +144,7 @@ func TestHostCertificate(t *testing.T) {
 	var certServers []server
 	var hosts []string
 	for _, s := range servers {
-		if strings.HasPrefix(s.name, "openssh-") && s.name != "openssh-alpine" {
+		if strings.HasPrefix(s.name, "openssh-") && s.name != "openssh-alpine" && s.name != "openssh-debian13-no-principals" {
 			certServers = append(certServers, s)
 			_, port, _ := net.SplitHostPort(s.addr)
 			hosts = append(hosts, "[127.0.0.1]:"+port)
@@ -180,6 +187,56 @@ func TestHostCertificate(t *testing.T) {
 			if !result.ServerHostCertificate || result.ServerHostCertificateValidAfter != 0 || result.ServerHostCertificateValidBefore != ssh.CertTimeInfinity {
 				t.Errorf("ServerHostCertificate = %t, valid %d to %d, want true, 0 to forever",
 					result.ServerHostCertificate, result.ServerHostCertificateValidAfter, result.ServerHostCertificateValidBefore)
+			}
+		})
+	}
+}
+
+// TestHostCertificateWithoutPrincipals checks a host certificate that
+// ssh-keygen signed without principals: it fails unless principals are
+// optional, then verifies through its CA.
+func TestHostCertificateWithoutPrincipals(t *testing.T) {
+	s := lookup(t, "openssh-debian13-no-principals")
+	ca, err := os.ReadFile(filepath.Join(os.Getenv("E2E_CA_DIR"), "ca.pub"))
+	if err != nil {
+		t.Fatalf("reading the CA from make e2e: %v", err)
+	}
+	_, port, _ := net.SplitHostPort(s.addr)
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	if err = os.WriteFile(path, []byte("@cert-authority [127.0.0.1]:"+port+" "+string(ca)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	callback, err := knownhosts.New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	isCA, err := knownhosts.CertAuthorities(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustOnFirstUse(t, s.addr, probe.Options{})
+
+	tests := []struct {
+		name       string
+		optional   bool
+		wantReason string
+	}{
+		{"required", false, probe.ErrReasonServerHostCertificatePrincipalNotListed},
+		{"optional", true, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+			defer cancel()
+			result := probe.Run(ctx, s.addr, probe.Options{HostKeyCallback: callback, IsCertAuthority: isCA, HostCertificatePrincipalsOptional: tt.optional})
+			if result.ErrorReason != tt.wantReason {
+				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, tt.wantReason)
+			}
+			if !strings.HasSuffix(result.ServerHostKeyAlgorithm, "-cert-v01@openssh.com") {
+				t.Errorf("host key algorithm = %q, want a certificate", result.ServerHostKeyAlgorithm)
+			}
+			if tt.optional && result.ServerHostKeyVerifiedBy != probe.VerifiedByCAKey {
+				t.Errorf("verified by %q, want %q", result.ServerHostKeyVerifiedBy, probe.VerifiedByCAKey)
 			}
 		})
 	}
