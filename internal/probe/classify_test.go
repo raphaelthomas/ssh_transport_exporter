@@ -536,6 +536,55 @@ func TestVerifyHostKeyNoFallback(t *testing.T) {
 	}
 }
 
+func TestVerifyHostKeyExactPrincipals(t *testing.T) {
+	const host = "host.example.com"
+	hostKey, ca := newEd25519Signer(t), newEd25519Signer(t)
+	hostPub, caPub := hostKey.PublicKey(), ca.PublicKey()
+	newCert := func(principal string) *ssh.Certificate {
+		t.Helper()
+		cert := &ssh.Certificate{Key: hostPub, CertType: ssh.HostCert, ValidPrincipals: []string{principal}, ValidBefore: ssh.CertTimeInfinity}
+		if err := cert.SignCert(rand.Reader, ca); err != nil {
+			t.Fatal(err)
+		}
+		return cert
+	}
+	exact, wildcard := newCert(host), newCert("*.example.com")
+
+	listed := knownHostsLine(host, hostPub)
+	trusted := knownHostsLine("@cert-authority "+host, caPub)
+
+	tests := []struct {
+		name       string
+		key        ssh.PublicKey
+		knownHosts []string
+		want       string // which key verified it, or the error reason
+		certReason string // the certificate's error reason, if its plain key verified
+	}{
+		{"trusted CA, wildcard principal, plain key not listed", wildcard, []string{trusted}, ErrReasonServerHostCertificatePrincipalNotListed, ""},
+		{"trusted CA, wildcard principal, plain key listed", wildcard, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificatePrincipalNotListed},
+		{"trusted CA, exact principal", exact, []string{trusted}, VerifiedByCAKey, ""},
+	}
+	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cb, isCA := loadKnownHosts(t, tt.knownHosts)
+			lines := knownHostsLines(cb, isCA, host+":22", remote)
+			opts := verifyOptions{caSignatureAlgorithms: defaultCASignatureAlgorithms, exactPrincipals: true}
+			got, certErr, err := verifyHostKey(cb, isCA, lines, opts, host+":22", remote, tt.key)
+			if err != nil {
+				got = classifyHostKeyVerifyError(err)
+			}
+			certReason := ""
+			if certErr != nil {
+				certReason = classifyHostKeyVerifyError(certErr)
+			}
+			if got != tt.want || certReason != tt.certReason {
+				t.Errorf("verifyHostKey() = %q, %v, %v, want %q, %q", got, certErr, err, tt.want, tt.certReason)
+			}
+		})
+	}
+}
+
 func TestDecidingLine(t *testing.T) {
 	const host = "host.example.com"
 	hostKey, ca := newEd25519Signer(t), newEd25519Signer(t)

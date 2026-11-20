@@ -211,6 +211,29 @@ modules:
 	}
 }
 
+func TestLoadHostCertificateAllowWildcardPrincipals(t *testing.T) {
+	content := fmt.Sprintf(`
+known_hosts_file: %q
+allowed_targets: ["example.com"]
+modules:
+  left_out: {}
+  patterns:
+    host_certificate_allow_wildcard_principals: true
+  exact:
+    host_certificate_allow_wildcard_principals: false
+`, writeKnownHosts(t, knownhosts.Line([]string{"example.com:22"}, newHostKey(t))))
+
+	modules, err := Load(writeConfig(t, content), false, discardLogger())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for name, want := range map[string]bool{"left_out": false, "patterns": false, "exact": true} {
+		if got := modules[name].Options.HostCertificateExactPrincipals; got != want {
+			t.Errorf("%s: HostCertificateExactPrincipals = %t, want %t", name, got, want)
+		}
+	}
+}
+
 func TestLoadAllowAllTargets(t *testing.T) {
 	pub := newHostKey(t)
 	line := knownhosts.Line([]string{"example.com:22"}, pub)
