@@ -218,6 +218,10 @@ of `host_key_algorithms`, like an explicit OpenSSH `HostKeyAlgorithms`.
 - A host certificate without principals or with an unusable validity
   window fails if its CA is on a security key (`sk-*`) and signed it without
   user presence. OpenSSH accepts it.
+- A server that supports only algorithms x/crypto lacks, e.g.
+  `sntrup761x25519-sha512` or an `sk-*` host key, fails the probe, as does a
+  host certificate whose CA signed with
+  `webauthn-sk-ecdsa-sha2-nistp256@openssh.com`. OpenSSH connects.
 
 #### Time
 
@@ -229,6 +233,15 @@ of `host_key_algorithms`, like an explicit OpenSSH `HostKeyAlgorithms`.
   `server_host_certificate_expired` early.
 - A certificate whose validity starts or ends in the exact second of the
   probe may be reported with a wrong reason.
+
+### Client profiles
+
+`profile` sets the behaviour keys to a client's values: `openssh-<version>`
+for OpenSSH 8.8 to 10.6, e.g. `openssh-9.6`, or `x-crypto` for a Go program
+using `golang.org/x/crypto`. `openssh` is the default.
+
+A key set in a module wins over the module's `profile`, which wins over a key
+set at top level, which wins over the top-level `profile`.
 
 ### TLS and basic auth
 

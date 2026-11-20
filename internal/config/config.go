@@ -56,32 +56,15 @@ func validateAlgorithms(kind string, names []string, known map[string]struct{}) 
 }
 
 type rawConfigModule struct {
-	KnownHostsFile    string   `yaml:"known_hosts_file,omitempty"`
-	AllowedTargets    []string `yaml:"allowed_targets,omitempty"`
-	AllowedPorts      []int    `yaml:"allowed_ports,omitempty"`
-	TargetPort        int      `yaml:"target_port,omitempty"`
-	Ciphers           []string `yaml:"ciphers,omitempty"`
-	KeyExchanges      []string `yaml:"kex_algorithms,omitempty"`
-	MACs              []string `yaml:"macs,omitempty"`
-	HostKeyAlgorithms []string `yaml:"host_key_algorithms,omitempty"`
-
-	// HostKeyAlgorithmsOrderByKnownHosts is nil when left out, i.e. true.
-	HostKeyAlgorithmsOrderByKnownHosts *bool `yaml:"host_key_algorithms_order_by_known_hosts,omitempty"`
-
-	CASignatureAlgorithms []string `yaml:"ca_signature_algorithms,omitempty"`
-
-	// HostCertificateAllowPlainKeyFallback is nil when left out, i.e. true.
-	HostCertificateAllowPlainKeyFallback *bool `yaml:"host_certificate_allow_plain_key_fallback,omitempty"`
-
-	// HostCertificateAllowWildcardPrincipals is nil when left out, i.e. true.
-	HostCertificateAllowWildcardPrincipals *bool `yaml:"host_certificate_allow_wildcard_principals,omitempty"`
-
-	// HostCertificateRequirePrincipals is nil when left out, i.e. true.
-	HostCertificateRequirePrincipals *bool `yaml:"host_certificate_require_principals,omitempty"`
-
-	CertAuthorityLinesMatchPlainKeys bool `yaml:"cert_authority_lines_match_plain_keys,omitempty"`
+	KnownHostsFile string   `yaml:"known_hosts_file,omitempty"`
+	AllowedTargets []string `yaml:"allowed_targets,omitempty"`
+	AllowedPorts   []int    `yaml:"allowed_ports,omitempty"`
+	TargetPort     int      `yaml:"target_port,omitempty"`
+	behaviour      `yaml:",inline"`
 
 	StripServerIdentificationComments bool `yaml:"strip_server_identification_comments,omitempty"`
+
+	profile profile
 }
 
 type rawConfig struct {
@@ -90,6 +73,7 @@ type rawConfig struct {
 	AllowedPorts   []int                      `yaml:"allowed_ports,omitempty"`
 	TargetPort     int                        `yaml:"target_port,omitempty"`
 	Modules        map[string]rawConfigModule `yaml:"modules,omitempty"`
+	behaviour      `yaml:",inline"`
 
 	// StripServerIdentificationComments enables stripping for every module.
 	// Modules can enable it individually but cannot switch it back off once set
@@ -113,7 +97,7 @@ func loadRawConfig(path string, allowAllTargetsFlag bool) (*rawConfig, error) {
 	var cfg rawConfig
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
-	if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
+	if err = dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("parsing config file: %w", err)
 	}
 
@@ -123,6 +107,18 @@ func loadRawConfig(path string, allowAllTargetsFlag bool) (*rawConfig, error) {
 
 	// An explicit top-level allowed_targets always wins over --allow-all-targets.
 	cfg.allowAllTargets = allowAllTargetsFlag && len(cfg.AllowedTargets) == 0
+
+	defaults, err := lookupProfile(DefaultProfileName)
+	if err != nil {
+		return nil, err
+	}
+	top, err := cfg.resolve(defaults)
+	if err == nil {
+		err = top.validate()
+	}
+	if err != nil {
+		return nil, err
+	}
 
 	for name, mod := range cfg.Modules {
 		if mod.KnownHostsFile == "" {
@@ -161,19 +157,11 @@ func loadRawConfig(path string, allowAllTargetsFlag bool) (*rawConfig, error) {
 			return nil, fmt.Errorf("module %q: target_port %d is not in allowed_ports %v", name, mod.TargetPort, mod.AllowedPorts)
 		}
 
-		if err := validateAlgorithms("ciphers", mod.Ciphers, knownCiphers); err != nil {
-			return nil, fmt.Errorf("module %q: %w", name, err)
+		mod.profile, err = mod.resolve(top)
+		if err == nil {
+			err = mod.profile.validate()
 		}
-		if err := validateAlgorithms("kex algorithms", mod.KeyExchanges, knownKeyExchanges); err != nil {
-			return nil, fmt.Errorf("module %q: %w", name, err)
-		}
-		if err := validateAlgorithms("macs", mod.MACs, knownMACs); err != nil {
-			return nil, fmt.Errorf("module %q: %w", name, err)
-		}
-		if err := validateAlgorithms("host key algorithms", mod.HostKeyAlgorithms, knownHostKeyAlgorithms); err != nil {
-			return nil, fmt.Errorf("module %q: %w", name, err)
-		}
-		if err := validateAlgorithms("ca signature algorithms", mod.CASignatureAlgorithms, knownCASignatureAlgorithms); err != nil {
+		if err != nil {
 			return nil, fmt.Errorf("module %q: %w", name, err)
 		}
 
