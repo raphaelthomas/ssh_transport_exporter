@@ -87,6 +87,17 @@ modules:
       - rsa-sha2-512
       - rsa-sha2-256
     host_key_algorithms_order_by_known_hosts: true
+    # The algorithms a CA may sign host certificates with; the order doesn't
+    # matter.
+    ca_signature_algorithms:
+      - ssh-ed25519
+      - ecdsa-sha2-nistp256
+      - ecdsa-sha2-nistp384
+      - ecdsa-sha2-nistp521
+      - sk-ssh-ed25519@openssh.com
+      - sk-ecdsa-sha2-nistp256@openssh.com
+      - rsa-sha2-512
+      - rsa-sha2-256
   # Module named "weak_audit". Advertises ONLY the insecure ciphers and host key
   # algorithms x/crypto/ssh still supports. Because these are never negotiated
   # by default, a successful probe with this module means the target agreed to a

@@ -159,6 +159,10 @@ type Options struct {
 	// IsCertAuthority is set.
 	HostKeyAlgorithmsFixedOrder bool
 
+	// CASignatureAlgorithms to accept on host certificates. Empty uses
+	// defaultCASignatureAlgorithms.
+	CASignatureAlgorithms []string
+
 	StripServerIdentificationComments bool
 
 	Logger *slog.Logger
@@ -212,9 +216,10 @@ var (
 		ssh.HMACSHA1,
 	}
 
-	// caSignatureAlgorithms is OpenSSH's default CASignatureAlgorithms, without
-	// webauthn-sk-ecdsa-sha2-nistp256@openssh.com, which x/crypto does not implement.
-	caSignatureAlgorithms = []string{
+	// defaultCASignatureAlgorithms is OpenSSH 10.6's default CASignatureAlgorithms,
+	// without webauthn-sk-ecdsa-sha2-nistp256@openssh.com, which x/crypto does not
+	// implement.
+	defaultCASignatureAlgorithms = []string{
 		ssh.KeyAlgoED25519,
 		ssh.KeyAlgoECDSA256,
 		ssh.KeyAlgoECDSA384,
@@ -359,6 +364,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		}
 		hostKeyAlgorithms = orderHostKeyAlgorithms(hostKeyAlgorithms, lines, opts.IsCertAuthority, revoked)
 	}
+	caSignatureAlgorithms := orDefault(opts.CASignatureAlgorithms, defaultCASignatureAlgorithms)
 
 	forceCloseOnCtxDone := context.AfterFunc(ctx, func() {
 		_ = rawConn.Close()
@@ -377,7 +383,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		MACs:              orDefault(opts.MACs, defaultMACs),
 		HostKeyAlgorithms: hostKeyAlgorithms,
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			verifiedBy, certErr, err := verifyHostKey(hostKeyCallback, opts.IsCertAuthority, lines, hostname, remote, key)
+			verifiedBy, certErr, err := verifyHostKey(hostKeyCallback, opts.IsCertAuthority, lines, caSignatureAlgorithms, hostname, remote, key)
 			hk := hostKeyResult{verified: err == nil, verifiedBy: verifiedBy}
 			hk.line, _ = decidingLine(lines, opts.IsCertAuthority, key, verifiedBy, err)
 			hk.cert, _ = key.(*ssh.Certificate)
@@ -579,8 +585,8 @@ func orderHostKeyAlgorithms(algorithms []string, lines []knownhosts.KnownKey, is
 // back to the host key inside it. A bad CA signature, or a @revoked key or CA,
 // fails without fallback. isCA tells @cert-authority lines from plain ones, which
 // cb doesn't; without it, cb decides alone. lines are the host's, from
-// knownHostsLines.
-func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, lines []knownhosts.KnownKey, hostname string, remote net.Addr, key ssh.PublicKey) (verifiedBy string, certificateErr, err error) {
+// knownHostsLines. caSignatureAlgorithms are those a CA may sign with.
+func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, lines []knownhosts.KnownKey, caSignatureAlgorithms []string, hostname string, remote net.Addr, key ssh.PublicKey) (verifiedBy string, certificateErr, err error) {
 	check := func(k ssh.PublicKey) error { return cb(hostname, remote, k) }
 
 	listed := func(k ssh.PublicKey, ca bool) bool {
@@ -646,7 +652,7 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 		certErr = fmt.Errorf("CA signature algorithm %q not allowed", cert.Signature.Format)
 	}
 	// Fall back to the host key inside the certificate.
-	hostCertErr := hostCertificateError(cert, host, certErr, caTrusted)
+	hostCertErr := hostCertificateError(cert, host, certErr, caTrusted, caSignatureAlgorithms)
 	plainErr := checkPlain(cert.Key)
 	if plainErr == nil {
 		return VerifiedByPlainKey, hostCertErr, nil
@@ -709,7 +715,7 @@ func firstLine(lines []knownhosts.KnownKey, isCA func(knownhosts.KnownKey) bool,
 // of OpenSSH's check_host_key and sshkey_cert_check_host. certErr is the result
 // of checking cert, caTrusted whether a @cert-authority line lists its CA; the
 // certificate's fields only name the reason.
-func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caTrusted bool) error {
+func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caTrusted bool, caSignatureAlgorithms []string) error {
 	now := time.Now().Unix()
 	var reason error
 	switch {

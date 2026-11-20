@@ -181,6 +181,7 @@ func TestDefaultAlgorithmsSupported(t *testing.T) {
 		{"host key", defaultHostKeyAlgorithms, supported.HostKeys},
 		{"cipher", defaultCiphers, supported.Ciphers},
 		{"MAC", defaultMACs, supported.MACs},
+		{"CA signature", defaultCASignatureAlgorithms, supported.PublicKeyAuths},
 	} {
 		for _, algo := range tt.defaults {
 			if !slices.Contains(tt.supported, algo) {
@@ -457,6 +458,45 @@ func TestRunHostCertificate(t *testing.T) {
 			if !result.ServerHostCertificate || result.ServerHostCertificateValidAfter != validAfter || result.ServerHostCertificateValidBefore != tt.validBefore {
 				t.Errorf("ServerHostCertificate = %t, valid %d to %d, want true, %d to %d",
 					result.ServerHostCertificate, result.ServerHostCertificateValidAfter, result.ServerHostCertificateValidBefore, validAfter, tt.validBefore)
+			}
+		})
+	}
+}
+
+// TestRunCASignatureAlgorithms checks that Run passes CASignatureAlgorithms on
+// to the host certificate check.
+func TestRunCASignatureAlgorithms(t *testing.T) {
+	t.Parallel()
+	ca := newRSASigner(t, ssh.KeyAlgoRSA)
+	tests := []struct {
+		name       string
+		algorithms []string
+		wantReason string
+	}{
+		{"default", nil, ErrReasonServerHostCertificateSignatureAlgorithmDisallowed},
+		{"ssh-rsa listed", []string{ssh.KeyAlgoRSA}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := sshtest.NewServer(t, sshtest.Options{
+				HostCertificate: func(t *testing.T, hostKey ssh.PublicKey) *ssh.Certificate {
+					t.Helper()
+					cert := &ssh.Certificate{Key: hostKey, CertType: ssh.HostCert, ValidPrincipals: []string{"127.0.0.1"}, ValidBefore: ssh.CertTimeInfinity}
+					if err := cert.SignCert(rand.Reader, ca); err != nil {
+						t.Fatal(err)
+					}
+					return cert
+				},
+			})
+			callback, isCA := loadKnownHosts(t, []string{knownHostsLine("@cert-authority [127.0.0.1]:"+srv.Port(t), ca.PublicKey())})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, CASignatureAlgorithms: tt.algorithms})
+
+			if result.ErrorReason != tt.wantReason {
+				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, tt.wantReason)
 			}
 		})
 	}
