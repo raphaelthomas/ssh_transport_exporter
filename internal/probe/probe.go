@@ -168,6 +168,11 @@ type Options struct {
 	// OpenSSH.
 	HostCertificateNoFallback bool
 
+	// HostCertificateExactPrincipals compares host certificate principals with
+	// the target exactly, like OpenSSH before 10.3 and x/crypto. False matches
+	// them as patterns, like OpenSSH 10.3 to 10.6.
+	HostCertificateExactPrincipals bool
+
 	StripServerIdentificationComments bool
 
 	Logger *slog.Logger
@@ -372,6 +377,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 	verify := verifyOptions{
 		caSignatureAlgorithms: orDefault(opts.CASignatureAlgorithms, defaultCASignatureAlgorithms),
 		noFallback:            opts.HostCertificateNoFallback,
+		exactPrincipals:       opts.HostCertificateExactPrincipals,
 	}
 
 	forceCloseOnCtxDone := context.AfterFunc(ctx, func() {
@@ -591,6 +597,7 @@ func orderHostKeyAlgorithms(algorithms []string, lines []knownhosts.KnownKey, is
 type verifyOptions struct {
 	caSignatureAlgorithms []string
 	noFallback            bool
+	exactPrincipals       bool
 }
 
 // verifyHostKey checks key against known_hosts like OpenSSH's check_host_key and
@@ -647,9 +654,9 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 		return "", nil, caErr
 	}
 	caTrusted := caErr == nil && (isCA == nil || listed(cert.SignatureKey, true))
-	// x/crypto matches principals exactly, OpenSSH 10.3+ as patterns: check
-	// again with the principal that matches.
-	if p := hostCertPrincipal(cert, host); certErr != nil && cert.CertType == ssh.HostCert && caTrusted && p != "" {
+	// x/crypto matches principals exactly, OpenSSH 10.3 to 10.6 as patterns:
+	// check again with the principal that matches.
+	if p := hostCertPrincipal(cert, host, opts.exactPrincipals); certErr != nil && cert.CertType == ssh.HostCert && caTrusted && p != "" {
 		checker := ssh.CertChecker{
 			IsRevoked: func(c *ssh.Certificate) bool {
 				_, ok := errors.AsType[*knownhosts.RevokedError](check(c.Key))
@@ -665,7 +672,7 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 		}
 		certErr = fmt.Errorf("CA signature algorithm %q not allowed", cert.Signature.Format)
 	}
-	hostCertErr := hostCertificateError(cert, host, certErr, caTrusted, opts.caSignatureAlgorithms)
+	hostCertErr := hostCertificateError(cert, host, certErr, caTrusted, opts)
 	// Without fallback, a @revoked key inside the certificate still fails as revoked.
 	if opts.noFallback {
 		err := check(cert.Key)
@@ -737,7 +744,7 @@ func firstLine(lines []knownhosts.KnownKey, isCA func(knownhosts.KnownKey) bool,
 // of OpenSSH's check_host_key and sshkey_cert_check_host. certErr is the result
 // of checking cert, caTrusted whether a @cert-authority line lists its CA; the
 // certificate's fields only name the reason.
-func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caTrusted bool, caSignatureAlgorithms []string) error {
+func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caTrusted bool, opts verifyOptions) error {
 	now := time.Now().Unix()
 	var reason error
 	switch {
@@ -749,11 +756,11 @@ func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caT
 		reason = errHostCertificateNotYetValid
 	case now >= certUnix(cert.ValidBefore):
 		reason = errHostCertificateExpired
-	case hostCertPrincipal(cert, host) == "":
+	case hostCertPrincipal(cert, host, opts.exactPrincipals) == "":
 		reason = errHostCertificatePrincipalNotListed
 	case len(cert.CriticalOptions) > 0:
 		reason = errHostCertificateInvalid
-	case !slices.Contains(caSignatureAlgorithms, cert.Signature.Format):
+	case !slices.Contains(opts.caSignatureAlgorithms, cert.Signature.Format):
 		reason = errHostCertificateSignatureAlgorithmDisallowed
 	default:
 		reason = errHostCertificateInvalid
@@ -762,10 +769,10 @@ func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caT
 }
 
 // hostCertPrincipal returns the first of cert's principals that matches host
-// like OpenSSH's match_pattern, or "" if none does.
-func hostCertPrincipal(cert *ssh.Certificate, host string) string {
+// like OpenSSH's match_pattern, or equals it if exact, or "" if none does.
+func hostCertPrincipal(cert *ssh.Certificate, host string, exact bool) string {
 	for _, p := range cert.ValidPrincipals {
-		if match.Pattern(host, p) {
+		if p == host || !exact && match.Pattern(host, p) {
 			return p
 		}
 	}

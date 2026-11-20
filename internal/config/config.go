@@ -73,6 +73,9 @@ type rawConfigModule struct {
 	// HostCertificateAllowPlainKeyFallback is nil when left out, i.e. true.
 	HostCertificateAllowPlainKeyFallback *bool `yaml:"host_certificate_allow_plain_key_fallback,omitempty"`
 
+	// HostCertificateAllowWildcardPrincipals is nil when left out, i.e. true.
+	HostCertificateAllowWildcardPrincipals *bool `yaml:"host_certificate_allow_wildcard_principals,omitempty"`
+
 	StripServerIdentificationComments bool `yaml:"strip_server_identification_comments,omitempty"`
 }
 

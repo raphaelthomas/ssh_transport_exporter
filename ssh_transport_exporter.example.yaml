@@ -101,6 +101,9 @@ modules:
     # false fails a host certificate that doesn't verify, even if the host key
     # inside it is listed.
     host_certificate_allow_plain_key_fallback: true
+    # false compares host certificate principals with the target exactly,
+    # instead of as patterns such as *.example.com.
+    host_certificate_allow_wildcard_principals: true
   # Module named "weak_audit". Advertises ONLY the insecure ciphers and host key
   # algorithms x/crypto/ssh still supports. Because these are never negotiated
   # by default, a successful probe with this module means the target agreed to a

@@ -51,18 +51,20 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 
 		orderByKnownHosts := mod.HostKeyAlgorithmsOrderByKnownHosts == nil || *mod.HostKeyAlgorithmsOrderByKnownHosts
 		plainKeyFallback := mod.HostCertificateAllowPlainKeyFallback == nil || *mod.HostCertificateAllowPlainKeyFallback
+		wildcardPrincipals := mod.HostCertificateAllowWildcardPrincipals == nil || *mod.HostCertificateAllowWildcardPrincipals
 
 		modules[name] = Module{
 			Options: probe.Options{
-				HostKeyCallback:             hostKeyCallback,
-				IsCertAuthority:             isCertAuthority,
-				Ciphers:                     mod.Ciphers,
-				KeyExchanges:                mod.KeyExchanges,
-				MACs:                        mod.MACs,
-				HostKeyAlgorithms:           mod.HostKeyAlgorithms,
-				HostKeyAlgorithmsFixedOrder: !orderByKnownHosts,
-				CASignatureAlgorithms:       mod.CASignatureAlgorithms,
-				HostCertificateNoFallback:   !plainKeyFallback,
+				HostKeyCallback:                hostKeyCallback,
+				IsCertAuthority:                isCertAuthority,
+				Ciphers:                        mod.Ciphers,
+				KeyExchanges:                   mod.KeyExchanges,
+				MACs:                           mod.MACs,
+				HostKeyAlgorithms:              mod.HostKeyAlgorithms,
+				HostKeyAlgorithmsFixedOrder:    !orderByKnownHosts,
+				CASignatureAlgorithms:          mod.CASignatureAlgorithms,
+				HostCertificateNoFallback:      !plainKeyFallback,
+				HostCertificateExactPrincipals: !wildcardPrincipals,
 
 				StripServerIdentificationComments: mod.StripServerIdentificationComments,
 				Logger:                            logger,
@@ -84,6 +86,7 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			"host_key_algorithms_order_by_known_hosts", orderByKnownHosts,
 			"ca_signature_algorithms", mod.CASignatureAlgorithms,
 			"host_certificate_allow_plain_key_fallback", plainKeyFallback,
+			"host_certificate_allow_wildcard_principals", wildcardPrincipals,
 			"strip_server_identification_comments", mod.StripServerIdentificationComments,
 		)
 	}

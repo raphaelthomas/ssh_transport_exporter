@@ -197,6 +197,10 @@ key in".
 With `host_certificate_allow_plain_key_fallback: false`, a host certificate
 that doesn't verify fails, even if the host key inside it is listed.
 
+Host certificate principals match the target as patterns, like OpenSSH 10.3
+to 10.6. With `host_certificate_allow_wildcard_principals: false`, they must
+equal it, like older OpenSSH.
+
 The probe first asks for the host key types that `known_hosts` lists for the
 target, like OpenSSH without `HostKeyAlgorithms` or with its `+` and `-` forms.
 That holds for a set `host_key_algorithms` too. With
