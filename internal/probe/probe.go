@@ -163,6 +163,11 @@ type Options struct {
 	// defaultCASignatureAlgorithms.
 	CASignatureAlgorithms []string
 
+	// HostCertificateNoFallback fails a host certificate that doesn't verify
+	// through its CA, like x/crypto. False retries with its plain key, like
+	// OpenSSH.
+	HostCertificateNoFallback bool
+
 	StripServerIdentificationComments bool
 
 	Logger *slog.Logger
@@ -364,7 +369,10 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		}
 		hostKeyAlgorithms = orderHostKeyAlgorithms(hostKeyAlgorithms, lines, opts.IsCertAuthority, revoked)
 	}
-	caSignatureAlgorithms := orDefault(opts.CASignatureAlgorithms, defaultCASignatureAlgorithms)
+	verify := verifyOptions{
+		caSignatureAlgorithms: orDefault(opts.CASignatureAlgorithms, defaultCASignatureAlgorithms),
+		noFallback:            opts.HostCertificateNoFallback,
+	}
 
 	forceCloseOnCtxDone := context.AfterFunc(ctx, func() {
 		_ = rawConn.Close()
@@ -383,7 +391,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		MACs:              orDefault(opts.MACs, defaultMACs),
 		HostKeyAlgorithms: hostKeyAlgorithms,
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			verifiedBy, certErr, err := verifyHostKey(hostKeyCallback, opts.IsCertAuthority, lines, caSignatureAlgorithms, hostname, remote, key)
+			verifiedBy, certErr, err := verifyHostKey(hostKeyCallback, opts.IsCertAuthority, lines, verify, hostname, remote, key)
 			hk := hostKeyResult{verified: err == nil, verifiedBy: verifiedBy}
 			hk.line, _ = decidingLine(lines, opts.IsCertAuthority, key, verifiedBy, err)
 			hk.cert, _ = key.(*ssh.Certificate)
@@ -579,14 +587,20 @@ func orderHostKeyAlgorithms(algorithms []string, lines []knownhosts.KnownKey, is
 	return append(first, last...)
 }
 
+// verifyOptions are the Options verifyHostKey follows.
+type verifyOptions struct {
+	caSignatureAlgorithms []string
+	noFallback            bool
+}
+
 // verifyHostKey checks key against known_hosts like OpenSSH's check_host_key and
 // returns which listed key verified it and, for the plain key inside a host
 // certificate, why the certificate didn't. An invalid SSH host certificate falls
-// back to the host key inside it. A bad CA signature, or a @revoked key or CA,
-// fails without fallback. isCA tells @cert-authority lines from plain ones, which
-// cb doesn't; without it, cb decides alone. lines are the host's, from
-// knownHostsLines. caSignatureAlgorithms are those a CA may sign with.
-func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, lines []knownhosts.KnownKey, caSignatureAlgorithms []string, hostname string, remote net.Addr, key ssh.PublicKey) (verifiedBy string, certificateErr, err error) {
+// back to the host key inside it, unless opts.noFallback. A bad CA signature, or
+// a @revoked key or CA, fails without fallback. isCA tells @cert-authority lines
+// from plain ones, which cb doesn't; without it, cb decides alone. lines are the
+// host's, from knownHostsLines.
+func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, lines []knownhosts.KnownKey, opts verifyOptions, hostname string, remote net.Addr, key ssh.PublicKey) (verifiedBy string, certificateErr, err error) {
 	check := func(k ssh.PublicKey) error { return cb(hostname, remote, k) }
 
 	listed := func(k ssh.PublicKey, ca bool) bool {
@@ -646,13 +660,21 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 	}
 	// Validate the certificate like OpenSSH, including its CA signature algorithm.
 	if certErr == nil {
-		if slices.Contains(caSignatureAlgorithms, cert.Signature.Format) {
+		if slices.Contains(opts.caSignatureAlgorithms, cert.Signature.Format) {
 			return VerifiedByCAKey, nil, nil
 		}
 		certErr = fmt.Errorf("CA signature algorithm %q not allowed", cert.Signature.Format)
 	}
+	hostCertErr := hostCertificateError(cert, host, certErr, caTrusted, opts.caSignatureAlgorithms)
+	// Without fallback, a @revoked key inside the certificate still fails as revoked.
+	if opts.noFallback {
+		err := check(cert.Key)
+		if _, ok := errors.AsType[*knownhosts.RevokedError](err); ok {
+			return "", nil, err
+		}
+		return "", nil, hostCertErr
+	}
 	// Fall back to the host key inside the certificate.
-	hostCertErr := hostCertificateError(cert, host, certErr, caTrusted, caSignatureAlgorithms)
 	plainErr := checkPlain(cert.Key)
 	if plainErr == nil {
 		return VerifiedByPlainKey, hostCertErr, nil

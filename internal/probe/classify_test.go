@@ -415,7 +415,7 @@ func TestVerifyHostKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
 			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			got, certErr, err := verifyHostKey(cb, isCA, lines, defaultCASignatureAlgorithms, host+":22", remote, tt.key)
+			got, certErr, err := verifyHostKey(cb, isCA, lines, verifyOptions{caSignatureAlgorithms: defaultCASignatureAlgorithms}, host+":22", remote, tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -466,7 +466,7 @@ func TestVerifyHostKeyCASignatureAlgorithms(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
 			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			got, certErr, err := verifyHostKey(cb, isCA, lines, tt.algorithms, host+":22", remote, tt.key)
+			got, certErr, err := verifyHostKey(cb, isCA, lines, verifyOptions{caSignatureAlgorithms: tt.algorithms}, host+":22", remote, tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -476,6 +476,61 @@ func TestVerifyHostKeyCASignatureAlgorithms(t *testing.T) {
 			}
 			if got != tt.want || certReason != tt.certReason {
 				t.Errorf("verifyHostKey() = %q, %v, %v, want %q, %q", got, certErr, err, tt.want, tt.certReason)
+			}
+		})
+	}
+}
+
+func TestVerifyHostKeyNoFallback(t *testing.T) {
+	const host = "host.example.com"
+	hostKey, ca := newEd25519Signer(t), newEd25519Signer(t)
+	hostPub, caPub := hostKey.PublicKey(), ca.PublicKey()
+	newCert := func(validBefore uint64) *ssh.Certificate {
+		t.Helper()
+		cert := &ssh.Certificate{Key: hostPub, CertType: ssh.HostCert, ValidPrincipals: []string{host}, ValidBefore: validBefore}
+		if err := cert.SignCert(rand.Reader, ca); err != nil {
+			t.Fatal(err)
+		}
+		return cert
+	}
+	valid, expired := newCert(ssh.CertTimeInfinity), newCert(uint64(time.Now().Add(-time.Hour).Unix()))
+	badSignature, sig := *valid, *valid.Signature
+	sig.Blob = slices.Clone(sig.Blob)
+	sig.Blob[0] ^= 1
+	badSignature.Signature = &sig
+	// Removing the principals after signing breaks the signature.
+	noPrincipals := *valid
+	noPrincipals.ValidPrincipals = nil
+
+	listed := knownHostsLine(host, hostPub)
+	trusted := knownHostsLine("@cert-authority "+host, caPub)
+
+	tests := []struct {
+		name       string
+		key        ssh.PublicKey
+		knownHosts []string
+		want       string // which key verified it, or the error reason
+	}{
+		{"trusted CA, expired, plain key listed", expired, []string{trusted, listed}, ErrReasonServerHostCertificateExpired},
+		{"untrusted CA, plain key listed", valid, []string{listed}, ErrReasonServerHostCertificateCAUnknown},
+		{"trusted CA, valid", valid, []string{trusted}, VerifiedByCAKey},
+		{"trusted CA, key revoked", valid, []string{trusted, knownHostsLine("@revoked *", hostPub)}, ErrReasonServerHostKeyRevoked},
+		{"bad CA signature, plain key listed", &badSignature, []string{trusted, listed}, ErrReasonServerHostCertificateSignatureInvalid},
+		{"no principals, bad CA signature, plain key listed", &noPrincipals, []string{trusted, listed}, ErrReasonServerHostCertificatePrincipalNotListed},
+		{"plain key, listed", hostPub, []string{listed}, VerifiedByPlainKey},
+	}
+	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cb, isCA := loadKnownHosts(t, tt.knownHosts)
+			lines := knownHostsLines(cb, isCA, host+":22", remote)
+			opts := verifyOptions{caSignatureAlgorithms: defaultCASignatureAlgorithms, noFallback: true}
+			got, certErr, err := verifyHostKey(cb, isCA, lines, opts, host+":22", remote, tt.key)
+			if err != nil {
+				got = classifyHostKeyVerifyError(err)
+			}
+			if got != tt.want || certErr != nil {
+				t.Errorf("verifyHostKey() = %q, %v, %v, want %q, <nil>", got, certErr, err, tt.want)
 			}
 		})
 	}
@@ -525,7 +580,7 @@ func TestDecidingLine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
 			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			verifiedBy, _, err := verifyHostKey(cb, isCA, lines, defaultCASignatureAlgorithms, host+":22", remote, tt.key)
+			verifiedBy, _, err := verifyHostKey(cb, isCA, lines, verifyOptions{caSignatureAlgorithms: defaultCASignatureAlgorithms}, host+":22", remote, tt.key)
 			line, ok := decidingLine(lines, isCA, tt.key, verifiedBy, err)
 			if line.Line != tt.want || ok != (tt.want != 0) {
 				t.Errorf("decidingLine() = %d, %t, want %d (verifyHostKey: %q, %v)", line.Line, ok, tt.want, verifiedBy, err)

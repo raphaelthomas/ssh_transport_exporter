@@ -502,6 +502,46 @@ func TestRunCASignatureAlgorithms(t *testing.T) {
 	}
 }
 
+// TestRunHostCertificateNoFallback checks that Run passes
+// HostCertificateNoFallback on to the host certificate check.
+func TestRunHostCertificateNoFallback(t *testing.T) {
+	t.Parallel()
+	ca := newEd25519Signer(t)
+	tests := []struct {
+		name       string
+		noFallback bool
+		wantReason string
+	}{
+		{"fallback", false, ""},
+		{"no fallback", true, ErrReasonServerHostCertificateCAUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := sshtest.NewServer(t, sshtest.Options{
+				HostCertificate: func(t *testing.T, hostKey ssh.PublicKey) *ssh.Certificate {
+					t.Helper()
+					cert := &ssh.Certificate{Key: hostKey, CertType: ssh.HostCert, ValidPrincipals: []string{"127.0.0.1"}, ValidBefore: ssh.CertTimeInfinity}
+					if err := cert.SignCert(rand.Reader, ca); err != nil {
+						t.Fatal(err)
+					}
+					return cert
+				},
+			})
+			plainKey := srv.HostKey.(*ssh.Certificate).Key
+			callback, isCA := loadKnownHosts(t, []string{knownHostsLine("[127.0.0.1]:"+srv.Port(t), plainKey)})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, HostCertificateNoFallback: tt.noFallback})
+
+			if result.ErrorReason != tt.wantReason {
+				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, tt.wantReason)
+			}
+		})
+	}
+}
+
 // TestRunOrdersHostKeyAlgorithms checks that Run asks for the host key type
 // known_hosts lists, unless HostKeyAlgorithmsFixedOrder is set.
 func TestRunOrdersHostKeyAlgorithms(t *testing.T) {

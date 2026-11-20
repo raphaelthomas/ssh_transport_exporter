@@ -188,6 +188,29 @@ modules:
 	}
 }
 
+func TestLoadHostCertificateAllowPlainKeyFallback(t *testing.T) {
+	content := fmt.Sprintf(`
+known_hosts_file: %q
+allowed_targets: ["example.com"]
+modules:
+  left_out: {}
+  fallback:
+    host_certificate_allow_plain_key_fallback: true
+  no_fallback:
+    host_certificate_allow_plain_key_fallback: false
+`, writeKnownHosts(t, knownhosts.Line([]string{"example.com:22"}, newHostKey(t))))
+
+	modules, err := Load(writeConfig(t, content), false, discardLogger())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for name, want := range map[string]bool{"left_out": false, "fallback": false, "no_fallback": true} {
+		if got := modules[name].Options.HostCertificateNoFallback; got != want {
+			t.Errorf("%s: HostCertificateNoFallback = %t, want %t", name, got, want)
+		}
+	}
+}
+
 func TestLoadAllowAllTargets(t *testing.T) {
 	pub := newHostKey(t)
 	line := knownhosts.Line([]string{"example.com:22"}, pub)
