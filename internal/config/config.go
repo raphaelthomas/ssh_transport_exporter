@@ -63,6 +63,9 @@ type rawConfigModule struct {
 	MACs              []string `yaml:"macs,omitempty"`
 	HostKeyAlgorithms []string `yaml:"host_key_algorithms,omitempty"`
 
+	// HostKeyAlgorithmsOrderByKnownHosts is nil when left out, i.e. true.
+	HostKeyAlgorithmsOrderByKnownHosts *bool `yaml:"host_key_algorithms_order_by_known_hosts,omitempty"`
+
 	StripServerIdentificationComments bool `yaml:"strip_server_identification_comments,omitempty"`
 }
 

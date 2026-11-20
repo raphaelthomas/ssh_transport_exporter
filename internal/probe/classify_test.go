@@ -512,26 +512,33 @@ func TestOrderHostKeyAlgorithms(t *testing.T) {
 	}
 	tests := []struct {
 		name       string
+		algorithms []string // nil for defaultHostKeyAlgorithms
 		knownHosts []string
 		want       []string
 	}{
-		{"no lines", nil, defaultHostKeyAlgorithms},
-		{"plain ed25519", []string{knownHostsLine(host, ed)}, defaultHostKeyAlgorithms},
-		{"plain ed25519 and plain rsa", []string{knownHostsLine(host, ed), knownHostsLine(host, rsaKey)}, defaultHostKeyAlgorithms},
-		{"plain rsa", []string{knownHostsLine(host, rsaKey)}, rsaFirst},
-		{"plain ecdsa nistp384", []string{knownHostsLine(host, ecdsa384.PublicKey())}, []string{
+		{"no lines", nil, nil, defaultHostKeyAlgorithms},
+		{"plain ed25519", nil, []string{knownHostsLine(host, ed)}, defaultHostKeyAlgorithms},
+		{"plain ed25519 and plain rsa", nil, []string{knownHostsLine(host, ed), knownHostsLine(host, rsaKey)}, defaultHostKeyAlgorithms},
+		{"plain rsa", nil, []string{knownHostsLine(host, rsaKey)}, rsaFirst},
+		{"plain ecdsa nistp384", nil, []string{knownHostsLine(host, ecdsa384.PublicKey())}, []string{
 			ssh.CertAlgoECDSA384v01, ssh.KeyAlgoECDSA384,
 			ssh.CertAlgoED25519v01, ssh.CertAlgoECDSA256v01, ssh.CertAlgoECDSA521v01, ssh.CertAlgoRSASHA512v01, ssh.CertAlgoRSASHA256v01,
 			ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA521, ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256,
 		}},
-		{"@cert-authority line only", []string{knownHostsLine("@cert-authority "+host, ca)}, defaultHostKeyAlgorithms},
-		{"@cert-authority line and plain rsa", []string{knownHostsLine("@cert-authority "+host, ca), knownHostsLine(host, rsaKey)}, append(slices.Clone(certs),
+		{"@cert-authority line only", nil, []string{knownHostsLine("@cert-authority "+host, ca)}, defaultHostKeyAlgorithms},
+		{"@cert-authority line and plain rsa", nil, []string{knownHostsLine("@cert-authority "+host, ca), knownHostsLine(host, rsaKey)}, append(slices.Clone(certs),
 			ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521)},
-		{"plain ed25519 revoked, plain rsa", []string{knownHostsLine(host, ed), knownHostsLine("@revoked *", ed), knownHostsLine(host, rsaKey)}, rsaFirst},
-		{"first plain ed25519 revoked, a later one not, plain rsa", []string{
+		{"plain ed25519 revoked, plain rsa", nil, []string{knownHostsLine(host, ed), knownHostsLine("@revoked *", ed), knownHostsLine(host, rsaKey)}, rsaFirst},
+		{"first plain ed25519 revoked, a later one not, plain rsa", nil, []string{
 			knownHostsLine(host, ed), knownHostsLine(host, edOther), knownHostsLine("@revoked *", ed), knownHostsLine(host, rsaKey),
 		}, rsaFirst},
-		{"plain line holding a certificate", []string{knownHostsLine(host, cert)}, defaultHostKeyAlgorithms},
+		{"plain line holding a certificate", nil, []string{knownHostsLine(host, cert)}, defaultHostKeyAlgorithms},
+		{"set list, plain ed25519", []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoED25519}, []string{knownHostsLine(host, ed)},
+			[]string{ssh.KeyAlgoED25519, ssh.KeyAlgoRSASHA512}},
+		{"set list with ssh-rsa, plain rsa", []string{ssh.KeyAlgoED25519, ssh.KeyAlgoRSA, ssh.CertAlgoRSAv01}, []string{knownHostsLine(host, rsaKey)},
+			[]string{ssh.KeyAlgoRSA, ssh.CertAlgoRSAv01, ssh.KeyAlgoED25519}},
+		{"set list with an ML-DSA certificate, @cert-authority line", []string{ssh.KeyAlgoED25519, ssh.CertAlgoMLDSA65v01Go}, []string{knownHostsLine("@cert-authority "+host, ca)},
+			[]string{ssh.CertAlgoMLDSA65v01Go, ssh.KeyAlgoED25519}},
 	}
 	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
@@ -541,7 +548,11 @@ func TestOrderHostKeyAlgorithms(t *testing.T) {
 				_, ok := errors.AsType[*knownhosts.RevokedError](cb(host+":22", remote, k))
 				return ok
 			}
-			got := orderHostKeyAlgorithms(defaultHostKeyAlgorithms, knownHostsLines(cb, isCA, host+":22", remote), isCA, revoked)
+			algorithms := tt.algorithms
+			if algorithms == nil {
+				algorithms = defaultHostKeyAlgorithms
+			}
+			got := orderHostKeyAlgorithms(algorithms, knownHostsLines(cb, isCA, host+":22", remote), isCA, revoked)
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("orderHostKeyAlgorithms() = %q, want %q", got, tt.want)
 			}
@@ -549,8 +560,10 @@ func TestOrderHostKeyAlgorithms(t *testing.T) {
 	}
 }
 
+// TestHostKeyTypes fails when a fork rebase adds a host key algorithm the config
+// accepts but orderHostKeyAlgorithms can't place.
 func TestHostKeyTypes(t *testing.T) {
-	for _, alg := range defaultHostKeyAlgorithms {
+	for _, alg := range slices.Concat(ssh.SupportedAlgorithms().HostKeys, ssh.InsecureAlgorithms().HostKeys) {
 		if _, ok := hostKeyTypes[alg]; !ok {
 			t.Errorf("no key type for %s", alg)
 		}

@@ -70,8 +70,9 @@ modules:
       - hmac-sha2-512-etm@openssh.com
       - hmac-sha2-256
       - hmac-sha2-512
-    # Specify the advertised host key algorithms and their order used to verify
-    # the target's identity.
+    # The host key algorithms the probe accepts. It asks first for the types
+    # known_hosts lists for the target, unless
+    # host_key_algorithms_order_by_known_hosts is false.
     host_key_algorithms:
       - ssh-ed25519-cert-v01@openssh.com
       - ecdsa-sha2-nistp256-cert-v01@openssh.com
@@ -85,6 +86,7 @@ modules:
       - ecdsa-sha2-nistp521
       - rsa-sha2-512
       - rsa-sha2-256
+    host_key_algorithms_order_by_known_hosts: true
   # Module named "weak_audit". Advertises ONLY the insecure ciphers and host key
   # algorithms x/crypto/ssh still supports. Because these are never negotiated
   # by default, a successful probe with this module means the target agreed to a

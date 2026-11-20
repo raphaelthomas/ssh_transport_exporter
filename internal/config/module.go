@@ -49,14 +49,17 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			allowedPorts[p] = struct{}{}
 		}
 
+		orderByKnownHosts := mod.HostKeyAlgorithmsOrderByKnownHosts == nil || *mod.HostKeyAlgorithmsOrderByKnownHosts
+
 		modules[name] = Module{
 			Options: probe.Options{
-				HostKeyCallback:   hostKeyCallback,
-				IsCertAuthority:   isCertAuthority,
-				Ciphers:           mod.Ciphers,
-				KeyExchanges:      mod.KeyExchanges,
-				MACs:              mod.MACs,
-				HostKeyAlgorithms: mod.HostKeyAlgorithms,
+				HostKeyCallback:             hostKeyCallback,
+				IsCertAuthority:             isCertAuthority,
+				Ciphers:                     mod.Ciphers,
+				KeyExchanges:                mod.KeyExchanges,
+				MACs:                        mod.MACs,
+				HostKeyAlgorithms:           mod.HostKeyAlgorithms,
+				HostKeyAlgorithmsFixedOrder: !orderByKnownHosts,
 
 				StripServerIdentificationComments: mod.StripServerIdentificationComments,
 				Logger:                            logger,
@@ -75,6 +78,7 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			"kex_algorithms", mod.KeyExchanges,
 			"macs", mod.MACs,
 			"host_key_algorithms", mod.HostKeyAlgorithms,
+			"host_key_algorithms_order_by_known_hosts", orderByKnownHosts,
 			"strip_server_identification_comments", mod.StripServerIdentificationComments,
 		)
 	}

@@ -194,8 +194,11 @@ vouches for the key, through a CA or directly.
 `known_hosts` line that decided, like OpenSSH's "Found key in" and "Offending
 key in".
 
-Without `host_key_algorithms`, the probe first asks for the host key types
-that `known_hosts` lists for the target, like OpenSSH.
+The probe first asks for the host key types that `known_hosts` lists for the
+target, like OpenSSH without `HostKeyAlgorithms` or with its `+` and `-` forms.
+That holds for a set `host_key_algorithms` too. With
+`host_key_algorithms_order_by_known_hosts: false`, the probe asks in the order
+of `host_key_algorithms`, like an explicit OpenSSH `HostKeyAlgorithms`.
 
 #### Differences from OpenSSH
 

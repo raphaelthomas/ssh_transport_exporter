@@ -355,6 +355,11 @@ func TestLoadRawConfigAlgorithmValidation(t *testing.T) {
 			`unknown macs ["hmac-sha2-2566"]`,
 		},
 		{
+			"non-boolean host_key_algorithms_order_by_known_hosts",
+			"known_hosts_file: \"k\"\nmodules:\n  m:\n    host_key_algorithms_order_by_known_hosts: fixed\n",
+			"cannot unmarshal",
+		},
+		{
 			"every offending host key algorithm is reported",
 			"known_hosts_file: \"k\"\nmodules:\n  m:\n    host_key_algorithms: [sk-ssh-ed25519@openssh.com, ssh-ed25519, sk-ecdsa-sha2-nistp256@openssh.com]\n",
 			`unknown host key algorithms ["sk-ssh-ed25519@openssh.com" "sk-ecdsa-sha2-nistp256@openssh.com"]`,
