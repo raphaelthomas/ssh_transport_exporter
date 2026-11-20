@@ -146,6 +146,7 @@ modules:
   default:
     ciphers: ["aes128-gcm@openssh.com"]
     host_key_algorithms: ["ssh-ed25519"]
+    ca_signature_algorithms: ["ssh-ed25519", "rsa-sha2-512"]
 `, writeKnownHosts(t, line))
 
 	modules, err := Load(writeConfig(t, content), false, discardLogger())
@@ -158,6 +159,9 @@ modules:
 	}
 	if got := mod.Options.HostKeyAlgorithms; len(got) != 1 || got[0] != "ssh-ed25519" {
 		t.Errorf("HostKeyAlgorithms = %v, want [ssh-ed25519]", got)
+	}
+	if got := mod.Options.CASignatureAlgorithms; len(got) != 2 || got[0] != "ssh-ed25519" || got[1] != "rsa-sha2-512" {
+		t.Errorf("CASignatureAlgorithms = %v, want [ssh-ed25519 rsa-sha2-512]", got)
 	}
 }
 

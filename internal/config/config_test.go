@@ -355,6 +355,11 @@ func TestLoadRawConfigAlgorithmValidation(t *testing.T) {
 			`unknown macs ["hmac-sha2-2566"]`,
 		},
 		{
+			"host key algorithm name in the CA signature list",
+			"known_hosts_file: \"k\"\nmodules:\n  m:\n    ca_signature_algorithms: [ssh-ed25519, ssh-ed25519-cert-v01@openssh.com]\n",
+			`unknown ca signature algorithms ["ssh-ed25519-cert-v01@openssh.com"]`,
+		},
+		{
 			"non-boolean host_key_algorithms_order_by_known_hosts",
 			"known_hosts_file: \"k\"\nmodules:\n  m:\n    host_key_algorithms_order_by_known_hosts: fixed\n",
 			"cannot unmarshal",
@@ -382,7 +387,8 @@ func TestLoadRawConfigAcceptsInsecureAlgorithms(t *testing.T) {
 		"    ciphers: [arcfour, arcfour128, arcfour256, 3des-cbc, aes128-cbc]\n" +
 		"    kex_algorithms: [diffie-hellman-group1-sha1, diffie-hellman-group14-sha1, diffie-hellman-group-exchange-sha1]\n" +
 		"    macs: [hmac-sha1, hmac-sha1-96]\n" +
-		"    host_key_algorithms: [ssh-rsa, ssh-rsa-cert-v01@openssh.com]\n"
+		"    host_key_algorithms: [ssh-rsa, ssh-rsa-cert-v01@openssh.com]\n" +
+		"    ca_signature_algorithms: [ssh-rsa]\n"
 	if _, err := loadRaw(t, content); err != nil {
 		t.Errorf("loadRawConfig: %v", err)
 	}

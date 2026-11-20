@@ -60,6 +60,7 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 				MACs:                        mod.MACs,
 				HostKeyAlgorithms:           mod.HostKeyAlgorithms,
 				HostKeyAlgorithmsFixedOrder: !orderByKnownHosts,
+				CASignatureAlgorithms:       mod.CASignatureAlgorithms,
 
 				StripServerIdentificationComments: mod.StripServerIdentificationComments,
 				Logger:                            logger,
@@ -79,6 +80,7 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			"macs", mod.MACs,
 			"host_key_algorithms", mod.HostKeyAlgorithms,
 			"host_key_algorithms_order_by_known_hosts", orderByKnownHosts,
+			"ca_signature_algorithms", mod.CASignatureAlgorithms,
 			"strip_server_identification_comments", mod.StripServerIdentificationComments,
 		)
 	}

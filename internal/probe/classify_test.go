@@ -415,7 +415,58 @@ func TestVerifyHostKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
 			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			got, certErr, err := verifyHostKey(cb, isCA, lines, host+":22", remote, tt.key)
+			got, certErr, err := verifyHostKey(cb, isCA, lines, defaultCASignatureAlgorithms, host+":22", remote, tt.key)
+			if err != nil {
+				got = classifyHostKeyVerifyError(err)
+			}
+			certReason := ""
+			if certErr != nil {
+				certReason = classifyHostKeyVerifyError(certErr)
+			}
+			if got != tt.want || certReason != tt.certReason {
+				t.Errorf("verifyHostKey() = %q, %v, %v, want %q, %q", got, certErr, err, tt.want, tt.certReason)
+			}
+		})
+	}
+}
+
+func TestVerifyHostKeyCASignatureAlgorithms(t *testing.T) {
+	const host = "host.example.com"
+	hostPub := newEd25519Signer(t).PublicKey()
+	newCert := func(authority ssh.Signer) *ssh.Certificate {
+		t.Helper()
+		cert := &ssh.Certificate{Key: hostPub, CertType: ssh.HostCert, ValidPrincipals: []string{host}, ValidBefore: ssh.CertTimeInfinity}
+		if err := cert.SignCert(rand.Reader, authority); err != nil {
+			t.Fatal(err)
+		}
+		return cert
+	}
+	edCA, rsaSHA1CA := newEd25519Signer(t), newRSASigner(t, ssh.KeyAlgoRSA)
+	edSigned, sha1Signed := newCert(edCA), newCert(rsaSHA1CA)
+	authority := func(key ssh.PublicKey) string { return knownHostsLine("@cert-authority "+host, key) }
+	listed := knownHostsLine(host, hostPub)
+
+	tests := []struct {
+		name       string
+		algorithms []string
+		key        ssh.PublicKey
+		knownHosts []string
+		want       string // which key verified it, or the error reason
+		certReason string // the certificate's error reason, if its plain key verified
+	}{
+		{"ssh-rsa, default, plain key not listed", defaultCASignatureAlgorithms, sha1Signed, []string{authority(rsaSHA1CA.PublicKey())},
+			ErrReasonServerHostCertificateSignatureAlgorithmDisallowed, ""},
+		{"ssh-rsa, listed", []string{ssh.KeyAlgoED25519, ssh.KeyAlgoRSA}, sha1Signed, []string{authority(rsaSHA1CA.PublicKey())},
+			VerifiedByCAKey, ""},
+		{"ssh-ed25519, not listed, plain key listed", []string{ssh.KeyAlgoRSASHA512}, edSigned, []string{authority(edCA.PublicKey()), listed},
+			VerifiedByPlainKey, ErrReasonServerHostCertificateSignatureAlgorithmDisallowed},
+	}
+	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cb, isCA := loadKnownHosts(t, tt.knownHosts)
+			lines := knownHostsLines(cb, isCA, host+":22", remote)
+			got, certErr, err := verifyHostKey(cb, isCA, lines, tt.algorithms, host+":22", remote, tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -474,7 +525,7 @@ func TestDecidingLine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
 			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			verifiedBy, _, err := verifyHostKey(cb, isCA, lines, host+":22", remote, tt.key)
+			verifiedBy, _, err := verifyHostKey(cb, isCA, lines, defaultCASignatureAlgorithms, host+":22", remote, tt.key)
 			line, ok := decidingLine(lines, isCA, tt.key, verifiedBy, err)
 			if line.Line != tt.want || ok != (tt.want != 0) {
 				t.Errorf("decidingLine() = %d, %t, want %d (verifyHostKey: %q, %v)", line.Line, ok, tt.want, verifiedBy, err)

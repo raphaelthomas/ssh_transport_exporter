@@ -25,6 +25,8 @@ var (
 	knownKeyExchanges      = algorithmSet(ssh.SupportedAlgorithms().KeyExchanges, ssh.InsecureAlgorithms().KeyExchanges)
 	knownMACs              = algorithmSet(ssh.SupportedAlgorithms().MACs, ssh.InsecureAlgorithms().MACs)
 	knownHostKeyAlgorithms = algorithmSet(ssh.SupportedAlgorithms().HostKeys, ssh.InsecureAlgorithms().HostKeys)
+	// The signature algorithms x/crypto verifies, which a CA may sign with.
+	knownCASignatureAlgorithms = algorithmSet(ssh.SupportedAlgorithms().PublicKeyAuths, ssh.InsecureAlgorithms().PublicKeyAuths)
 )
 
 func algorithmSet(lists ...[]string) map[string]struct{} {
@@ -65,6 +67,8 @@ type rawConfigModule struct {
 
 	// HostKeyAlgorithmsOrderByKnownHosts is nil when left out, i.e. true.
 	HostKeyAlgorithmsOrderByKnownHosts *bool `yaml:"host_key_algorithms_order_by_known_hosts,omitempty"`
+
+	CASignatureAlgorithms []string `yaml:"ca_signature_algorithms,omitempty"`
 
 	StripServerIdentificationComments bool `yaml:"strip_server_identification_comments,omitempty"`
 }
@@ -156,6 +160,9 @@ func loadRawConfig(path string, allowAllTargetsFlag bool) (*rawConfig, error) {
 			return nil, fmt.Errorf("module %q: %w", name, err)
 		}
 		if err := validateAlgorithms("host key algorithms", mod.HostKeyAlgorithms, knownHostKeyAlgorithms); err != nil {
+			return nil, fmt.Errorf("module %q: %w", name, err)
+		}
+		if err := validateAlgorithms("ca signature algorithms", mod.CASignatureAlgorithms, knownCASignatureAlgorithms); err != nil {
 			return nil, fmt.Errorf("module %q: %w", name, err)
 		}
 
