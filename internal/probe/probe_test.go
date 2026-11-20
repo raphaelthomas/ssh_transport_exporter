@@ -463,7 +463,7 @@ func TestRunHostCertificate(t *testing.T) {
 }
 
 // TestRunOrdersHostKeyAlgorithms checks that Run asks for the host key type
-// known_hosts lists, unless the module sets host_key_algorithms.
+// known_hosts lists, unless HostKeyAlgorithmsFixedOrder is set.
 func TestRunOrdersHostKeyAlgorithms(t *testing.T) {
 	t.Parallel()
 	ecdsaKey, err := ssh.NewSignerFromKey(mustECDSA(t, elliptic.P256()))
@@ -473,11 +473,14 @@ func TestRunOrdersHostKeyAlgorithms(t *testing.T) {
 	tests := []struct {
 		name              string
 		hostKeyAlgorithms []string
+		fixedOrder        bool
 		wantAlgorithm     string
 		wantReason        string
 	}{
-		{"defaults", nil, ssh.KeyAlgoECDSA256, ""},
-		{"host_key_algorithms set", []string{ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256}, ssh.KeyAlgoED25519, ErrReasonServerHostKeyMismatch},
+		{"defaults", nil, false, ssh.KeyAlgoECDSA256, ""},
+		{"defaults, fixed order", nil, true, ssh.KeyAlgoED25519, ErrReasonServerHostKeyMismatch},
+		{"host_key_algorithms set", []string{ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256}, false, ssh.KeyAlgoECDSA256, ""},
+		{"host_key_algorithms set, fixed order", []string{ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256}, true, ssh.KeyAlgoED25519, ErrReasonServerHostKeyMismatch},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -487,7 +490,10 @@ func TestRunOrdersHostKeyAlgorithms(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, HostKeyAlgorithms: tt.hostKeyAlgorithms})
+			result := Run(ctx, srv.Addr, Options{
+				HostKeyCallback: callback, IsCertAuthority: isCA,
+				HostKeyAlgorithms: tt.hostKeyAlgorithms, HostKeyAlgorithmsFixedOrder: tt.fixedOrder,
+			})
 
 			if result.ServerHostKeyAlgorithm != tt.wantAlgorithm || result.ErrorReason != tt.wantReason {
 				t.Errorf("ServerHostKeyAlgorithm = %q, ErrorReason = %q, want %q, %q",

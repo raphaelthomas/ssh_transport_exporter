@@ -154,6 +154,11 @@ type Options struct {
 	// defaultHostKeyAlgorithms.
 	HostKeyAlgorithms []string
 
+	// HostKeyAlgorithmsFixedOrder asks for HostKeyAlgorithms in their order.
+	// False asks first for the types known_hosts lists, like OpenSSH, if
+	// IsCertAuthority is set.
+	HostKeyAlgorithmsFixedOrder bool
+
 	StripServerIdentificationComments bool
 
 	Logger *slog.Logger
@@ -347,7 +352,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 	// Like OpenSSH, after the connect: known_hosts decides which host key to ask for.
 	lines := knownHostsLines(hostKeyCallback, opts.IsCertAuthority, target, rawConn.RemoteAddr())
 	hostKeyAlgorithms := orDefault(opts.HostKeyAlgorithms, defaultHostKeyAlgorithms)
-	if len(opts.HostKeyAlgorithms) == 0 && opts.IsCertAuthority != nil {
+	if !opts.HostKeyAlgorithmsFixedOrder && opts.IsCertAuthority != nil {
 		revoked := func(k ssh.PublicKey) bool {
 			_, ok := errors.AsType[*knownhosts.RevokedError](hostKeyCallback(target, rawConn.RemoteAddr(), k))
 			return ok
@@ -513,8 +518,8 @@ func knownHostsLines(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool
 	return nil
 }
 
-// hostKeyTypes maps each default host key algorithm to the type of the key it
-// verifies with; a certificate algorithm to that of the key inside it.
+// hostKeyTypes maps each host key algorithm x/crypto accepts to the type of the
+// key it verifies with; a certificate algorithm to that of the key inside it.
 var hostKeyTypes = map[string]string{
 	ssh.CertAlgoED25519v01:   ssh.KeyAlgoED25519,
 	ssh.CertAlgoECDSA256v01:  ssh.KeyAlgoECDSA256,
@@ -522,12 +527,20 @@ var hostKeyTypes = map[string]string{
 	ssh.CertAlgoECDSA521v01:  ssh.KeyAlgoECDSA521,
 	ssh.CertAlgoRSASHA512v01: ssh.KeyAlgoRSA,
 	ssh.CertAlgoRSASHA256v01: ssh.KeyAlgoRSA,
+	ssh.CertAlgoRSAv01:       ssh.KeyAlgoRSA,
+	ssh.CertAlgoMLDSA44v01Go: ssh.KeyAlgoMLDSA44,
+	ssh.CertAlgoMLDSA65v01Go: ssh.KeyAlgoMLDSA65,
+	ssh.CertAlgoMLDSA87v01Go: ssh.KeyAlgoMLDSA87,
 	ssh.KeyAlgoED25519:       ssh.KeyAlgoED25519,
 	ssh.KeyAlgoECDSA256:      ssh.KeyAlgoECDSA256,
 	ssh.KeyAlgoECDSA384:      ssh.KeyAlgoECDSA384,
 	ssh.KeyAlgoECDSA521:      ssh.KeyAlgoECDSA521,
 	ssh.KeyAlgoRSASHA512:     ssh.KeyAlgoRSA,
 	ssh.KeyAlgoRSASHA256:     ssh.KeyAlgoRSA,
+	ssh.KeyAlgoRSA:           ssh.KeyAlgoRSA,
+	ssh.KeyAlgoMLDSA44:       ssh.KeyAlgoMLDSA44,
+	ssh.KeyAlgoMLDSA65:       ssh.KeyAlgoMLDSA65,
+	ssh.KeyAlgoMLDSA87:       ssh.KeyAlgoMLDSA87,
 }
 
 // orderHostKeyAlgorithms orders algorithms like OpenSSH's order_hostkeyalgs:
@@ -551,7 +564,7 @@ func orderHostKeyAlgorithms(algorithms []string, lines []knownhosts.KnownKey, is
 	}
 	var first, last []string
 	for _, alg := range algorithms {
-		if (ca && strings.HasSuffix(alg, "-cert-v01@openssh.com")) || listed[hostKeyTypes[alg]] {
+		if (ca && strings.Contains(alg, "-cert-v01@")) || listed[hostKeyTypes[alg]] {
 			first = append(first, alg)
 		} else {
 			last = append(last, alg)

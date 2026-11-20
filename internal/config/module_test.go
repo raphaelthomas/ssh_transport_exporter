@@ -161,6 +161,29 @@ modules:
 	}
 }
 
+func TestLoadHostKeyAlgorithmsOrderByKnownHosts(t *testing.T) {
+	content := fmt.Sprintf(`
+known_hosts_file: %q
+allowed_targets: ["example.com"]
+modules:
+  left_out: {}
+  ordered:
+    host_key_algorithms_order_by_known_hosts: true
+  fixed:
+    host_key_algorithms_order_by_known_hosts: false
+`, writeKnownHosts(t, knownhosts.Line([]string{"example.com:22"}, newHostKey(t))))
+
+	modules, err := Load(writeConfig(t, content), false, discardLogger())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for name, want := range map[string]bool{"left_out": false, "ordered": false, "fixed": true} {
+		if got := modules[name].Options.HostKeyAlgorithmsFixedOrder; got != want {
+			t.Errorf("%s: HostKeyAlgorithmsFixedOrder = %t, want %t", name, got, want)
+		}
+	}
+}
+
 func TestLoadAllowAllTargets(t *testing.T) {
 	pub := newHostKey(t)
 	line := knownhosts.Line([]string{"example.com:22"}, pub)
