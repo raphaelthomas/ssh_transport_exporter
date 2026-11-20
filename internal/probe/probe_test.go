@@ -581,6 +581,43 @@ func TestRunHostCertificateExactPrincipals(t *testing.T) {
 	}
 }
 
+// TestRunHostCertificatePrincipalsOptional checks that Run passes
+// HostCertificatePrincipalsOptional on to the host certificate check.
+func TestRunHostCertificatePrincipalsOptional(t *testing.T) {
+	t.Parallel()
+	ca := newEd25519Signer(t)
+	tests := []struct {
+		name       string
+		optional   bool
+		wantReason string
+	}{
+		{"required", false, ErrReasonServerHostCertificatePrincipalNotListed},
+		{"optional", true, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := sshtest.NewServer(t, sshtest.Options{
+				HostCertificate: func(t *testing.T, hostKey ssh.PublicKey) *ssh.Certificate {
+					t.Helper()
+					cert := &ssh.Certificate{Key: hostKey, CertType: ssh.HostCert, ValidBefore: ssh.CertTimeInfinity}
+					signWithoutPrincipals(t, cert, ca)
+					return cert
+				},
+			})
+			callback, isCA := loadKnownHosts(t, []string{knownHostsLine("@cert-authority [127.0.0.1]:"+srv.Port(t), ca.PublicKey())})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, HostCertificatePrincipalsOptional: tt.optional})
+
+			if result.ErrorReason != tt.wantReason {
+				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, tt.wantReason)
+			}
+		})
+	}
+}
+
 // TestRunOrdersHostKeyAlgorithms checks that Run asks for the host key type
 // known_hosts lists, unless HostKeyAlgorithmsFixedOrder is set.
 func TestRunOrdersHostKeyAlgorithms(t *testing.T) {

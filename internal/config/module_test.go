@@ -234,6 +234,29 @@ modules:
 	}
 }
 
+func TestLoadHostCertificateRequirePrincipals(t *testing.T) {
+	content := fmt.Sprintf(`
+known_hosts_file: %q
+allowed_targets: ["example.com"]
+modules:
+  left_out: {}
+  required:
+    host_certificate_require_principals: true
+  optional:
+    host_certificate_require_principals: false
+`, writeKnownHosts(t, knownhosts.Line([]string{"example.com:22"}, newHostKey(t))))
+
+	modules, err := Load(writeConfig(t, content), false, discardLogger())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for name, want := range map[string]bool{"left_out": false, "required": false, "optional": true} {
+		if got := modules[name].Options.HostCertificatePrincipalsOptional; got != want {
+			t.Errorf("%s: HostCertificatePrincipalsOptional = %t, want %t", name, got, want)
+		}
+	}
+}
+
 func TestLoadAllowAllTargets(t *testing.T) {
 	pub := newHostKey(t)
 	line := knownhosts.Line([]string{"example.com:22"}, pub)

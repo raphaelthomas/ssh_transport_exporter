@@ -76,6 +76,9 @@ type rawConfigModule struct {
 	// HostCertificateAllowWildcardPrincipals is nil when left out, i.e. true.
 	HostCertificateAllowWildcardPrincipals *bool `yaml:"host_certificate_allow_wildcard_principals,omitempty"`
 
+	// HostCertificateRequirePrincipals is nil when left out, i.e. true.
+	HostCertificateRequirePrincipals *bool `yaml:"host_certificate_require_principals,omitempty"`
+
 	StripServerIdentificationComments bool `yaml:"strip_server_identification_comments,omitempty"`
 }
 

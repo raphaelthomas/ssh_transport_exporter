@@ -182,8 +182,7 @@ The probe checks the server's host key against `known_hosts`, like OpenSSH:
 - A plain host key must be listed for the target.
 - A host certificate must be signed by a CA whose `@cert-authority` line
   matches the target.
-- A bad CA signature fails, with one exception under
-  [Differences from OpenSSH](#differences-from-openssh).
+- A bad CA signature fails.
 - A `@revoked` key or CA fails.
 - If the certificate verification fails, the probe checks the host key
   inside the certificate instead.
@@ -201,6 +200,10 @@ Host certificate principals match the target as patterns, like OpenSSH 10.3
 to 10.6. With `host_certificate_allow_wildcard_principals: false`, they must
 equal it, like older OpenSSH.
 
+A host certificate without principals fails, like OpenSSH 10.3 to 10.6. With
+`host_certificate_require_principals: false`, it covers any target, like older
+OpenSSH.
+
 The probe first asks for the host key types that `known_hosts` lists for the
 target, like OpenSSH without `HostKeyAlgorithms` or with its `+` and `-` forms.
 That holds for a set `host_key_algorithms` too. With
@@ -209,10 +212,9 @@ of `host_key_algorithms`, like an explicit OpenSSH `HostKeyAlgorithms`.
 
 #### Differences from OpenSSH
 
-- With `host_certificate_allow_plain_key_fallback: true`, the default, a host
-  certificate with an empty principal list or an unusable validity window,
-  and with a bad CA signature, falls back to the host key inside it. OpenSSH
-  fails.
+- A host certificate without principals or with an unusable validity
+  window fails if its CA is on a security key (`sk-*`) and signed it without
+  user presence. OpenSSH accepts it.
 
 #### Time
 
