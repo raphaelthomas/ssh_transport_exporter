@@ -98,6 +98,9 @@ modules:
       - sk-ecdsa-sha2-nistp256@openssh.com
       - rsa-sha2-512
       - rsa-sha2-256
+    # false fails a host certificate that doesn't verify, even if the host key
+    # inside it is listed.
+    host_certificate_allow_plain_key_fallback: true
   # Module named "weak_audit". Advertises ONLY the insecure ciphers and host key
   # algorithms x/crypto/ssh still supports. Because these are never negotiated
   # by default, a successful probe with this module means the target agreed to a

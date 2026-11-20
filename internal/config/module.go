@@ -50,6 +50,7 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 		}
 
 		orderByKnownHosts := mod.HostKeyAlgorithmsOrderByKnownHosts == nil || *mod.HostKeyAlgorithmsOrderByKnownHosts
+		plainKeyFallback := mod.HostCertificateAllowPlainKeyFallback == nil || *mod.HostCertificateAllowPlainKeyFallback
 
 		modules[name] = Module{
 			Options: probe.Options{
@@ -61,6 +62,7 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 				HostKeyAlgorithms:           mod.HostKeyAlgorithms,
 				HostKeyAlgorithmsFixedOrder: !orderByKnownHosts,
 				CASignatureAlgorithms:       mod.CASignatureAlgorithms,
+				HostCertificateNoFallback:   !plainKeyFallback,
 
 				StripServerIdentificationComments: mod.StripServerIdentificationComments,
 				Logger:                            logger,
@@ -81,6 +83,7 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			"host_key_algorithms", mod.HostKeyAlgorithms,
 			"host_key_algorithms_order_by_known_hosts", orderByKnownHosts,
 			"ca_signature_algorithms", mod.CASignatureAlgorithms,
+			"host_certificate_allow_plain_key_fallback", plainKeyFallback,
 			"strip_server_identification_comments", mod.StripServerIdentificationComments,
 		)
 	}

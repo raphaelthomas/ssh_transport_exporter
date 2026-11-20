@@ -70,6 +70,9 @@ type rawConfigModule struct {
 
 	CASignatureAlgorithms []string `yaml:"ca_signature_algorithms,omitempty"`
 
+	// HostCertificateAllowPlainKeyFallback is nil when left out, i.e. true.
+	HostCertificateAllowPlainKeyFallback *bool `yaml:"host_certificate_allow_plain_key_fallback,omitempty"`
+
 	StripServerIdentificationComments bool `yaml:"strip_server_identification_comments,omitempty"`
 }
 

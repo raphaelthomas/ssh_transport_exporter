@@ -194,6 +194,9 @@ vouches for the key, through a CA or directly.
 `known_hosts` line that decided, like OpenSSH's "Found key in" and "Offending
 key in".
 
+With `host_certificate_allow_plain_key_fallback: false`, a host certificate
+that doesn't verify fails, even if the host key inside it is listed.
+
 The probe first asks for the host key types that `known_hosts` lists for the
 target, like OpenSSH without `HostKeyAlgorithms` or with its `+` and `-` forms.
 That holds for a set `host_key_algorithms` too. With
@@ -202,9 +205,10 @@ of `host_key_algorithms`, like an explicit OpenSSH `HostKeyAlgorithms`.
 
 #### Differences from OpenSSH
 
-- A host certificate with an empty principal list or an unusable validity
-  window, and with a bad CA signature, falls back to the host key inside it.
-  OpenSSH fails.
+- With `host_certificate_allow_plain_key_fallback: true`, the default, a host
+  certificate with an empty principal list or an unusable validity window,
+  and with a bad CA signature, falls back to the host key inside it. OpenSSH
+  fails.
 
 #### Time
 
