@@ -49,25 +49,21 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			allowedPorts[p] = struct{}{}
 		}
 
-		orderByKnownHosts := mod.HostKeyAlgorithmsOrderByKnownHosts == nil || *mod.HostKeyAlgorithmsOrderByKnownHosts
-		plainKeyFallback := mod.HostCertificateAllowPlainKeyFallback == nil || *mod.HostCertificateAllowPlainKeyFallback
-		wildcardPrincipals := mod.HostCertificateAllowWildcardPrincipals == nil || *mod.HostCertificateAllowWildcardPrincipals
-		requirePrincipals := mod.HostCertificateRequirePrincipals == nil || *mod.HostCertificateRequirePrincipals
-
+		p := mod.profile
 		modules[name] = Module{
 			Options: probe.Options{
 				HostKeyCallback:                   hostKeyCallback,
 				IsCertAuthority:                   isCertAuthority,
-				Ciphers:                           mod.Ciphers,
-				KeyExchanges:                      mod.KeyExchanges,
-				MACs:                              mod.MACs,
-				HostKeyAlgorithms:                 mod.HostKeyAlgorithms,
-				HostKeyAlgorithmsFixedOrder:       !orderByKnownHosts,
-				CASignatureAlgorithms:             mod.CASignatureAlgorithms,
-				HostCertificateNoFallback:         !plainKeyFallback,
-				HostCertificateExactPrincipals:    !wildcardPrincipals,
-				HostCertificatePrincipalsOptional: !requirePrincipals,
-				CertAuthorityLinesMatchPlainKeys:  mod.CertAuthorityLinesMatchPlainKeys,
+				Ciphers:                           p.ciphers,
+				KeyExchanges:                      p.keyExchanges,
+				MACs:                              p.macs,
+				HostKeyAlgorithms:                 p.hostKeyAlgorithms,
+				HostKeyAlgorithmsFixedOrder:       !p.orderByKnownHosts,
+				CASignatureAlgorithms:             p.caSignatureAlgorithms,
+				HostCertificateNoFallback:         !p.plainKeyFallback,
+				HostCertificateExactPrincipals:    !p.wildcardPrincipals,
+				HostCertificatePrincipalsOptional: !p.requirePrincipals,
+				CertAuthorityLinesMatchPlainKeys:  p.caLinesMatchPlainKeys,
 
 				StripServerIdentificationComments: mod.StripServerIdentificationComments,
 				Logger:                            logger,
@@ -82,16 +78,17 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			"allowed_targets", mod.AllowedTargets,
 			"allowed_ports", mod.AllowedPorts,
 			"target_port", mod.TargetPort,
-			"ciphers", mod.Ciphers,
-			"kex_algorithms", mod.KeyExchanges,
-			"macs", mod.MACs,
-			"host_key_algorithms", mod.HostKeyAlgorithms,
-			"host_key_algorithms_order_by_known_hosts", orderByKnownHosts,
-			"ca_signature_algorithms", mod.CASignatureAlgorithms,
-			"host_certificate_allow_plain_key_fallback", plainKeyFallback,
-			"host_certificate_allow_wildcard_principals", wildcardPrincipals,
-			"host_certificate_require_principals", requirePrincipals,
-			"cert_authority_lines_match_plain_keys", mod.CertAuthorityLinesMatchPlainKeys,
+			"profile", p.name,
+			"ciphers", p.ciphers,
+			"kex_algorithms", p.keyExchanges,
+			"macs", p.macs,
+			"host_key_algorithms", p.hostKeyAlgorithms,
+			"host_key_algorithms_order_by_known_hosts", p.orderByKnownHosts,
+			"ca_signature_algorithms", p.caSignatureAlgorithms,
+			"host_certificate_allow_plain_key_fallback", p.plainKeyFallback,
+			"host_certificate_allow_wildcard_principals", p.wildcardPrincipals,
+			"host_certificate_require_principals", p.requirePrincipals,
+			"cert_authority_lines_match_plain_keys", p.caLinesMatchPlainKeys,
 			"strip_server_identification_comments", mod.StripServerIdentificationComments,
 		)
 	}
