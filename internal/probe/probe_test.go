@@ -30,10 +30,6 @@ func testProfile(change func(*profile.Profile)) *profile.Profile {
 	return &p
 }
 
-func acceptKey(want ssh.PublicKey) ssh.HostKeyCallback {
-	return ssh.FixedHostKey(want)
-}
-
 func TestRunSuccess(t *testing.T) {
 	t.Parallel()
 	srv := sshtest.NewServer(t, sshtest.Options{ServerVersion: "SSH-2.0-TestServer_1.0"})
@@ -41,7 +37,7 @@ func TestRunSuccess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
+	result := Run(ctx, srv.Addr, Options{KnownHosts: acceptKey(t, srv.Addr, srv.HostKey)})
 
 	if !result.TCPConnectSuccess {
 		t.Fatalf("TCPConnectSuccess = false, want true (error %s/%s)", result.ErrorPhase, result.ErrorReason)
@@ -104,7 +100,7 @@ func TestRunAbortsAtTransportReady(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
+	result := Run(ctx, srv.Addr, Options{KnownHosts: acceptKey(t, srv.Addr, srv.HostKey)})
 
 	if !result.KeyExchangeSuccess {
 		t.Fatalf("KeyExchangeSuccess = false, want true (error %s/%s)", result.ErrorPhase, result.ErrorReason)
@@ -134,8 +130,8 @@ func TestRunNegotiatesRequestedCipher(t *testing.T) {
 	defer cancel()
 
 	result := Run(ctx, srv.Addr, Options{
-		HostKeyCallback: acceptKey(srv.HostKey),
-		Profile:         testProfile(func(p *profile.Profile) { p.Ciphers = []string{cipher} }),
+		KnownHosts: acceptKey(t, srv.Addr, srv.HostKey),
+		Profile:    testProfile(func(p *profile.Profile) { p.Ciphers = []string{cipher} }),
 	})
 
 	if !result.KeyExchangeSuccess {
@@ -170,7 +166,7 @@ func TestRunNoCommonAlgorithm(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			tt.probe.HostKeyCallback = acceptKey(srv.HostKey)
+			tt.probe.KnownHosts = acceptKey(t, srv.Addr, srv.HostKey)
 			result := Run(ctx, srv.Addr, tt.probe)
 
 			if !result.VersionExchangeSuccess {
@@ -213,8 +209,8 @@ func TestRunHostKeyAlgorithmsRespected(t *testing.T) {
 
 	// The server only has an ed25519 host key; demanding RSA must fail KEX.
 	result := Run(ctx, srv.Addr, Options{
-		HostKeyCallback: acceptKey(srv.HostKey),
-		Profile:         testProfile(func(p *profile.Profile) { p.HostKeyAlgorithms = []string{ssh.KeyAlgoRSASHA256} }),
+		KnownHosts: acceptKey(t, srv.Addr, srv.HostKey),
+		Profile:    testProfile(func(p *profile.Profile) { p.HostKeyAlgorithms = []string{ssh.KeyAlgoRSASHA256} }),
 	})
 
 	if !result.TCPConnectSuccess {
@@ -237,8 +233,8 @@ func TestRunKeyExchangesRespected(t *testing.T) {
 
 	// The server offers only its defaults, which exclude this insecure kex.
 	result := Run(ctx, srv.Addr, Options{
-		HostKeyCallback: acceptKey(srv.HostKey),
-		Profile:         testProfile(func(p *profile.Profile) { p.KeyExchanges = []string{ssh.InsecureKeyExchangeDH1SHA1} }),
+		KnownHosts: acceptKey(t, srv.Addr, srv.HostKey),
+		Profile:    testProfile(func(p *profile.Profile) { p.KeyExchanges = []string{ssh.InsecureKeyExchangeDH1SHA1} }),
 	})
 
 	if !result.TCPConnectSuccess {
@@ -266,7 +262,7 @@ func TestRunMACsRespected(t *testing.T) {
 	defer cancel()
 
 	result := Run(ctx, srv.Addr, Options{
-		HostKeyCallback: acceptKey(srv.HostKey),
+		KnownHosts: acceptKey(t, srv.Addr, srv.HostKey),
 		Profile: testProfile(func(p *profile.Profile) {
 			p.Ciphers = []string{ssh.CipherAES128CTR}
 			p.MACs = []string{ssh.HMACSHA512}
@@ -289,8 +285,8 @@ func TestRunNonAEADCipherReportsMAC(t *testing.T) {
 	defer cancel()
 
 	result := Run(ctx, srv.Addr, Options{
-		HostKeyCallback: acceptKey(srv.HostKey),
-		Profile:         testProfile(func(p *profile.Profile) { p.Ciphers = []string{ssh.CipherAES128CTR} }),
+		KnownHosts: acceptKey(t, srv.Addr, srv.HostKey),
+		Profile:    testProfile(func(p *profile.Profile) { p.Ciphers = []string{ssh.CipherAES128CTR} }),
 	})
 
 	if !result.KeyExchangeSuccess {
@@ -310,8 +306,8 @@ func TestRunAEADCipherReportsNoMAC(t *testing.T) {
 	defer cancel()
 
 	result := Run(ctx, srv.Addr, Options{
-		HostKeyCallback: acceptKey(srv.HostKey),
-		Profile:         testProfile(func(p *profile.Profile) { p.Ciphers = []string{ssh.CipherAES128GCM} }),
+		KnownHosts: acceptKey(t, srv.Addr, srv.HostKey),
+		Profile:    testProfile(func(p *profile.Profile) { p.Ciphers = []string{ssh.CipherAES128GCM} }),
 	})
 
 	if !result.KeyExchangeSuccess {
@@ -343,7 +339,7 @@ func TestRunStripsServerIdentificationComments(t *testing.T) {
 			defer cancel()
 
 			result := Run(ctx, srv.Addr, Options{
-				HostKeyCallback:                   acceptKey(srv.HostKey),
+				KnownHosts:                        acceptKey(t, srv.Addr, srv.HostKey),
 				StripServerIdentificationComments: tt.strip,
 			})
 
@@ -358,13 +354,13 @@ func TestRunHostKeyVerificationFailure(t *testing.T) {
 	t.Parallel()
 	srv := sshtest.NewServer(t, sshtest.Options{})
 
-	// A callback for a different key: KEX still completes, verification fails.
+	// known_hosts lists a different key: KEX still completes, verification fails.
 	otherSrv := sshtest.NewServer(t, sshtest.Options{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(otherSrv.HostKey)})
+	result := Run(ctx, srv.Addr, Options{KnownHosts: acceptKey(t, srv.Addr, otherSrv.HostKey)})
 
 	if !result.TCPConnectSuccess {
 		t.Fatal("TCPConnectSuccess = false, want true")
@@ -381,9 +377,8 @@ func TestRunHostKeyVerificationFailure(t *testing.T) {
 	if result.ErrorPhase != ErrPhaseKeyExchange {
 		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseKeyExchange)
 	}
-	// ssh.FixedHostKey returns a plain error rather than a knownhosts one.
-	if result.ErrorReason != ErrReasonServerHostKeyRejected {
-		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonServerHostKeyRejected)
+	if result.ErrorReason != ErrReasonServerHostKeyMismatch {
+		t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, ErrReasonServerHostKeyMismatch)
 	}
 	if result.ServerHostKeyAlgorithm == "" || result.KEXAlgorithm == "" {
 		t.Error("expected algorithm metadata to be recorded despite verify failure")
@@ -401,9 +396,9 @@ func TestRunLogsHostKeyVerificationFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(otherSrv.HostKey), Logger: logger})
+	Run(ctx, srv.Addr, Options{KnownHosts: acceptKey(t, srv.Addr, otherSrv.HostKey), Logger: logger})
 
-	for _, want := range []string{`msg="host key verification failed"`, "reason=" + ErrReasonServerHostKeyRejected} {
+	for _, want := range []string{`msg="host key verification failed"`, "reason=" + ErrReasonServerHostKeyMismatch} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("log lacks %s: %s", want, buf.String())
 		}
@@ -458,8 +453,8 @@ func TestRunHostCertificate(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			callback, isCA := loadKnownHosts(t, knownHosts)
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA})
+			kh := loadKnownHosts(t, knownHosts)
+			result := Run(ctx, srv.Addr, Options{KnownHosts: kh})
 
 			if result.ServerHostKeyVerifiedBy != tt.wantVerifiedBy || result.ServerHostCertificateErrorReason != tt.wantCertReason ||
 				result.ErrorReason != tt.wantReason || result.Success != (tt.wantReason == "") {
@@ -504,11 +499,11 @@ func TestRunCASignatureAlgorithms(t *testing.T) {
 					return cert
 				},
 			})
-			callback, isCA := loadKnownHosts(t, []string{knownHostsLine("@cert-authority [127.0.0.1]:"+srv.Port(t), ca.PublicKey())})
+			kh := loadKnownHosts(t, []string{knownHostsLine("@cert-authority [127.0.0.1]:"+srv.Port(t), ca.PublicKey())})
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) {
+			result := Run(ctx, srv.Addr, Options{KnownHosts: kh, Profile: testProfile(func(p *profile.Profile) {
 				if tt.algorithms != nil {
 					p.CASignatureAlgorithms = tt.algorithms
 				}
@@ -548,11 +543,11 @@ func TestRunPlainKeyFallback(t *testing.T) {
 				},
 			})
 			plainKey := srv.HostKey.(*ssh.Certificate).Key
-			callback, isCA := loadKnownHosts(t, []string{knownHostsLine("[127.0.0.1]:"+srv.Port(t), plainKey)})
+			kh := loadKnownHosts(t, []string{knownHostsLine("[127.0.0.1]:"+srv.Port(t), plainKey)})
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) { p.PlainKeyFallback = tt.fallback })})
+			result := Run(ctx, srv.Addr, Options{KnownHosts: kh, Profile: testProfile(func(p *profile.Profile) { p.PlainKeyFallback = tt.fallback })})
 
 			if result.ErrorReason != tt.wantReason {
 				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, tt.wantReason)
@@ -587,11 +582,11 @@ func TestRunWildcardPrincipals(t *testing.T) {
 					return cert
 				},
 			})
-			callback, isCA := loadKnownHosts(t, []string{knownHostsLine("@cert-authority [127.0.0.1]:"+srv.Port(t), ca.PublicKey())})
+			kh := loadKnownHosts(t, []string{knownHostsLine("@cert-authority [127.0.0.1]:"+srv.Port(t), ca.PublicKey())})
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) { p.WildcardPrincipals = tt.wildcards })})
+			result := Run(ctx, srv.Addr, Options{KnownHosts: kh, Profile: testProfile(func(p *profile.Profile) { p.WildcardPrincipals = tt.wildcards })})
 
 			if result.ErrorReason != tt.wantReason {
 				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, tt.wantReason)
@@ -624,11 +619,11 @@ func TestRunRequirePrincipals(t *testing.T) {
 					return cert
 				},
 			})
-			callback, isCA := loadKnownHosts(t, []string{knownHostsLine("@cert-authority [127.0.0.1]:"+srv.Port(t), ca.PublicKey())})
+			kh := loadKnownHosts(t, []string{knownHostsLine("@cert-authority [127.0.0.1]:"+srv.Port(t), ca.PublicKey())})
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) { p.RequirePrincipals = tt.require })})
+			result := Run(ctx, srv.Addr, Options{KnownHosts: kh, Profile: testProfile(func(p *profile.Profile) { p.RequirePrincipals = tt.require })})
 
 			if result.ErrorReason != tt.wantReason {
 				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, tt.wantReason)
@@ -654,11 +649,11 @@ func TestRunCALinesMatchPlainKeys(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			srv := sshtest.NewServer(t, sshtest.Options{})
-			callback, isCA := loadKnownHosts(t, []string{knownHostsLine("@cert-authority [127.0.0.1]:"+srv.Port(t), srv.HostKey)})
+			kh := loadKnownHosts(t, []string{knownHostsLine("@cert-authority [127.0.0.1]:"+srv.Port(t), srv.HostKey)})
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) { p.CALinesMatchPlainKeys = tt.match })})
+			result := Run(ctx, srv.Addr, Options{KnownHosts: kh, Profile: testProfile(func(p *profile.Profile) { p.CALinesMatchPlainKeys = tt.match })})
 
 			if result.ErrorReason != tt.wantReason || result.ServerHostKeyKnownHostsLine != tt.wantLine {
 				t.Errorf("ErrorReason = %q, known_hosts line = %d, want %q, %d", result.ErrorReason, result.ServerHostKeyKnownHostsLine, tt.wantReason, tt.wantLine)
@@ -691,12 +686,12 @@ func TestRunOrdersHostKeyAlgorithms(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			srv := sshtest.NewServer(t, sshtest.Options{HostKeys: []ssh.Signer{ecdsaKey}})
-			callback, isCA := loadKnownHosts(t, []string{knownHostsLine("[127.0.0.1]:"+srv.Port(t), ecdsaKey.PublicKey())})
+			kh := loadKnownHosts(t, []string{knownHostsLine("[127.0.0.1]:"+srv.Port(t), ecdsaKey.PublicKey())})
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			result := Run(ctx, srv.Addr, Options{
-				HostKeyCallback: callback, IsCertAuthority: isCA,
+				KnownHosts: kh,
 				Profile: testProfile(func(p *profile.Profile) {
 					if tt.hostKeyAlgorithms != nil {
 						p.HostKeyAlgorithms = tt.hostKeyAlgorithms
@@ -731,11 +726,11 @@ func TestRunKnownHostsLine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			srv := sshtest.NewServer(t, sshtest.Options{HostKeys: []ssh.Signer{ecdsaKey}})
-			callback, isCA := loadKnownHosts(t, []string{"# comment", knownHostsLine("[127.0.0.1]:"+srv.Port(t), ecdsaKey.PublicKey())})
+			kh := loadKnownHosts(t, []string{"# comment", knownHostsLine("[127.0.0.1]:"+srv.Port(t), ecdsaKey.PublicKey())})
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) {
+			result := Run(ctx, srv.Addr, Options{KnownHosts: kh, Profile: testProfile(func(p *profile.Profile) {
 				if tt.hostKeyAlgorithms != nil {
 					p.HostKeyAlgorithms = tt.hostKeyAlgorithms
 				}
@@ -749,7 +744,7 @@ func TestRunKnownHostsLine(t *testing.T) {
 	}
 }
 
-func TestRunNilHostKeyCallback(t *testing.T) {
+func TestRunNilKnownHosts(t *testing.T) {
 	t.Parallel()
 	srv := sshtest.NewServer(t, sshtest.Options{})
 
@@ -759,7 +754,7 @@ func TestRunNilHostKeyCallback(t *testing.T) {
 	result := Run(ctx, srv.Addr, Options{})
 
 	if result.ServerHostKeyVerifySuccess {
-		t.Error("ServerHostKeyVerifySuccess = true, want false without a callback")
+		t.Error("ServerHostKeyVerifySuccess = true, want false without known_hosts")
 	}
 	if result.ErrorPhase != ErrPhaseKeyExchange {
 		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseKeyExchange)
@@ -776,7 +771,7 @@ func TestRunConnectionRefused(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result := Run(ctx, addr, Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+	result := Run(ctx, addr, Options{})
 
 	if result.TCPConnectSuccess {
 		t.Error("TCPConnectSuccess = true, want false")
@@ -805,7 +800,7 @@ func TestRunHostnameTargetTimesLookup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result := Run(ctx, net.JoinHostPort("localhost", srv.Port(t)), Options{HostKeyCallback: acceptKey(srv.HostKey)})
+	result := Run(ctx, net.JoinHostPort("localhost", srv.Port(t)), Options{KnownHosts: acceptKey(t, net.JoinHostPort("localhost", srv.Port(t)), srv.HostKey)})
 
 	if !result.TCPConnectSuccess {
 		t.Fatalf("TCPConnectSuccess = false, want true (error %s/%s)", result.ErrorPhase, result.ErrorReason)
@@ -831,7 +826,7 @@ func TestRunHostnameTargetConnectionRefusedKeepsLookup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result := Run(ctx, net.JoinHostPort("localhost", port), Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+	result := Run(ctx, net.JoinHostPort("localhost", port), Options{})
 
 	if result.TCPConnectSuccess {
 		t.Error("TCPConnectSuccess = true, want false")
@@ -852,7 +847,7 @@ func TestRunDNSFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result := Run(ctx, "no-such-host.invalid:22", Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+	result := Run(ctx, "no-such-host.invalid:22", Options{})
 
 	if result.TCPConnectSuccess {
 		t.Error("TCPConnectSuccess = true, want false")
@@ -878,7 +873,7 @@ func TestRunContextAlreadyCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // canceled before the dial
 
-	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
+	result := Run(ctx, srv.Addr, Options{KnownHosts: acceptKey(t, srv.Addr, srv.HostKey)})
 
 	if result.TCPConnectSuccess {
 		t.Error("TCPConnectSuccess = true, want false for a canceled context")
@@ -893,7 +888,7 @@ func TestRunContextAlreadyCanceledHostname(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // canceled before the lookup
 
-	result := Run(ctx, "localhost:22", Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+	result := Run(ctx, "localhost:22", Options{})
 
 	if result.ErrorPhase != ErrPhaseDNSLookup {
 		t.Errorf("ErrorPhase = %q, want %q", result.ErrorPhase, ErrPhaseDNSLookup)
@@ -919,7 +914,7 @@ func TestRunPeerHangup(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			result := Run(ctx, addr, Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+			result := Run(ctx, addr, Options{})
 
 			if !result.TCPConnectSuccess {
 				t.Fatalf("TCPConnectSuccess = false, want true (error %s/%s)", result.ErrorPhase, result.ErrorReason)
@@ -937,11 +932,15 @@ func TestRunPeerHangup(t *testing.T) {
 	}
 }
 
-func slowHostKeyCallback(delay time.Duration, cb ssh.HostKeyCallback) ssh.HostKeyCallback {
-	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-		time.Sleep(delay)
-		return cb(hostname, remote, key)
-	}
+// slowKnownHosts delays every Check by delay.
+type slowKnownHosts struct {
+	KnownHosts
+	delay time.Duration
+}
+
+func (s slowKnownHosts) Check(addr string, key ssh.PublicKey) error {
+	time.Sleep(s.delay)
+	return s.KnownHosts.Check(addr, key)
 }
 
 func TestRunKexFailsAfterHostKeyAccepted(t *testing.T) {
@@ -951,7 +950,7 @@ func TestRunKexFailsAfterHostKeyAccepted(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	result := Run(ctx, srv.Addr, Options{HostKeyCallback: slowHostKeyCallback(500*time.Millisecond, acceptKey(srv.HostKey))})
+	result := Run(ctx, srv.Addr, Options{KnownHosts: slowKnownHosts{acceptKey(t, srv.Addr, srv.HostKey), 500 * time.Millisecond}})
 
 	if result.KeyExchangeSuccess {
 		t.Error("KeyExchangeSuccess = true, want false when NEWKEYS never completed")
@@ -975,7 +974,7 @@ func TestRunHostKeyFailureOutranksLaterKexFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	result := Run(ctx, srv.Addr, Options{HostKeyCallback: slowHostKeyCallback(500*time.Millisecond, acceptKey(otherSrv.HostKey))})
+	result := Run(ctx, srv.Addr, Options{KnownHosts: slowKnownHosts{acceptKey(t, srv.Addr, otherSrv.HostKey), 500 * time.Millisecond}})
 
 	if result.KeyExchangeSuccess {
 		t.Error("KeyExchangeSuccess = true, want false when NEWKEYS never completed")
@@ -983,8 +982,8 @@ func TestRunHostKeyFailureOutranksLaterKexFailure(t *testing.T) {
 	if result.ServerHostKeyVerifySuccess {
 		t.Error("ServerHostKeyVerifySuccess = true, want false")
 	}
-	if result.ErrorPhase != ErrPhaseKeyExchange || result.ErrorReason != ErrReasonServerHostKeyRejected {
-		t.Errorf("error = %s/%s, want %s/%s", result.ErrorPhase, result.ErrorReason, ErrPhaseKeyExchange, ErrReasonServerHostKeyRejected)
+	if result.ErrorPhase != ErrPhaseKeyExchange || result.ErrorReason != ErrReasonServerHostKeyMismatch {
+		t.Errorf("error = %s/%s, want %s/%s", result.ErrorPhase, result.ErrorReason, ErrPhaseKeyExchange, ErrReasonServerHostKeyMismatch)
 	}
 }
 
@@ -995,7 +994,7 @@ func TestRunVersionExchangeTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
 
-	result := Run(ctx, addr, Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+	result := Run(ctx, addr, Options{})
 
 	if !result.TCPConnectSuccess {
 		t.Fatal("TCPConnectSuccess = false, want true (TCP connect should succeed)")
@@ -1022,7 +1021,7 @@ func TestRunVersionExchangeCanceled(t *testing.T) {
 	}()
 	defer cancel()
 
-	result := Run(ctx, addr, Options{HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+	result := Run(ctx, addr, Options{})
 
 	if !result.TCPConnectSuccess {
 		t.Fatal("TCPConnectSuccess = false, want true (TCP connect should succeed)")
@@ -1042,7 +1041,7 @@ func TestRunNegotiatedMSS(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
+	result := Run(ctx, srv.Addr, Options{KnownHosts: acceptKey(t, srv.Addr, srv.HostKey)})
 
 	if runtime.GOOS == "linux" {
 		if result.TCPMSS <= 0 {
@@ -1060,7 +1059,7 @@ func TestRunNilLoggerDoesNotPanic(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey), Logger: nil})
+	result := Run(ctx, srv.Addr, Options{KnownHosts: acceptKey(t, srv.Addr, srv.HostKey), Logger: nil})
 	if !result.KeyExchangeSuccess {
 		t.Errorf("KeyExchangeSuccess = false with nil logger (error %s/%s)", result.ErrorPhase, result.ErrorReason)
 	}
@@ -1076,7 +1075,7 @@ func TestRunDebugLoggingEnabled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey), Logger: logger})
+	result := Run(ctx, srv.Addr, Options{KnownHosts: acceptKey(t, srv.Addr, srv.HostKey), Logger: logger})
 	if !result.KeyExchangeSuccess {
 		t.Fatalf("KeyExchangeSuccess = false (error %s/%s)", result.ErrorPhase, result.ErrorReason)
 	}
@@ -1096,7 +1095,7 @@ func TestRunDropsUnparsableServerIdentification(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result := Run(ctx, srv.Addr, Options{HostKeyCallback: acceptKey(srv.HostKey)})
+	result := Run(ctx, srv.Addr, Options{KnownHosts: acceptKey(t, srv.Addr, srv.HostKey)})
 	if result.ServerIdentification != (ServerIdentification{}) {
 		t.Errorf("ServerIdentification = %+v, want it dropped as unparsable", result.ServerIdentification)
 	}

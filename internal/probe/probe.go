@@ -4,7 +4,6 @@ package probe
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"io"
@@ -20,8 +19,9 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
+	xknownhosts "golang.org/x/crypto/ssh/knownhosts"
 
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/knownhosts"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/match"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/profile"
 )
@@ -131,15 +131,31 @@ type Result struct {
 // after the transport layer is ready, but before user authentication.
 var errAbort = errors.New("probe: aborting before auth by design")
 
+// KnownHosts looks up known_hosts lines and checks host keys against them, like
+// *knownhosts.DB.
+type KnownHosts interface {
+	// Lines returns the lines that match addr, host:port, @revoked ones aside,
+	// with CertAuthority and Revoked set.
+	Lines(addr string) []knownhosts.Line
+	// Check verifies key for addr like x/crypto's knownhosts callback: a host
+	// certificate passes only through a matching @cert-authority line.
+	Check(addr string, key ssh.PublicKey) error
+}
+
+// noKnownHosts lists no line and rejects every host key.
+type noKnownHosts struct{}
+
+func (noKnownHosts) Lines(string) []knownhosts.Line { return nil }
+
+func (noKnownHosts) Check(string, ssh.PublicKey) error {
+	return errors.New("no known_hosts configured")
+}
+
 // Options controls how a probe's SSH client connection is configured.
 type Options struct {
-	// HostKeyCallback does the identity check. Called synchronously per probe,
-	// so must be safe for concurrent use. Nil fails verification.
-	HostKeyCallback ssh.HostKeyCallback
-
-	// IsCertAuthority reports whether a known_hosts line that HostKeyCallback
-	// lists is a @cert-authority line. Nil leaves HostKeyCallback to decide alone.
-	IsCertAuthority func(knownhosts.KnownKey) bool
+	// KnownHosts holds the known_hosts lines the server's host key is checked
+	// against. Used concurrently by probes. Nil fails verification.
+	KnownHosts KnownHosts
 
 	// Profile is how the probe behaves: its algorithm lists and host key
 	// verification switches. Nil uses profile.Default(). Run doesn't change it.
@@ -160,7 +176,7 @@ type hostKeyResult struct {
 	verifiedBy             string
 	certificateErrorReason string
 	errorReason            string
-	line                   knownhosts.KnownKey
+	line                   xknownhosts.KnownKey
 	cert                   *ssh.Certificate // nil for a plain host key
 }
 
@@ -214,11 +230,9 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		logger = slog.New(slog.DiscardHandler)
 	}
 
-	hostKeyCallback := opts.HostKeyCallback
-	if hostKeyCallback == nil {
-		hostKeyCallback = func(string, net.Addr, ssh.PublicKey) error {
-			return errors.New("no HostKeyCallback configured")
-		}
+	knownHosts := opts.KnownHosts
+	if knownHosts == nil {
+		knownHosts = noKnownHosts{}
 	}
 
 	// ControlContext runs after name resolution, before each connect attempt. Using it
@@ -270,18 +284,14 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 	}
 
 	// Like OpenSSH, after the connect: known_hosts decides which host key to ask for.
-	lines := knownHostsLines(hostKeyCallback, opts.IsCertAuthority, target, rawConn.RemoteAddr())
+	lines := knownHosts.Lines(target)
 	p := &defaultProfile
 	if opts.Profile != nil {
 		p = opts.Profile
 	}
 	hostKeyAlgorithms := p.HostKeyAlgorithms
-	if p.OrderByKnownHosts && opts.IsCertAuthority != nil {
-		revoked := func(k ssh.PublicKey) bool {
-			_, ok := errors.AsType[*knownhosts.RevokedError](hostKeyCallback(target, rawConn.RemoteAddr(), k))
-			return ok
-		}
-		hostKeyAlgorithms = orderHostKeyAlgorithms(hostKeyAlgorithms, lines, opts.IsCertAuthority, revoked)
+	if p.OrderByKnownHosts {
+		hostKeyAlgorithms = orderHostKeyAlgorithms(hostKeyAlgorithms, lines)
 	}
 	forceCloseOnCtxDone := context.AfterFunc(ctx, func() {
 		_ = rawConn.Close()
@@ -299,10 +309,10 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		KeyExchanges:      p.KeyExchanges,
 		MACs:              p.MACs,
 		HostKeyAlgorithms: hostKeyAlgorithms,
-		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			verifiedBy, certErr, err := verifyHostKey(hostKeyCallback, opts.IsCertAuthority, lines, p, hostname, remote, key)
+		HostKeyCallback: func(hostname string, _ net.Addr, key ssh.PublicKey) error {
+			verifiedBy, certErr, err := verifyHostKey(knownHosts, lines, p, hostname, key)
 			hk := hostKeyResult{verified: err == nil, verifiedBy: verifiedBy}
-			hk.line, _ = decidingLine(lines, opts.IsCertAuthority, p.CALinesMatchPlainKeys, key, verifiedBy, err)
+			hk.line, _ = decidingLine(lines, p.CALinesMatchPlainKeys, key, verifiedBy, err)
 			hk.cert, _ = key.(*ssh.Certificate)
 			if certErr != nil {
 				hk.certificateErrorReason = classifyHostKeyVerifyError(certErr)
@@ -416,31 +426,6 @@ var (
 // errHostCertificateSignatureInvalid marks an SSH host certificate whose CA signature doesn't verify.
 var errHostCertificateSignatureInvalid = errors.New("host certificate CA signature does not verify")
 
-// unlistedKey matches no known_hosts line, so checking it lists the host's lines.
-var unlistedKey = func() ssh.PublicKey {
-	pub, _, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		panic(err)
-	}
-	key, err := ssh.NewPublicKey(pub)
-	if err != nil {
-		panic(err)
-	}
-	return key
-}()
-
-// knownHostsLines returns the known_hosts lines cb lists for hostname, @revoked
-// ones aside, or nil without isCA to label them.
-func knownHostsLines(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, hostname string, remote net.Addr) []knownhosts.KnownKey {
-	if isCA == nil {
-		return nil
-	}
-	if keyErr, ok := errors.AsType[*knownhosts.KeyError](cb(hostname, remote, unlistedKey)); ok {
-		return keyErr.Want
-	}
-	return nil
-}
-
 // hostKeyTypes maps each host key algorithm x/crypto accepts to the type of the
 // key it verifies with; a certificate algorithm to that of the key inside it.
 var hostKeyTypes = map[string]string{
@@ -468,18 +453,18 @@ var hostKeyTypes = map[string]string{
 
 // orderHostKeyAlgorithms orders algorithms like OpenSSH's order_hostkeyalgs:
 // those whose key type lines lists for the host come first.
-func orderHostKeyAlgorithms(algorithms []string, lines []knownhosts.KnownKey, isCA func(knownhosts.KnownKey) bool, revoked func(ssh.PublicKey) bool) []string {
+func orderHostKeyAlgorithms(algorithms []string, lines []knownhosts.Line) []string {
 	// Like OpenSSH, only the first plain line of a type counts, and only if its
 	// key isn't revoked. A line holding a certificate has no plain key type.
 	listed := make(map[string]bool)
 	ca := false
 	for _, l := range lines {
-		if isCA(l) {
+		if l.CertAuthority {
 			ca = true
 			continue
 		}
 		if _, seen := listed[l.Key.Type()]; !seen {
-			listed[l.Key.Type()] = !revoked(l.Key)
+			listed[l.Key.Type()] = !l.Revoked
 		}
 	}
 	if len(algorithms) == 0 || listed[hostKeyTypes[algorithms[0]]] {
@@ -500,29 +485,27 @@ func orderHostKeyAlgorithms(algorithms []string, lines []knownhosts.KnownKey, is
 // returns which listed key verified it and, for the plain key inside a host
 // certificate, why the certificate didn't. An invalid SSH host certificate falls
 // back to the host key inside it, if p.PlainKeyFallback. A bad CA signature, or
-// a @revoked key or CA, fails without fallback. isCA tells @cert-authority lines
-// from plain ones, which cb doesn't; without it, cb decides alone. lines are the
-// host's, from knownHostsLines.
-func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, lines []knownhosts.KnownKey, p *profile.Profile, hostname string, remote net.Addr, key ssh.PublicKey) (verifiedBy string, certificateErr, err error) {
-	check := func(k ssh.PublicKey) error { return cb(hostname, remote, k) }
+// a @revoked key or CA, fails without fallback. lines are kh's for hostname.
+func verifyHostKey(kh KnownHosts, lines []knownhosts.Line, p *profile.Profile, hostname string, key ssh.PublicKey) (verifiedBy string, certificateErr, err error) {
+	check := func(k ssh.PublicKey) error { return kh.Check(hostname, k) }
 
 	listed := func(k ssh.PublicKey, ca bool) bool {
-		_, ok := firstLine(lines, isCA, k, ca)
+		_, ok := firstLine(lines, k, func(l knownhosts.Line) bool { return l.CertAuthority == ca })
 		return ok
 	}
 	// OpenSSH looks a plain host key up on plain lines only, x/crypto on all.
 	checkPlain := func(k ssh.PublicKey) error {
 		err := check(k)
-		if _, ok := errors.AsType[*knownhosts.KeyError](err); isCA == nil || p.CALinesMatchPlainKeys || (err != nil && !ok) {
+		if _, ok := errors.AsType[*xknownhosts.KeyError](err); p.CALinesMatchPlainKeys || (err != nil && !ok) {
 			return err
 		}
 		if err == nil && listed(k, false) {
 			return nil
 		}
-		keyErr := &knownhosts.KeyError{}
+		keyErr := &xknownhosts.KeyError{}
 		for _, l := range lines {
-			if !isCA(l) {
-				keyErr.Want = append(keyErr.Want, l)
+			if !l.CertAuthority {
+				keyErr.Want = append(keyErr.Want, l.KnownKey)
 			}
 		}
 		return keyErr
@@ -546,16 +529,16 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 	// Checking the CA as a host key tells whether it is @revoked or listed, but
 	// also passes on a plain line; OpenSSH trusts only a @cert-authority line.
 	caErr := check(cert.SignatureKey)
-	if _, ok := errors.AsType[*knownhosts.RevokedError](caErr); ok {
+	if _, ok := errors.AsType[*xknownhosts.RevokedError](caErr); ok {
 		return "", nil, caErr
 	}
-	caTrusted := caErr == nil && (isCA == nil || listed(cert.SignatureKey, true))
+	caTrusted := caErr == nil && listed(cert.SignatureKey, true)
 	// x/crypto matches principals exactly, OpenSSH 10.3 to 10.6 as patterns:
 	// check again with the principal that matches. x/crypto can't check a
 	// certificate without principals at all.
 	if certErr != nil && cert.CertType == ssh.HostCert && caTrusted {
 		isRevoked := func(c *ssh.Certificate) bool {
-			_, ok := errors.AsType[*knownhosts.RevokedError](check(c.Key))
+			_, ok := errors.AsType[*xknownhosts.RevokedError](check(c.Key))
 			return ok
 		}
 		if principal := hostCertPrincipal(cert, host, p.WildcardPrincipals); principal != "" {
@@ -576,7 +559,7 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 	// Without fallback, a @revoked key inside the certificate still fails as revoked.
 	if !p.PlainKeyFallback {
 		err := check(cert.Key)
-		if _, ok := errors.AsType[*knownhosts.RevokedError](err); ok {
+		if _, ok := errors.AsType[*xknownhosts.RevokedError](err); ok {
 			return "", nil, err
 		}
 		return "", nil, hostCertErr
@@ -586,7 +569,7 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 	if plainErr == nil {
 		return VerifiedByPlainKey, hostCertErr, nil
 	}
-	if _, ok := errors.AsType[*knownhosts.KeyError](plainErr); ok && caTrusted {
+	if _, ok := errors.AsType[*xknownhosts.KeyError](plainErr); ok && caTrusted {
 		return "", nil, hostCertErr
 	}
 	return "", nil, plainErr
@@ -596,53 +579,47 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 // key, like OpenSSH's "Found key in" and "Offending key in", or false for none.
 // verifiedBy and err are verifyHostKey's, which looked a plain host key up on
 // @cert-authority lines, too, if caLinesMatchPlainKeys.
-func decidingLine(lines []knownhosts.KnownKey, isCA func(knownhosts.KnownKey) bool, caLinesMatchPlainKeys bool, key ssh.PublicKey, verifiedBy string, err error) (knownhosts.KnownKey, bool) {
-	if isCA == nil {
-		return knownhosts.KnownKey{}, false
-	}
-	plainIsCA := isCA
-	if caLinesMatchPlainKeys {
-		plainIsCA = func(knownhosts.KnownKey) bool { return false }
-	}
+func decidingLine(lines []knownhosts.Line, caLinesMatchPlainKeys bool, key ssh.PublicKey, verifiedBy string, err error) (xknownhosts.KnownKey, bool) {
+	caLine := func(l knownhosts.Line) bool { return l.CertAuthority }
+	plainLine := func(l knownhosts.Line) bool { return !l.CertAuthority || caLinesMatchPlainKeys }
 	cert, _ := key.(*ssh.Certificate)
 	switch verifiedBy {
 	case VerifiedByCAKey:
-		return firstLine(lines, isCA, cert.SignatureKey, true)
+		return firstLine(lines, cert.SignatureKey, caLine)
 	case VerifiedByPlainKey:
 		if cert != nil {
 			key = cert.Key
 		}
-		return firstLine(lines, plainIsCA, key, false)
+		return firstLine(lines, key, plainLine)
 	}
-	if revoked, ok := errors.AsType[*knownhosts.RevokedError](err); ok {
+	if revoked, ok := errors.AsType[*xknownhosts.RevokedError](err); ok {
 		return revoked.Revoked, true
 	}
 	switch classifyHostKeyVerifyError(err) {
 	case ErrReasonServerHostKeyMismatch:
 		// Like OpenSSH, which reports the last plain line that didn't match.
 		for _, l := range slices.Backward(lines) {
-			if !plainIsCA(l) {
-				return l, true
+			if plainLine(l) {
+				return l.KnownKey, true
 			}
 		}
 	case ErrReasonServerHostCertificateNotYetValid, ErrReasonServerHostCertificateExpired,
 		ErrReasonServerHostCertificatePrincipalNotListed, ErrReasonServerHostCertificateSignatureAlgorithmDisallowed,
 		ErrReasonServerHostCertificateOther:
-		return firstLine(lines, isCA, cert.SignatureKey, true)
+		return firstLine(lines, cert.SignatureKey, caLine)
 	}
-	return knownhosts.KnownKey{}, false
+	return xknownhosts.KnownKey{}, false
 }
 
-// firstLine returns the first of lines that lists k, on a @cert-authority line
-// if ca, else on a plain line.
-func firstLine(lines []knownhosts.KnownKey, isCA func(knownhosts.KnownKey) bool, k ssh.PublicKey, ca bool) (knownhosts.KnownKey, bool) {
-	i := slices.IndexFunc(lines, func(l knownhosts.KnownKey) bool {
-		return isCA(l) == ca && bytes.Equal(l.Key.Marshal(), k.Marshal())
+// firstLine returns the first of lines that lists k, among those kind accepts.
+func firstLine(lines []knownhosts.Line, k ssh.PublicKey, kind func(knownhosts.Line) bool) (xknownhosts.KnownKey, bool) {
+	i := slices.IndexFunc(lines, func(l knownhosts.Line) bool {
+		return kind(l) && bytes.Equal(l.Key.Marshal(), k.Marshal())
 	})
 	if i < 0 {
-		return knownhosts.KnownKey{}, false
+		return xknownhosts.KnownKey{}, false
 	}
-	return lines[i], true
+	return lines[i].KnownKey, true
 }
 
 // hostCertificateError tells why cert didn't verify through its CA, in the order
@@ -758,14 +735,14 @@ func classifyHostKeyVerifyError(err error) string {
 		return ErrReasonServerHostCertificateOther
 	}
 
-	if keyErr, ok := errors.AsType[*knownhosts.KeyError](err); ok {
+	if keyErr, ok := errors.AsType[*xknownhosts.KeyError](err); ok {
 		if len(keyErr.Want) == 0 {
 			return ErrReasonServerHostKeyUnknown
 		}
 		return ErrReasonServerHostKeyMismatch
 	}
 
-	if _, ok := errors.AsType[*knownhosts.RevokedError](err); ok {
+	if _, ok := errors.AsType[*xknownhosts.RevokedError](err); ok {
 		return ErrReasonServerHostKeyRevoked
 	}
 

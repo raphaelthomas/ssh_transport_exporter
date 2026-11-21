@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,8 +18,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"golang.org/x/crypto/ssh"
+	xknownhosts "golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/config"
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/knownhosts"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/sshtest"
 )
@@ -43,17 +47,28 @@ func modulePointer(modules map[string]config.Module) *atomic.Pointer[map[string]
 	return &live
 }
 
-func testModule(host string, targetPort int, allowedPorts []int, hostKey ssh.PublicKey) config.Module {
+// testModule lists hostKey for host on targetPort; nil lists none.
+func testModule(t *testing.T, host string, targetPort int, allowedPorts []int, hostKey ssh.PublicKey) config.Module {
+	t.Helper()
 	ports := make(map[int]struct{}, len(allowedPorts))
 	for _, p := range allowedPorts {
 		ports[p] = struct{}{}
 	}
-	callback := ssh.InsecureIgnoreHostKey()
+	var opts probe.Options
 	if hostKey != nil {
-		callback = ssh.FixedHostKey(hostKey)
+		path := filepath.Join(t.TempDir(), "known_hosts")
+		line := xknownhosts.Line([]string{net.JoinHostPort(host, strconv.Itoa(targetPort))}, hostKey)
+		if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		db, err := knownhosts.Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		opts.KnownHosts = db
 	}
 	return config.Module{
-		Options:        probe.Options{HostKeyCallback: callback},
+		Options:        opts,
 		AllowedTargets: []config.TargetMatcher{exactMatcher{host: host}},
 		AllowedPorts:   ports,
 		TargetPort:     targetPort,
@@ -116,7 +131,7 @@ func TestHandlerRejects(t *testing.T) {
 	t.Parallel()
 
 	modules := map[string]config.Module{
-		config.DefaultModuleName: testModule("127.0.0.1", 22, []int{22}, nil),
+		config.DefaultModuleName: testModule(t, "127.0.0.1", 22, []int{22}, nil),
 	}
 
 	tests := []struct {
@@ -165,7 +180,7 @@ func TestHandlerSuccess(t *testing.T) {
 	port := srv.Port(t)
 
 	modules := map[string]config.Module{
-		config.DefaultModuleName: testModule("127.0.0.1", atoiOrFatal(t, port), []int{atoiOrFatal(t, port)}, srv.HostKey),
+		config.DefaultModuleName: testModule(t, "127.0.0.1", atoiOrFatal(t, port), []int{atoiOrFatal(t, port)}, srv.HostKey),
 	}
 	requests := newRequests()
 	h := testHandler(10*time.Second, requests, modulePointer(modules))
@@ -206,7 +221,7 @@ func TestHandlerDefaultPortApplied(t *testing.T) {
 	port := atoiOrFatal(t, srv.Port(t))
 
 	modules := map[string]config.Module{
-		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, srv.HostKey),
+		config.DefaultModuleName: testModule(t, "127.0.0.1", port, []int{port}, srv.HostKey),
 	}
 	requests := newRequests()
 	h := testHandler(10*time.Second, requests, modulePointer(modules))
@@ -227,7 +242,7 @@ func TestHandlerProbeFailureStillReturns200(t *testing.T) {
 	port := atoiOrFatal(t, portOf(t, addr))
 
 	modules := map[string]config.Module{
-		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, nil),
+		config.DefaultModuleName: testModule(t, "127.0.0.1", port, []int{port}, nil),
 	}
 	requests := newRequests()
 	h := testHandler(5*time.Second, requests, modulePointer(modules))
@@ -253,8 +268,8 @@ func TestHandlerNamedModuleSelected(t *testing.T) {
 	port := atoiOrFatal(t, srv.Port(t))
 
 	modules := map[string]config.Module{
-		config.DefaultModuleName: testModule("192.0.2.1", 22, []int{22}, nil), // would deny 127.0.0.1
-		"custom":                 testModule("127.0.0.1", port, []int{port}, srv.HostKey),
+		config.DefaultModuleName: testModule(t, "192.0.2.1", 22, []int{22}, nil), // would deny 127.0.0.1
+		"custom":                 testModule(t, "127.0.0.1", port, []int{port}, srv.HostKey),
 	}
 	requests := newRequests()
 	h := testHandler(10*time.Second, requests, modulePointer(modules))
@@ -275,7 +290,7 @@ func TestHandlerScrapeTimeoutHeaderShortensProbe(t *testing.T) {
 	port := atoiOrFatal(t, portOf(t, addr))
 
 	modules := map[string]config.Module{
-		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, nil),
+		config.DefaultModuleName: testModule(t, "127.0.0.1", port, []int{port}, nil),
 	}
 	requests := newRequests()
 	h := testHandler(30*time.Second, requests, modulePointer(modules))
@@ -303,7 +318,7 @@ func TestHandlerInvalidScrapeTimeoutHeaderIgnored(t *testing.T) {
 	port := atoiOrFatal(t, srv.Port(t))
 
 	modules := map[string]config.Module{
-		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, srv.HostKey),
+		config.DefaultModuleName: testModule(t, "127.0.0.1", port, []int{port}, srv.HostKey),
 	}
 	requests := newRequests()
 	h := testHandler(10*time.Second, requests, modulePointer(modules))
@@ -325,7 +340,7 @@ func TestHandlerReadsLiveModulesOnReload(t *testing.T) {
 	t.Parallel()
 	requests := newRequests()
 	live := modulePointer(map[string]config.Module{
-		config.DefaultModuleName: testModule("127.0.0.1", 22, []int{22}, nil),
+		config.DefaultModuleName: testModule(t, "127.0.0.1", 22, []int{22}, nil),
 	})
 	h := testHandler(time.Second, requests, live)
 
@@ -334,7 +349,7 @@ func TestHandlerReadsLiveModulesOnReload(t *testing.T) {
 	}
 
 	swapped := map[string]config.Module{
-		"other": testModule("127.0.0.1", 22, []int{22}, nil),
+		"other": testModule(t, "127.0.0.1", 22, []int{22}, nil),
 	}
 	live.Store(&swapped)
 
@@ -355,7 +370,7 @@ func TestHandlerScrapeTimeoutIsPerRequest(t *testing.T) {
 	port := atoiOrFatal(t, portOf(t, addr))
 
 	modules := map[string]config.Module{
-		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, nil),
+		config.DefaultModuleName: testModule(t, "127.0.0.1", port, []int{port}, nil),
 	}
 	// One handler serves every request, as in production.
 	h := testHandler(2*time.Second, newRequests(), modulePointer(modules))
@@ -389,7 +404,7 @@ func TestHandlerScrapeTimeoutIsPerRequest(t *testing.T) {
 func TestHandlerUnknownModulesShareOneSeries(t *testing.T) {
 	t.Parallel()
 	modules := map[string]config.Module{
-		config.DefaultModuleName: testModule("127.0.0.1", 22, []int{22}, nil),
+		config.DefaultModuleName: testModule(t, "127.0.0.1", 22, []int{22}, nil),
 	}
 	requests := newRequests()
 	h := testHandler(time.Second, requests, modulePointer(modules))
@@ -417,7 +432,7 @@ func concurrencySetup(t *testing.T, maxConcurrent int) (http.HandlerFunc, *prome
 	addr := sshtest.SilentServer(t)
 	port := atoiOrFatal(t, portOf(t, addr))
 	modules := map[string]config.Module{
-		config.DefaultModuleName: testModule("127.0.0.1", port, []int{port}, nil),
+		config.DefaultModuleName: testModule(t, "127.0.0.1", port, []int{port}, nil),
 	}
 	requests := newRequests()
 	inFlight := prometheus.NewGauge(prometheus.GaugeOpts{Name: "probes_in_flight"})

@@ -8,8 +8,8 @@ import (
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
 )
 
-// Module is a ready-to-probe configuration. Its known_hosts is parsed into a
-// callback, so per-probe requests never touch the filesystem.
+// Module is a ready-to-probe configuration. Its known_hosts is parsed at load,
+// so per-probe requests never touch the filesystem.
 type Module struct {
 	Options        probe.Options
 	AllowedTargets []TargetMatcher
@@ -30,11 +30,7 @@ func Load(configFilePath string, allowAllTargets bool, logger *slog.Logger) (map
 func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 	modules := make(map[string]Module, len(raw.Modules))
 	for name, mod := range raw.Modules {
-		hostKeyCallback, err := knownhosts.New(mod.KnownHostsFile)
-		if err != nil {
-			return nil, fmt.Errorf("module %q: loading known_hosts: %w", name, err)
-		}
-		isCertAuthority, err := knownhosts.CertAuthorities(mod.KnownHostsFile)
+		knownHosts, err := knownhosts.Load(mod.KnownHostsFile)
 		if err != nil {
 			return nil, fmt.Errorf("module %q: loading known_hosts: %w", name, err)
 		}
@@ -52,8 +48,7 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 		p := mod.resolved
 		modules[name] = Module{
 			Options: probe.Options{
-				HostKeyCallback:                   hostKeyCallback,
-				IsCertAuthority:                   isCertAuthority,
+				KnownHosts:                        knownHosts,
 				Profile:                           &p,
 				StripServerIdentificationComments: mod.StripServerIdentificationComments,
 				Logger:                            logger,
