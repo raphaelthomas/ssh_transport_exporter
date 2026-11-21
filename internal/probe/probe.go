@@ -23,6 +23,7 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/match"
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/profile"
 )
 
 // Phases a probe can fail at, reported as Result.ErrorPhase.
@@ -140,123 +141,17 @@ type Options struct {
 	// lists is a @cert-authority line. Nil leaves HostKeyCallback to decide alone.
 	IsCertAuthority func(knownhosts.KnownKey) bool
 
-	// Ciphers to advertise, in preference order. Empty uses defaultCiphers.
-	Ciphers []string
-
-	// KeyExchanges to advertise, in preference order. Empty uses
-	// defaultKeyExchanges.
-	KeyExchanges []string
-
-	// MACs to advertise, in preference order. Empty uses defaultMACs.
-	MACs []string
-
-	// HostKeyAlgorithms to accept, in preference order. Empty uses
-	// defaultHostKeyAlgorithms.
-	HostKeyAlgorithms []string
-
-	// HostKeyAlgorithmsFixedOrder asks for HostKeyAlgorithms in their order.
-	// False asks first for the types known_hosts lists, like OpenSSH, if
-	// IsCertAuthority is set.
-	HostKeyAlgorithmsFixedOrder bool
-
-	// CASignatureAlgorithms to accept on host certificates. Empty uses
-	// defaultCASignatureAlgorithms.
-	CASignatureAlgorithms []string
-
-	// HostCertificateNoFallback fails a host certificate that doesn't verify
-	// through its CA, like x/crypto. False retries with its plain key, like
-	// OpenSSH.
-	HostCertificateNoFallback bool
-
-	// HostCertificateExactPrincipals compares host certificate principals with
-	// the target exactly, like OpenSSH before 10.3 and x/crypto. False matches
-	// them as patterns, like OpenSSH 10.3 to 10.6.
-	HostCertificateExactPrincipals bool
-
-	// HostCertificatePrincipalsOptional lets a host certificate without
-	// principals cover any target, like OpenSSH before 10.3. False fails it,
-	// like OpenSSH 10.3 to 10.6 and x/crypto.
-	HostCertificatePrincipalsOptional bool
-
-	// CertAuthorityLinesMatchPlainKeys checks a plain host key against
-	// @cert-authority lines, too, like x/crypto. False checks it against plain
-	// lines only, like OpenSSH.
-	CertAuthorityLinesMatchPlainKeys bool
+	// Profile is how the probe behaves: its algorithm lists and host key
+	// verification switches. Nil uses profile.Default(). Run doesn't change it.
+	Profile *profile.Profile
 
 	StripServerIdentificationComments bool
 
 	Logger *slog.Logger
 }
 
-// The defaults are the client defaults of OpenSSH 10.0 - 10.6 (myproposal.h),
-// without the algorithms x/crypto does not implement: sntrup761x25519-sha512,
-// diffie-hellman-group18-sha512, sk-* and webauthn-sk-* host keys,
-// ssh-mldsa44-ed25519, umac-* and hmac-sha1-etm.
-var (
-	defaultKeyExchanges = []string{
-		ssh.KeyExchangeMLKEM768X25519,
-		ssh.KeyExchangeCurve25519,
-		ssh.KeyExchangeECDHP256,
-		ssh.KeyExchangeECDHP384,
-		ssh.KeyExchangeECDHP521,
-		ssh.KeyExchangeDHGEXSHA256,
-		ssh.KeyExchangeDH16SHA512,
-		ssh.KeyExchangeDH14SHA256,
-	}
-
-	defaultHostKeyAlgorithms = []string{
-		ssh.CertAlgoED25519v01,
-		ssh.CertAlgoECDSA256v01,
-		ssh.CertAlgoECDSA384v01,
-		ssh.CertAlgoECDSA521v01,
-		ssh.CertAlgoRSASHA512v01,
-		ssh.CertAlgoRSASHA256v01,
-		ssh.KeyAlgoED25519,
-		ssh.KeyAlgoECDSA256,
-		ssh.KeyAlgoECDSA384,
-		ssh.KeyAlgoECDSA521,
-		ssh.KeyAlgoRSASHA512,
-		ssh.KeyAlgoRSASHA256,
-	}
-
-	defaultCiphers = []string{
-		ssh.CipherChaCha20Poly1305,
-		ssh.CipherAES128GCM,
-		ssh.CipherAES256GCM,
-		ssh.CipherAES128CTR,
-		ssh.CipherAES192CTR,
-		ssh.CipherAES256CTR,
-	}
-
-	defaultMACs = []string{
-		ssh.HMACSHA256ETM,
-		ssh.HMACSHA512ETM,
-		ssh.HMACSHA256,
-		ssh.HMACSHA512,
-		ssh.HMACSHA1,
-	}
-
-	// defaultCASignatureAlgorithms is OpenSSH 10.6's default CASignatureAlgorithms,
-	// without webauthn-sk-ecdsa-sha2-nistp256@openssh.com, which x/crypto does not
-	// implement.
-	defaultCASignatureAlgorithms = []string{
-		ssh.KeyAlgoED25519,
-		ssh.KeyAlgoECDSA256,
-		ssh.KeyAlgoECDSA384,
-		ssh.KeyAlgoECDSA521,
-		ssh.KeyAlgoSKED25519,
-		ssh.KeyAlgoSKECDSA256,
-		ssh.KeyAlgoRSASHA512,
-		ssh.KeyAlgoRSASHA256,
-	}
-)
-
-func orDefault(algorithms, defaults []string) []string {
-	if len(algorithms) == 0 {
-		return defaults
-	}
-	return algorithms
-}
+// defaultProfile is the profile Run uses for nil Options.Profile.
+var defaultProfile = profile.Default()
 
 // hostKeyResult moves the verification result off the goroutine that runs
 // HostKeyCallback; only the first key exchange is recorded.
@@ -376,22 +271,18 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 
 	// Like OpenSSH, after the connect: known_hosts decides which host key to ask for.
 	lines := knownHostsLines(hostKeyCallback, opts.IsCertAuthority, target, rawConn.RemoteAddr())
-	hostKeyAlgorithms := orDefault(opts.HostKeyAlgorithms, defaultHostKeyAlgorithms)
-	if !opts.HostKeyAlgorithmsFixedOrder && opts.IsCertAuthority != nil {
+	p := &defaultProfile
+	if opts.Profile != nil {
+		p = opts.Profile
+	}
+	hostKeyAlgorithms := p.HostKeyAlgorithms
+	if p.OrderByKnownHosts && opts.IsCertAuthority != nil {
 		revoked := func(k ssh.PublicKey) bool {
 			_, ok := errors.AsType[*knownhosts.RevokedError](hostKeyCallback(target, rawConn.RemoteAddr(), k))
 			return ok
 		}
 		hostKeyAlgorithms = orderHostKeyAlgorithms(hostKeyAlgorithms, lines, opts.IsCertAuthority, revoked)
 	}
-	verify := verifyOptions{
-		caSignatureAlgorithms: orDefault(opts.CASignatureAlgorithms, defaultCASignatureAlgorithms),
-		noFallback:            opts.HostCertificateNoFallback,
-		exactPrincipals:       opts.HostCertificateExactPrincipals,
-		principalsOptional:    opts.HostCertificatePrincipalsOptional,
-		caLinesMatchPlainKeys: opts.CertAuthorityLinesMatchPlainKeys,
-	}
-
 	forceCloseOnCtxDone := context.AfterFunc(ctx, func() {
 		_ = rawConn.Close()
 	})
@@ -404,14 +295,14 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 	clientConfig := &ssh.ClientConfig{
 		User:              "ssh_transport_exporter",
 		Auth:              nil,
-		Ciphers:           orDefault(opts.Ciphers, defaultCiphers),
-		KeyExchanges:      orDefault(opts.KeyExchanges, defaultKeyExchanges),
-		MACs:              orDefault(opts.MACs, defaultMACs),
+		Ciphers:           p.Ciphers,
+		KeyExchanges:      p.KeyExchanges,
+		MACs:              p.MACs,
 		HostKeyAlgorithms: hostKeyAlgorithms,
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			verifiedBy, certErr, err := verifyHostKey(hostKeyCallback, opts.IsCertAuthority, lines, verify, hostname, remote, key)
+			verifiedBy, certErr, err := verifyHostKey(hostKeyCallback, opts.IsCertAuthority, lines, p, hostname, remote, key)
 			hk := hostKeyResult{verified: err == nil, verifiedBy: verifiedBy}
-			hk.line, _ = decidingLine(lines, opts.IsCertAuthority, verify.caLinesMatchPlainKeys, key, verifiedBy, err)
+			hk.line, _ = decidingLine(lines, opts.IsCertAuthority, p.CALinesMatchPlainKeys, key, verifiedBy, err)
 			hk.cert, _ = key.(*ssh.Certificate)
 			if certErr != nil {
 				hk.certificateErrorReason = classifyHostKeyVerifyError(certErr)
@@ -605,23 +496,14 @@ func orderHostKeyAlgorithms(algorithms []string, lines []knownhosts.KnownKey, is
 	return append(first, last...)
 }
 
-// verifyOptions are the Options verifyHostKey follows.
-type verifyOptions struct {
-	caSignatureAlgorithms []string
-	noFallback            bool
-	exactPrincipals       bool
-	principalsOptional    bool
-	caLinesMatchPlainKeys bool
-}
-
 // verifyHostKey checks key against known_hosts like OpenSSH's check_host_key and
 // returns which listed key verified it and, for the plain key inside a host
 // certificate, why the certificate didn't. An invalid SSH host certificate falls
-// back to the host key inside it, unless opts.noFallback. A bad CA signature, or
+// back to the host key inside it, if p.PlainKeyFallback. A bad CA signature, or
 // a @revoked key or CA, fails without fallback. isCA tells @cert-authority lines
 // from plain ones, which cb doesn't; without it, cb decides alone. lines are the
 // host's, from knownHostsLines.
-func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, lines []knownhosts.KnownKey, opts verifyOptions, hostname string, remote net.Addr, key ssh.PublicKey) (verifiedBy string, certificateErr, err error) {
+func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, lines []knownhosts.KnownKey, p *profile.Profile, hostname string, remote net.Addr, key ssh.PublicKey) (verifiedBy string, certificateErr, err error) {
 	check := func(k ssh.PublicKey) error { return cb(hostname, remote, k) }
 
 	listed := func(k ssh.PublicKey, ca bool) bool {
@@ -631,7 +513,7 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 	// OpenSSH looks a plain host key up on plain lines only, x/crypto on all.
 	checkPlain := func(k ssh.PublicKey) error {
 		err := check(k)
-		if _, ok := errors.AsType[*knownhosts.KeyError](err); isCA == nil || opts.caLinesMatchPlainKeys || (err != nil && !ok) {
+		if _, ok := errors.AsType[*knownhosts.KeyError](err); isCA == nil || p.CALinesMatchPlainKeys || (err != nil && !ok) {
 			return err
 		}
 		if err == nil && listed(k, false) {
@@ -676,23 +558,23 @@ func verifyHostKey(cb ssh.HostKeyCallback, isCA func(knownhosts.KnownKey) bool, 
 			_, ok := errors.AsType[*knownhosts.RevokedError](check(c.Key))
 			return ok
 		}
-		if p := hostCertPrincipal(cert, host, opts.exactPrincipals); p != "" {
+		if principal := hostCertPrincipal(cert, host, p.WildcardPrincipals); principal != "" {
 			checker := ssh.CertChecker{IsRevoked: isRevoked}
-			certErr = checker.CheckCert(p, cert)
-		} else if len(cert.ValidPrincipals) == 0 && opts.principalsOptional {
+			certErr = checker.CheckCert(principal, cert)
+		} else if len(cert.ValidPrincipals) == 0 && !p.RequirePrincipals {
 			certErr = checkCertWithoutPrincipals(cert, isRevoked)
 		}
 	}
 	// Validate the certificate like OpenSSH, including its CA signature algorithm.
 	if certErr == nil {
-		if slices.Contains(opts.caSignatureAlgorithms, cert.Signature.Format) {
+		if slices.Contains(p.CASignatureAlgorithms, cert.Signature.Format) {
 			return VerifiedByCAKey, nil, nil
 		}
 		certErr = fmt.Errorf("CA signature algorithm %q not allowed", cert.Signature.Format)
 	}
-	hostCertErr := hostCertificateError(cert, host, certErr, caTrusted, opts)
+	hostCertErr := hostCertificateError(cert, host, certErr, caTrusted, p)
 	// Without fallback, a @revoked key inside the certificate still fails as revoked.
-	if opts.noFallback {
+	if !p.PlainKeyFallback {
 		err := check(cert.Key)
 		if _, ok := errors.AsType[*knownhosts.RevokedError](err); ok {
 			return "", nil, err
@@ -767,7 +649,7 @@ func firstLine(lines []knownhosts.KnownKey, isCA func(knownhosts.KnownKey) bool,
 // of OpenSSH's check_host_key and sshkey_cert_check_host. certErr is the result
 // of checking cert, caTrusted whether a @cert-authority line lists its CA; the
 // certificate's fields only name the reason.
-func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caTrusted bool, opts verifyOptions) error {
+func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caTrusted bool, p *profile.Profile) error {
 	now := time.Now().Unix()
 	var reason error
 	switch {
@@ -779,11 +661,11 @@ func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caT
 		reason = errHostCertificateNotYetValid
 	case now >= certUnix(cert.ValidBefore):
 		reason = errHostCertificateExpired
-	case hostCertPrincipal(cert, host, opts.exactPrincipals) == "" && (len(cert.ValidPrincipals) > 0 || !opts.principalsOptional):
+	case hostCertPrincipal(cert, host, p.WildcardPrincipals) == "" && (len(cert.ValidPrincipals) > 0 || p.RequirePrincipals):
 		reason = errHostCertificatePrincipalNotListed
 	case len(cert.CriticalOptions) > 0:
 		reason = errHostCertificateInvalid
-	case !slices.Contains(opts.caSignatureAlgorithms, cert.Signature.Format):
+	case !slices.Contains(p.CASignatureAlgorithms, cert.Signature.Format):
 		reason = errHostCertificateSignatureAlgorithmDisallowed
 	default:
 		reason = errHostCertificateInvalid
@@ -791,11 +673,11 @@ func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caT
 	return fmt.Errorf("%w: %w", reason, certErr)
 }
 
-// hostCertPrincipal returns the first of cert's principals that matches host
-// like OpenSSH's match_pattern, or equals it if exact, or "" if none does.
-func hostCertPrincipal(cert *ssh.Certificate, host string, exact bool) string {
+// hostCertPrincipal returns the first of cert's principals that equals host, or
+// with wildcards matches it like OpenSSH's match_pattern, or "" if none does.
+func hostCertPrincipal(cert *ssh.Certificate, host string, wildcards bool) string {
 	for _, p := range cert.ValidPrincipals {
-		if p == host || !exact && match.Pattern(host, p) {
+		if p == host || wildcards && match.Pattern(host, p) {
 			return p
 		}
 	}
