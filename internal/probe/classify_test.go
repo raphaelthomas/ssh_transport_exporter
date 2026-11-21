@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"slices"
 	"strings"
@@ -840,4 +841,76 @@ func mustECDSA(t *testing.T, curve elliptic.Curve) *ecdsa.PrivateKey {
 		t.Fatal(err)
 	}
 	return priv
+}
+
+// Bounds past the largest int64 read the same on every path, like x/crypto's
+// CheckCert: see certNotYetValid and certExpired.
+func TestVerifyHostKeyValidityBounds(t *testing.T) {
+	const host = "host.example.com"
+	hostKey, ca := newEd25519Signer(t), newEd25519Signer(t)
+	kh := loadKnownHosts(t, []string{knownHostsLine("@cert-authority "+host, ca.PublicKey())})
+	// The default profile requires principals; the bounds are the point here.
+	opts := testProfile(func(p *profile.Profile) { p.RequirePrincipals = false })
+	principals := []struct {
+		name       string
+		principals []string
+	}{
+		{"exact principal", []string{host}},
+		{"wildcard principal", []string{"*.example.com"}},
+		{"no principals", nil},
+	}
+	bounds := []struct {
+		name                    string
+		validAfter, validBefore uint64
+		want                    string
+	}{
+		{"valid before the largest int64", 0, math.MaxInt64, VerifiedByCAKey},
+		{"valid before the largest int64 + 1", 0, math.MaxInt64 + 1, ErrReasonServerHostCertificateExpired},
+		{"valid forever", 0, ssh.CertTimeInfinity, VerifiedByCAKey},
+		{"valid after the largest int64 + 1", math.MaxInt64 + 1, ssh.CertTimeInfinity, ErrReasonServerHostCertificateNotYetValid},
+	}
+	for _, pr := range principals {
+		for _, b := range bounds {
+			t.Run(pr.name+", "+b.name, func(t *testing.T) {
+				cert := &ssh.Certificate{
+					Key: hostKey.PublicKey(), CertType: ssh.HostCert, ValidPrincipals: pr.principals,
+					ValidAfter: b.validAfter, ValidBefore: b.validBefore,
+				}
+				if pr.principals == nil {
+					signWithoutPrincipals(t, cert, ca)
+				} else if err := cert.SignCert(rand.Reader, ca); err != nil {
+					t.Fatal(err)
+				}
+				got, _, err := verifyHostKey(kh, kh.Lines(host+":22"), opts, host+":22", cert)
+				if err != nil {
+					got = classifyHostKeyVerifyError(err)
+				}
+				if got != b.want {
+					t.Errorf("verifyHostKey() = %q (%v), want %q", got, err, b.want)
+				}
+			})
+		}
+	}
+}
+
+// certExpired copies x/crypto's reading of a ValidBefore past the largest
+// int64. If x/crypto starts to accept one, revisit it and the README difference.
+func TestXCryptoCheckCertValidBeforePastMaxInt64(t *testing.T) {
+	ca := newEd25519Signer(t)
+	for _, tt := range []struct {
+		validBefore uint64
+		wantErr     bool
+	}{
+		{math.MaxInt64, false},
+		{math.MaxInt64 + 1, true},
+	} {
+		cert := &ssh.Certificate{Key: newEd25519Signer(t).PublicKey(), CertType: ssh.HostCert, ValidPrincipals: []string{"h"}, ValidBefore: tt.validBefore}
+		if err := cert.SignCert(rand.Reader, ca); err != nil {
+			t.Fatal(err)
+		}
+		var checker ssh.CertChecker
+		if err := checker.CheckCert("h", cert); (err != nil) != tt.wantErr {
+			t.Errorf("ValidBefore %d: CheckCert = %v, want error %t", tt.validBefore, err, tt.wantErr)
+		}
+	}
 }
