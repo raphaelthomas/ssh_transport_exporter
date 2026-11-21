@@ -68,7 +68,7 @@ type firstKey struct{ key *ssh.PublicKey }
 
 func (firstKey) Lines(string) []knownhosts.Line { return nil }
 
-func (f firstKey) Check(_ string, key ssh.PublicKey) error {
+func (f firstKey) Check(_ string, key ssh.PublicKey, _ time.Time) error {
 	if _, cert := key.(*ssh.Certificate); cert || *f.key == nil {
 		*f.key = key
 	}

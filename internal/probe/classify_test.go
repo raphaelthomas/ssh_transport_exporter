@@ -422,7 +422,7 @@ func TestVerifyHostKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			kh := loadKnownHosts(t, tt.knownHosts)
 			lines := kh.Lines(host + ":22")
-			got, certErr, err := verifyHostKey(kh, lines, testProfile(nil), host+":22", tt.key)
+			got, certErr, err := verifyHostKey(kh, lines, testProfile(nil), host+":22", tt.key, time.Now())
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -472,7 +472,7 @@ func TestVerifyHostKeyCASignatureAlgorithms(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			kh := loadKnownHosts(t, tt.knownHosts)
 			lines := kh.Lines(host + ":22")
-			got, certErr, err := verifyHostKey(kh, lines, testProfile(func(p *profile.Profile) { p.CASignatureAlgorithms = tt.algorithms }), host+":22", tt.key)
+			got, certErr, err := verifyHostKey(kh, lines, testProfile(func(p *profile.Profile) { p.CASignatureAlgorithms = tt.algorithms }), host+":22", tt.key, time.Now())
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -530,7 +530,7 @@ func TestVerifyHostKeyNoFallback(t *testing.T) {
 			kh := loadKnownHosts(t, tt.knownHosts)
 			lines := kh.Lines(host + ":22")
 			opts := testProfile(func(p *profile.Profile) { p.PlainKeyFallback = false })
-			got, certErr, err := verifyHostKey(kh, lines, opts, host+":22", tt.key)
+			got, certErr, err := verifyHostKey(kh, lines, opts, host+":22", tt.key, time.Now())
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -574,7 +574,7 @@ func TestVerifyHostKeyExactPrincipals(t *testing.T) {
 			kh := loadKnownHosts(t, tt.knownHosts)
 			lines := kh.Lines(host + ":22")
 			opts := testProfile(func(p *profile.Profile) { p.WildcardPrincipals = false })
-			got, certErr, err := verifyHostKey(kh, lines, opts, host+":22", tt.key)
+			got, certErr, err := verifyHostKey(kh, lines, opts, host+":22", tt.key, time.Now())
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -647,7 +647,7 @@ func TestVerifyHostKeyPrincipalsOptional(t *testing.T) {
 			kh := loadKnownHosts(t, tt.knownHosts)
 			lines := kh.Lines(host + ":22")
 			opts := testProfile(func(p *profile.Profile) { p.RequirePrincipals = false })
-			got, certErr, err := verifyHostKey(kh, lines, opts, host+":22", tt.key)
+			got, certErr, err := verifyHostKey(kh, lines, opts, host+":22", tt.key, time.Now())
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -705,7 +705,7 @@ func TestDecidingLine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			kh := loadKnownHosts(t, tt.knownHosts)
 			lines := kh.Lines(host + ":22")
-			verifiedBy, _, err := verifyHostKey(kh, lines, testProfile(nil), host+":22", tt.key)
+			verifiedBy, _, err := verifyHostKey(kh, lines, testProfile(nil), host+":22", tt.key, time.Now())
 			line, ok := decidingLine(lines, false, tt.key, verifiedBy, err)
 			if line.Line != tt.want || ok != (tt.want != 0) {
 				t.Errorf("decidingLine() = %d, %t, want %d (verifyHostKey: %q, %v)", line.Line, ok, tt.want, verifiedBy, err)
@@ -744,7 +744,7 @@ func TestVerifyHostKeyCALinesMatchPlainKeys(t *testing.T) {
 			kh := loadKnownHosts(t, tt.knownHosts)
 			lines := kh.Lines(host + ":22")
 			opts := testProfile(func(p *profile.Profile) { p.CALinesMatchPlainKeys = true })
-			verifiedBy, certErr, err := verifyHostKey(kh, lines, opts, host+":22", tt.key)
+			verifiedBy, certErr, err := verifyHostKey(kh, lines, opts, host+":22", tt.key, time.Now())
 			got := verifiedBy
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
@@ -843,22 +843,46 @@ func mustECDSA(t *testing.T, curve elliptic.Curve) *ecdsa.PrivateKey {
 	return priv
 }
 
+// validityHost is the target of the validity tests, which run once per way a
+// host certificate's principals cover it: each takes a different path.
+const validityHost = "host.example.com"
+
+var validityPrincipals = []struct {
+	name       string
+	principals []string
+}{
+	{"exact principal", []string{validityHost}},
+	{"wildcard principal", []string{"*.example.com"}},
+	{"no principals", nil},
+}
+
+// verifyValidity verifies a host certificate for validityHost from a CA that
+// known_hosts lists, at now. The default profile requires principals; validity
+// is the point here.
+func verifyValidity(t *testing.T, principals []string, validAfter, validBefore uint64, now time.Time) string {
+	t.Helper()
+	ca := newEd25519Signer(t)
+	cert := &ssh.Certificate{
+		Key: newEd25519Signer(t).PublicKey(), CertType: ssh.HostCert, ValidPrincipals: principals,
+		ValidAfter: validAfter, ValidBefore: validBefore,
+	}
+	if principals == nil {
+		signWithoutPrincipals(t, cert, ca)
+	} else if err := cert.SignCert(rand.Reader, ca); err != nil {
+		t.Fatal(err)
+	}
+	kh := loadKnownHosts(t, []string{knownHostsLine("@cert-authority "+validityHost, ca.PublicKey())})
+	opts := testProfile(func(p *profile.Profile) { p.RequirePrincipals = false })
+	got, _, err := verifyHostKey(kh, kh.Lines(validityHost+":22"), opts, validityHost+":22", cert, now)
+	if err != nil {
+		got = classifyHostKeyVerifyError(err)
+	}
+	return got
+}
+
 // Bounds past the largest int64 read the same on every path, like x/crypto's
 // CheckCert: see certNotYetValid and certExpired.
 func TestVerifyHostKeyValidityBounds(t *testing.T) {
-	const host = "host.example.com"
-	hostKey, ca := newEd25519Signer(t), newEd25519Signer(t)
-	kh := loadKnownHosts(t, []string{knownHostsLine("@cert-authority "+host, ca.PublicKey())})
-	// The default profile requires principals; the bounds are the point here.
-	opts := testProfile(func(p *profile.Profile) { p.RequirePrincipals = false })
-	principals := []struct {
-		name       string
-		principals []string
-	}{
-		{"exact principal", []string{host}},
-		{"wildcard principal", []string{"*.example.com"}},
-		{"no principals", nil},
-	}
 	bounds := []struct {
 		name                    string
 		validAfter, validBefore uint64
@@ -869,24 +893,38 @@ func TestVerifyHostKeyValidityBounds(t *testing.T) {
 		{"valid forever", 0, ssh.CertTimeInfinity, VerifiedByCAKey},
 		{"valid after the largest int64 + 1", math.MaxInt64 + 1, ssh.CertTimeInfinity, ErrReasonServerHostCertificateNotYetValid},
 	}
-	for _, pr := range principals {
+	for _, pr := range validityPrincipals {
 		for _, b := range bounds {
 			t.Run(pr.name+", "+b.name, func(t *testing.T) {
-				cert := &ssh.Certificate{
-					Key: hostKey.PublicKey(), CertType: ssh.HostCert, ValidPrincipals: pr.principals,
-					ValidAfter: b.validAfter, ValidBefore: b.validBefore,
+				if got := verifyValidity(t, pr.principals, b.validAfter, b.validBefore, time.Now()); got != b.want {
+					t.Errorf("verifyHostKey() = %q, want %q", got, b.want)
 				}
-				if pr.principals == nil {
-					signWithoutPrincipals(t, cert, ca)
-				} else if err := cert.SignCert(rand.Reader, ca); err != nil {
-					t.Fatal(err)
-				}
-				got, _, err := verifyHostKey(kh, kh.Lines(host+":22"), opts, host+":22", cert)
-				if err != nil {
-					got = classifyHostKeyVerifyError(err)
-				}
-				if got != b.want {
-					t.Errorf("verifyHostKey() = %q (%v), want %q", got, err, b.want)
+			})
+		}
+	}
+}
+
+// One instant decides every check of a host certificate. Its validity lies in
+// the past, so a check that read the wall clock instead would call it expired;
+// for DB.Check, whose verdict the re-check overrides, see knownhosts.TestCheckAt.
+func TestVerifyHostKeyAtOneInstant(t *testing.T) {
+	validAfter := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
+	validBefore := validAfter + 24*60*60
+	instants := []struct {
+		name string
+		now  int64
+		want string
+	}{
+		{"a second before valid-after", validAfter - 1, ErrReasonServerHostCertificateNotYetValid},
+		{"at valid-after", validAfter, VerifiedByCAKey},
+		{"a second before valid-before", validBefore - 1, VerifiedByCAKey},
+		{"at valid-before", validBefore, ErrReasonServerHostCertificateExpired},
+	}
+	for _, pr := range validityPrincipals {
+		for _, in := range instants {
+			t.Run(pr.name+", "+in.name, func(t *testing.T) {
+				if got := verifyValidity(t, pr.principals, uint64(validAfter), uint64(validBefore), time.Unix(in.now, 0)); got != in.want {
+					t.Errorf("verifyHostKey() = %q, want %q", got, in.want)
 				}
 			})
 		}

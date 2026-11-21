@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -29,7 +30,7 @@ var implementations = []struct {
 		if err != nil {
 			return nil, err
 		}
-		return func(addr string, _ net.Addr, key ssh.PublicKey) error { return db.Check(addr, key) }, nil
+		return func(addr string, _ net.Addr, key ssh.PublicKey) error { return db.Check(addr, key, time.Now()) }, nil
 	}},
 	{"x/crypto", knownhosts.New},
 }
@@ -303,7 +304,38 @@ func TestNilDB(t *testing.T) {
 	if lines := db.Lines("h:22"); lines != nil {
 		t.Errorf("Lines = %v, want none", lines)
 	}
-	if err := db.Check("h:22", newSigner(t).PublicKey()); err == nil {
+	if err := db.Check("h:22", newSigner(t).PublicKey(), time.Now()); err == nil {
 		t.Error("Check = nil, want an error")
+	}
+}
+
+// Check judges a host certificate's validity at now, not at the wall clock.
+func TestCheckAt(t *testing.T) {
+	ca := newSigner(t)
+	db, err := Load(writeKnownHosts(t, []string{knownHostsLine("@cert-authority h", ca.PublicKey())}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	validAfter := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
+	validBefore := validAfter + 24*60*60
+	cert := &ssh.Certificate{
+		Key: newSigner(t).PublicKey(), CertType: ssh.HostCert, ValidPrincipals: []string{"h"},
+		ValidAfter: uint64(validAfter), ValidBefore: uint64(validBefore),
+	}
+	if err := cert.SignCert(rand.Reader, ca); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		now     int64
+		wantErr bool
+	}{
+		{validAfter - 1, true},
+		{validAfter, false},
+		{validBefore - 1, false},
+		{validBefore, true},
+	} {
+		if err := db.Check("h:22", cert, time.Unix(tt.now, 0)); (err != nil) != tt.wantErr {
+			t.Errorf("Check at %d = %v, want error %t", tt.now, err, tt.wantErr)
+		}
 	}
 }
