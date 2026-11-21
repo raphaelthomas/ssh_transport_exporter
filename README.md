@@ -222,6 +222,10 @@ of `host_key_algorithms`, like an explicit OpenSSH `HostKeyAlgorithms`.
   `sntrup761x25519-sha512` or an `sk-*` host key, fails the probe, as does a
   host certificate whose CA signed with
   `webauthn-sk-ecdsa-sha2-nistp256@openssh.com`. OpenSSH connects.
+- OpenSSH accepts a host certificate whose valid-before is past the largest
+  signed 64-bit time but not forever. The probe treats it as expired, like
+  x/crypto: it reports `server_host_certificate_expired`, or verifies through
+  the host key inside the certificate if `known_hosts` lists it.
 - A target with a trailing dot, e.g. `host.example.com.`, is probed without
   it. OpenSSH keeps the dot, so neither `known_hosts` patterns nor
   certificate principals match, and it fails.

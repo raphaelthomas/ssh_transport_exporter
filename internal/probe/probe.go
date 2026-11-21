@@ -634,9 +634,9 @@ func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caT
 		reason = errHostCertificateCAUnknown
 	case cert.CertType != ssh.HostCert:
 		reason = errHostCertificateInvalid
-	case now < certUnix(cert.ValidAfter):
+	case certNotYetValid(cert, now):
 		reason = errHostCertificateNotYetValid
-	case now >= certUnix(cert.ValidBefore):
+	case certExpired(cert, now):
 		reason = errHostCertificateExpired
 	case hostCertPrincipal(cert, host, p.WildcardPrincipals) == "" && (len(cert.ValidPrincipals) > 0 || p.RequirePrincipals):
 		reason = errHostCertificatePrincipalNotListed
@@ -668,9 +668,9 @@ func checkCertWithoutPrincipals(cert *ssh.Certificate, isRevoked func(*ssh.Certi
 	switch {
 	case isRevoked(cert):
 		return errors.New("certificate revoked")
-	case now < certUnix(cert.ValidAfter):
+	case certNotYetValid(cert, now):
 		return errors.New("certificate not yet valid")
-	case now >= certUnix(cert.ValidBefore):
+	case certExpired(cert, now):
 		return errors.New("certificate expired")
 	case len(cert.CriticalOptions) > 0:
 		return errors.New("certificate has critical options")
@@ -678,13 +678,27 @@ func checkCertWithoutPrincipals(cert *ssh.Certificate, isRevoked func(*ssh.Certi
 	return nil
 }
 
-// certUnix converts a certificate timestamp to Unix seconds. Timestamps past the
-// largest int64, such as ssh.CertTimeInfinity, become the largest int64.
-func certUnix(t uint64) int64 {
-	if t > math.MaxInt64 {
-		return math.MaxInt64
+// certNotYetValid and certExpired read a host certificate's bounds like
+// x/crypto's CheckCert, which decides whenever a certificate has principals:
+// past the largest int64, ValidAfter is never reached, and ValidBefore has
+// passed unless it is ssh.CertTimeInfinity. OpenSSH compares unsigned and
+// accepts such a ValidBefore; only hand-crafted certificates have one, so no key
+// switches it.
+func certNotYetValid(cert *ssh.Certificate, now int64) bool {
+	if cert.ValidAfter > math.MaxInt64 {
+		return true
 	}
-	return int64(t)
+	return now < int64(cert.ValidAfter)
+}
+
+func certExpired(cert *ssh.Certificate, now int64) bool {
+	if cert.ValidBefore == ssh.CertTimeInfinity {
+		return false
+	}
+	if cert.ValidBefore > math.MaxInt64 {
+		return true
+	}
+	return now >= int64(cert.ValidBefore)
 }
 
 // verifyCertSignature checks only cert's CA signature, by calling CheckCert with
