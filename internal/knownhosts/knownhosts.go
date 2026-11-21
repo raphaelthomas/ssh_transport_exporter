@@ -16,6 +16,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -177,12 +178,14 @@ func (l *line) matches(name string) bool {
 	return matched
 }
 
-// Check verifies key for addr, host:port, like x/crypto's knownhosts callback,
-// but only lines that match addr apply, @revoked ones included. CertChecker's
-// IsRevoked gets no host name, so Check builds a CertChecker per call.
-func (db *DB) Check(addr string, key ssh.PublicKey) error {
+// Check verifies key for addr, host:port, at now like x/crypto's knownhosts
+// callback, but only lines that match addr apply, @revoked ones included.
+// CertChecker's IsRevoked gets no host name, so Check builds a CertChecker per
+// call.
+func (db *DB) Check(addr string, key ssh.PublicKey, now time.Time) error {
 	name := lookupName(addr)
 	checker := ssh.CertChecker{
+		Clock: func() time.Time { return now },
 		IsHostAuthority: func(auth ssh.PublicKey, _ string) bool {
 			for l := range db.matching(name) {
 				if l.marker == markerCert && keyEq(l.known.Key, auth) {

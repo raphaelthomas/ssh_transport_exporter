@@ -238,8 +238,6 @@ of `host_key_algorithms`, like an explicit OpenSSH `HostKeyAlgorithms`.
   `server_host_certificate_not_yet_valid`.
 - A clock that runs ahead may report certificates as
   `server_host_certificate_expired` early.
-- A certificate whose validity starts or ends in the exact second of the
-  probe may be reported with a wrong reason.
 
 ### Client profiles
 

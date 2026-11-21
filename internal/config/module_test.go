@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -37,7 +38,7 @@ func writeKnownHosts(t *testing.T, content string) string {
 }
 
 func exercise(kh probe.KnownHosts, key ssh.PublicKey) error {
-	return kh.Check("example.com:22", key)
+	return kh.Check("example.com:22", key, time.Now())
 }
 
 func TestLoadStripServerIdentificationComments(t *testing.T) {

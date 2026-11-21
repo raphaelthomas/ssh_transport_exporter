@@ -938,9 +938,9 @@ type slowKnownHosts struct {
 	delay time.Duration
 }
 
-func (s slowKnownHosts) Check(addr string, key ssh.PublicKey) error {
+func (s slowKnownHosts) Check(addr string, key ssh.PublicKey, now time.Time) error {
 	time.Sleep(s.delay)
-	return s.KnownHosts.Check(addr, key)
+	return s.KnownHosts.Check(addr, key, now)
 }
 
 func TestRunKexFailsAfterHostKeyAccepted(t *testing.T) {

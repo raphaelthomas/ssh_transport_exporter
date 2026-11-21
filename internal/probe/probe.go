@@ -137,9 +137,9 @@ type KnownHosts interface {
 	// Lines returns the lines that match addr, host:port, @revoked ones aside,
 	// with CertAuthority and Revoked set.
 	Lines(addr string) []knownhosts.Line
-	// Check verifies key for addr like x/crypto's knownhosts callback: a host
-	// certificate passes only through a matching @cert-authority line.
-	Check(addr string, key ssh.PublicKey) error
+	// Check verifies key for addr at now like x/crypto's knownhosts callback: a
+	// host certificate passes only through a matching @cert-authority line.
+	Check(addr string, key ssh.PublicKey, now time.Time) error
 }
 
 // noKnownHosts lists no line and rejects every host key.
@@ -147,7 +147,7 @@ type noKnownHosts struct{}
 
 func (noKnownHosts) Lines(string) []knownhosts.Line { return nil }
 
-func (noKnownHosts) Check(string, ssh.PublicKey) error {
+func (noKnownHosts) Check(string, ssh.PublicKey, time.Time) error {
 	return errors.New("no known_hosts configured")
 }
 
@@ -310,7 +310,8 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 		MACs:              p.MACs,
 		HostKeyAlgorithms: hostKeyAlgorithms,
 		HostKeyCallback: func(hostname string, _ net.Addr, key ssh.PublicKey) error {
-			verifiedBy, certErr, err := verifyHostKey(knownHosts, lines, p, hostname, key)
+			// Like OpenSSH, one instant for every check of this host key.
+			verifiedBy, certErr, err := verifyHostKey(knownHosts, lines, p, hostname, key, time.Now())
 			hk := hostKeyResult{verified: err == nil, verifiedBy: verifiedBy}
 			hk.line, _ = decidingLine(lines, p.CALinesMatchPlainKeys, key, verifiedBy, err)
 			hk.cert, _ = key.(*ssh.Certificate)
@@ -485,9 +486,10 @@ func orderHostKeyAlgorithms(algorithms []string, lines []knownhosts.Line) []stri
 // returns which listed key verified it and, for the plain key inside a host
 // certificate, why the certificate didn't. An invalid SSH host certificate falls
 // back to the host key inside it, if p.PlainKeyFallback. A bad CA signature, or
-// a @revoked key or CA, fails without fallback. lines are kh's for hostname.
-func verifyHostKey(kh KnownHosts, lines []knownhosts.Line, p *profile.Profile, hostname string, key ssh.PublicKey) (verifiedBy string, certificateErr, err error) {
-	check := func(k ssh.PublicKey) error { return kh.Check(hostname, k) }
+// a @revoked key or CA, fails without fallback. lines are kh's for hostname;
+// every check judges validity at now.
+func verifyHostKey(kh KnownHosts, lines []knownhosts.Line, p *profile.Profile, hostname string, key ssh.PublicKey, now time.Time) (verifiedBy string, certificateErr, err error) {
+	check := func(k ssh.PublicKey) error { return kh.Check(hostname, k, now) }
 
 	listed := func(k ssh.PublicKey, ca bool) bool {
 		_, ok := firstLine(lines, k, func(l knownhosts.Line) bool { return l.CertAuthority == ca })
@@ -542,10 +544,10 @@ func verifyHostKey(kh KnownHosts, lines []knownhosts.Line, p *profile.Profile, h
 			return ok
 		}
 		if principal := hostCertPrincipal(cert, host, p.WildcardPrincipals); principal != "" {
-			checker := ssh.CertChecker{IsRevoked: isRevoked}
+			checker := ssh.CertChecker{IsRevoked: isRevoked, Clock: func() time.Time { return now }}
 			certErr = checker.CheckCert(principal, cert)
 		} else if len(cert.ValidPrincipals) == 0 && !p.RequirePrincipals {
-			certErr = checkCertWithoutPrincipals(cert, isRevoked)
+			certErr = checkCertWithoutPrincipals(cert, isRevoked, now.Unix())
 		}
 	}
 	// Validate the certificate like OpenSSH, including its CA signature algorithm.
@@ -555,7 +557,7 @@ func verifyHostKey(kh KnownHosts, lines []knownhosts.Line, p *profile.Profile, h
 		}
 		certErr = fmt.Errorf("CA signature algorithm %q not allowed", cert.Signature.Format)
 	}
-	hostCertErr := hostCertificateError(cert, host, certErr, caTrusted, p)
+	hostCertErr := hostCertificateError(cert, host, certErr, caTrusted, p, now.Unix())
 	// Without fallback, a @revoked key inside the certificate still fails as revoked.
 	if !p.PlainKeyFallback {
 		err := check(cert.Key)
@@ -626,8 +628,7 @@ func firstLine(lines []knownhosts.Line, k ssh.PublicKey, kind func(knownhosts.Li
 // of OpenSSH's check_host_key and sshkey_cert_check_host. certErr is the result
 // of checking cert, caTrusted whether a @cert-authority line lists its CA; the
 // certificate's fields only name the reason.
-func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caTrusted bool, p *profile.Profile) error {
-	now := time.Now().Unix()
+func hostCertificateError(cert *ssh.Certificate, host string, certErr error, caTrusted bool, p *profile.Profile, now int64) error {
 	var reason error
 	switch {
 	case !caTrusted:
@@ -663,8 +664,7 @@ func hostCertPrincipal(cert *ssh.Certificate, host string, wildcards bool) strin
 
 // checkCertWithoutPrincipals checks a host certificate without principals like
 // CheckCert would, if it could; verifyCertSignature checked its CA signature.
-func checkCertWithoutPrincipals(cert *ssh.Certificate, isRevoked func(*ssh.Certificate) bool) error {
-	now := time.Now().Unix()
+func checkCertWithoutPrincipals(cert *ssh.Certificate, isRevoked func(*ssh.Certificate) bool, now int64) error {
 	switch {
 	case isRevoked(cert):
 		return errors.New("certificate revoked")
