@@ -154,13 +154,13 @@ modules:
 		t.Fatalf("Load: %v", err)
 	}
 	mod := modules[DefaultModuleName]
-	if got := mod.Options.Ciphers; len(got) != 1 || got[0] != "aes128-gcm@openssh.com" {
+	if got := mod.Options.Profile.Ciphers; len(got) != 1 || got[0] != "aes128-gcm@openssh.com" {
 		t.Errorf("Ciphers = %v, want [aes128-gcm@openssh.com]", got)
 	}
-	if got := mod.Options.HostKeyAlgorithms; len(got) != 1 || got[0] != "ssh-ed25519" {
+	if got := mod.Options.Profile.HostKeyAlgorithms; len(got) != 1 || got[0] != "ssh-ed25519" {
 		t.Errorf("HostKeyAlgorithms = %v, want [ssh-ed25519]", got)
 	}
-	if got := mod.Options.CASignatureAlgorithms; len(got) != 2 || got[0] != "ssh-ed25519" || got[1] != "rsa-sha2-512" {
+	if got := mod.Options.Profile.CASignatureAlgorithms; len(got) != 2 || got[0] != "ssh-ed25519" || got[1] != "rsa-sha2-512" {
 		t.Errorf("CASignatureAlgorithms = %v, want [ssh-ed25519 rsa-sha2-512]", got)
 	}
 }
@@ -181,9 +181,9 @@ modules:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	for name, want := range map[string]bool{"left_out": false, "ordered": false, "fixed": true} {
-		if got := modules[name].Options.HostKeyAlgorithmsFixedOrder; got != want {
-			t.Errorf("%s: HostKeyAlgorithmsFixedOrder = %t, want %t", name, got, want)
+	for name, want := range map[string]bool{"left_out": true, "ordered": true, "fixed": false} {
+		if got := modules[name].Options.Profile.OrderByKnownHosts; got != want {
+			t.Errorf("%s: OrderByKnownHosts = %t, want %t", name, got, want)
 		}
 	}
 }
@@ -204,9 +204,9 @@ modules:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	for name, want := range map[string]bool{"left_out": false, "fallback": false, "no_fallback": true} {
-		if got := modules[name].Options.HostCertificateNoFallback; got != want {
-			t.Errorf("%s: HostCertificateNoFallback = %t, want %t", name, got, want)
+	for name, want := range map[string]bool{"left_out": true, "fallback": true, "no_fallback": false} {
+		if got := modules[name].Options.Profile.PlainKeyFallback; got != want {
+			t.Errorf("%s: PlainKeyFallback = %t, want %t", name, got, want)
 		}
 	}
 }
@@ -227,9 +227,9 @@ modules:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	for name, want := range map[string]bool{"left_out": false, "patterns": false, "exact": true} {
-		if got := modules[name].Options.HostCertificateExactPrincipals; got != want {
-			t.Errorf("%s: HostCertificateExactPrincipals = %t, want %t", name, got, want)
+	for name, want := range map[string]bool{"left_out": true, "patterns": true, "exact": false} {
+		if got := modules[name].Options.Profile.WildcardPrincipals; got != want {
+			t.Errorf("%s: WildcardPrincipals = %t, want %t", name, got, want)
 		}
 	}
 }
@@ -250,9 +250,9 @@ modules:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	for name, want := range map[string]bool{"left_out": false, "required": false, "optional": true} {
-		if got := modules[name].Options.HostCertificatePrincipalsOptional; got != want {
-			t.Errorf("%s: HostCertificatePrincipalsOptional = %t, want %t", name, got, want)
+	for name, want := range map[string]bool{"left_out": true, "required": true, "optional": false} {
+		if got := modules[name].Options.Profile.RequirePrincipals; got != want {
+			t.Errorf("%s: RequirePrincipals = %t, want %t", name, got, want)
 		}
 	}
 }
@@ -274,8 +274,8 @@ modules:
 		t.Fatalf("Load: %v", err)
 	}
 	for name, want := range map[string]bool{"left_out": false, "plain_lines": false, "all_lines": true} {
-		if got := modules[name].Options.CertAuthorityLinesMatchPlainKeys; got != want {
-			t.Errorf("%s: CertAuthorityLinesMatchPlainKeys = %t, want %t", name, got, want)
+		if got := modules[name].Options.Profile.CALinesMatchPlainKeys; got != want {
+			t.Errorf("%s: CALinesMatchPlainKeys = %t, want %t", name, got, want)
 		}
 	}
 }

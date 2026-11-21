@@ -49,22 +49,12 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			allowedPorts[p] = struct{}{}
 		}
 
-		p := mod.profile
+		p := mod.resolved
 		modules[name] = Module{
 			Options: probe.Options{
 				HostKeyCallback:                   hostKeyCallback,
 				IsCertAuthority:                   isCertAuthority,
-				Ciphers:                           p.ciphers,
-				KeyExchanges:                      p.keyExchanges,
-				MACs:                              p.macs,
-				HostKeyAlgorithms:                 p.hostKeyAlgorithms,
-				HostKeyAlgorithmsFixedOrder:       !p.orderByKnownHosts,
-				CASignatureAlgorithms:             p.caSignatureAlgorithms,
-				HostCertificateNoFallback:         !p.plainKeyFallback,
-				HostCertificateExactPrincipals:    !p.wildcardPrincipals,
-				HostCertificatePrincipalsOptional: !p.requirePrincipals,
-				CertAuthorityLinesMatchPlainKeys:  p.caLinesMatchPlainKeys,
-
+				Profile:                           &p,
 				StripServerIdentificationComments: mod.StripServerIdentificationComments,
 				Logger:                            logger,
 			},
@@ -78,17 +68,17 @@ func build(raw *rawConfig, logger *slog.Logger) (map[string]Module, error) {
 			"allowed_targets", mod.AllowedTargets,
 			"allowed_ports", mod.AllowedPorts,
 			"target_port", mod.TargetPort,
-			"profile", p.name,
-			"ciphers", p.ciphers,
-			"kex_algorithms", p.keyExchanges,
-			"macs", p.macs,
-			"host_key_algorithms", p.hostKeyAlgorithms,
-			"host_key_algorithms_order_by_known_hosts", p.orderByKnownHosts,
-			"ca_signature_algorithms", p.caSignatureAlgorithms,
-			"host_certificate_allow_plain_key_fallback", p.plainKeyFallback,
-			"host_certificate_allow_wildcard_principals", p.wildcardPrincipals,
-			"host_certificate_require_principals", p.requirePrincipals,
-			"cert_authority_lines_match_plain_keys", p.caLinesMatchPlainKeys,
+			"profile", p.Name,
+			"ciphers", p.Ciphers,
+			"kex_algorithms", p.KeyExchanges,
+			"macs", p.MACs,
+			"host_key_algorithms", p.HostKeyAlgorithms,
+			"host_key_algorithms_order_by_known_hosts", p.OrderByKnownHosts,
+			"ca_signature_algorithms", p.CASignatureAlgorithms,
+			"host_certificate_allow_plain_key_fallback", p.PlainKeyFallback,
+			"host_certificate_allow_wildcard_principals", p.WildcardPrincipals,
+			"host_certificate_require_principals", p.RequirePrincipals,
+			"cert_authority_lines_match_plain_keys", p.CALinesMatchPlainKeys,
 			"strip_server_identification_comments", mod.StripServerIdentificationComments,
 		)
 	}

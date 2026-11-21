@@ -17,6 +17,7 @@ import (
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/knownhosts"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/profile"
 )
 
 const (
@@ -87,6 +88,13 @@ func trustOnFirstUse(t *testing.T, addr string, opts probe.Options) ssh.PublicKe
 		}
 		time.Sleep(time.Second)
 	}
+}
+
+// testProfile returns the default profile, changed by change.
+func testProfile(change func(*profile.Profile)) *profile.Profile {
+	p := profile.Default()
+	change(&p)
+	return &p
 }
 
 func probeVerified(t *testing.T, addr string, opts probe.Options) probe.Result {
@@ -218,24 +226,24 @@ func TestHostCertificateWithoutPrincipals(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		optional   bool
+		require    bool
 		wantReason string
 	}{
-		{"required", false, probe.ErrReasonServerHostCertificatePrincipalNotListed},
-		{"optional", true, ""},
+		{"required", true, probe.ErrReasonServerHostCertificatePrincipalNotListed},
+		{"optional", false, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 			defer cancel()
-			result := probe.Run(ctx, s.addr, probe.Options{HostKeyCallback: callback, IsCertAuthority: isCA, HostCertificatePrincipalsOptional: tt.optional})
+			result := probe.Run(ctx, s.addr, probe.Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) { p.RequirePrincipals = tt.require })})
 			if result.ErrorReason != tt.wantReason {
 				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, tt.wantReason)
 			}
 			if !strings.HasSuffix(result.ServerHostKeyAlgorithm, "-cert-v01@openssh.com") {
 				t.Errorf("host key algorithm = %q, want a certificate", result.ServerHostKeyAlgorithm)
 			}
-			if tt.optional && result.ServerHostKeyVerifiedBy != probe.VerifiedByCAKey {
+			if !tt.require && result.ServerHostKeyVerifiedBy != probe.VerifiedByCAKey {
 				t.Errorf("verified by %q, want %q", result.ServerHostKeyVerifiedBy, probe.VerifiedByCAKey)
 			}
 		})
@@ -246,7 +254,7 @@ func TestHostCertificateWithoutPrincipals(t *testing.T) {
 // known_hosts lists, here only the rsa key of a server that also has ed25519.
 func TestKnownHostsKeyType(t *testing.T) {
 	s := lookup(t, "openssh-alpine")
-	rsaKey := trustOnFirstUse(t, s.addr, probe.Options{HostKeyAlgorithms: []string{ssh.KeyAlgoRSASHA512}})
+	rsaKey := trustOnFirstUse(t, s.addr, probe.Options{Profile: testProfile(func(p *profile.Profile) { p.HostKeyAlgorithms = []string{ssh.KeyAlgoRSASHA512} })})
 	_, port, _ := net.SplitHostPort(s.addr)
 	path := filepath.Join(t.TempDir(), "known_hosts")
 	if err := os.WriteFile(path, []byte("[127.0.0.1]:"+port+" "+string(ssh.MarshalAuthorizedKey(rsaKey))), 0o600); err != nil {
@@ -277,7 +285,7 @@ func TestRSAHostKey(t *testing.T) {
 	for _, name := range []string{"openssh-rocky8", "openssh-alpine"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			result := probeVerified(t, lookup(t, name).addr, probe.Options{HostKeyAlgorithms: rsaOnly})
+			result := probeVerified(t, lookup(t, name).addr, probe.Options{Profile: testProfile(func(p *profile.Profile) { p.HostKeyAlgorithms = rsaOnly })})
 			if !slices.Contains(rsaOnly, result.ServerHostKeyAlgorithm) {
 				t.Errorf("host key algorithm = %q, want one of %q", result.ServerHostKeyAlgorithm, rsaOnly)
 			}
@@ -294,14 +302,16 @@ func TestNoCommonHostKeyAlgorithm(t *testing.T) {
 	// A stock sshd has no HostCertificate, so it offers no certificate algorithms.
 	result := probe.Run(ctx, addr, probe.Options{
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		HostKeyAlgorithms: []string{
-			ssh.CertAlgoED25519v01,
-			ssh.CertAlgoECDSA256v01,
-			ssh.CertAlgoECDSA384v01,
-			ssh.CertAlgoECDSA521v01,
-			ssh.CertAlgoRSASHA512v01,
-			ssh.CertAlgoRSASHA256v01,
-		},
+		Profile: testProfile(func(p *profile.Profile) {
+			p.HostKeyAlgorithms = []string{
+				ssh.CertAlgoED25519v01,
+				ssh.CertAlgoECDSA256v01,
+				ssh.CertAlgoECDSA384v01,
+				ssh.CertAlgoECDSA521v01,
+				ssh.CertAlgoRSASHA512v01,
+				ssh.CertAlgoRSASHA256v01,
+			}
+		}),
 	})
 	if result.ErrorPhase != probe.ErrPhaseKeyExchange || result.ErrorReason != probe.ErrReasonNoCommonHostKey {
 		t.Errorf("error = %s/%s, want %s/%s", result.ErrorPhase, result.ErrorReason, probe.ErrPhaseKeyExchange, probe.ErrReasonNoCommonHostKey)

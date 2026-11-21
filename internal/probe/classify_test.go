@@ -19,6 +19,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/profile"
 )
 
 func TestParseServerIdentification(t *testing.T) {
@@ -420,7 +422,7 @@ func TestVerifyHostKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
 			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			got, certErr, err := verifyHostKey(cb, isCA, lines, verifyOptions{caSignatureAlgorithms: defaultCASignatureAlgorithms}, host+":22", remote, tt.key)
+			got, certErr, err := verifyHostKey(cb, isCA, lines, testProfile(nil), host+":22", remote, tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -459,7 +461,7 @@ func TestVerifyHostKeyCASignatureAlgorithms(t *testing.T) {
 		want       string // which key verified it, or the error reason
 		certReason string // the certificate's error reason, if its plain key verified
 	}{
-		{"ssh-rsa, default, plain key not listed", defaultCASignatureAlgorithms, sha1Signed, []string{authority(rsaSHA1CA.PublicKey())},
+		{"ssh-rsa, default, plain key not listed", defaultProfile.CASignatureAlgorithms, sha1Signed, []string{authority(rsaSHA1CA.PublicKey())},
 			ErrReasonServerHostCertificateSignatureAlgorithmDisallowed, ""},
 		{"ssh-rsa, listed", []string{ssh.KeyAlgoED25519, ssh.KeyAlgoRSA}, sha1Signed, []string{authority(rsaSHA1CA.PublicKey())},
 			VerifiedByCAKey, ""},
@@ -471,7 +473,7 @@ func TestVerifyHostKeyCASignatureAlgorithms(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
 			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			got, certErr, err := verifyHostKey(cb, isCA, lines, verifyOptions{caSignatureAlgorithms: tt.algorithms}, host+":22", remote, tt.key)
+			got, certErr, err := verifyHostKey(cb, isCA, lines, testProfile(func(p *profile.Profile) { p.CASignatureAlgorithms = tt.algorithms }), host+":22", remote, tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -529,7 +531,7 @@ func TestVerifyHostKeyNoFallback(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
 			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			opts := verifyOptions{caSignatureAlgorithms: defaultCASignatureAlgorithms, noFallback: true}
+			opts := testProfile(func(p *profile.Profile) { p.PlainKeyFallback = false })
 			got, certErr, err := verifyHostKey(cb, isCA, lines, opts, host+":22", remote, tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
@@ -574,7 +576,7 @@ func TestVerifyHostKeyExactPrincipals(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
 			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			opts := verifyOptions{caSignatureAlgorithms: defaultCASignatureAlgorithms, exactPrincipals: true}
+			opts := testProfile(func(p *profile.Profile) { p.WildcardPrincipals = false })
 			got, certErr, err := verifyHostKey(cb, isCA, lines, opts, host+":22", remote, tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
@@ -648,7 +650,7 @@ func TestVerifyHostKeyPrincipalsOptional(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
 			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			opts := verifyOptions{caSignatureAlgorithms: defaultCASignatureAlgorithms, principalsOptional: true}
+			opts := testProfile(func(p *profile.Profile) { p.RequirePrincipals = false })
 			got, certErr, err := verifyHostKey(cb, isCA, lines, opts, host+":22", remote, tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
@@ -708,7 +710,7 @@ func TestDecidingLine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
 			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			verifiedBy, _, err := verifyHostKey(cb, isCA, lines, verifyOptions{caSignatureAlgorithms: defaultCASignatureAlgorithms}, host+":22", remote, tt.key)
+			verifiedBy, _, err := verifyHostKey(cb, isCA, lines, testProfile(nil), host+":22", remote, tt.key)
 			line, ok := decidingLine(lines, isCA, false, tt.key, verifiedBy, err)
 			if line.Line != tt.want || ok != (tt.want != 0) {
 				t.Errorf("decidingLine() = %d, %t, want %d (verifyHostKey: %q, %v)", line.Line, ok, tt.want, verifiedBy, err)
@@ -755,7 +757,7 @@ func TestVerifyHostKeyCALinesMatchPlainKeys(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cb, isCA := loadKnownHosts(t, tt.knownHosts)
 			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			opts := verifyOptions{caSignatureAlgorithms: defaultCASignatureAlgorithms, caLinesMatchPlainKeys: true}
+			opts := testProfile(func(p *profile.Profile) { p.CALinesMatchPlainKeys = true })
 			verifiedBy, certErr, err := verifyHostKey(cb, isCA, lines, opts, host+":22", remote, tt.key)
 			got := verifiedBy
 			if err != nil {
@@ -785,7 +787,7 @@ func TestOrderHostKeyAlgorithms(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	certs := defaultHostKeyAlgorithms[:6]
+	certs := defaultProfile.HostKeyAlgorithms[:6]
 	rsaFirst := []string{
 		ssh.CertAlgoRSASHA512v01, ssh.CertAlgoRSASHA256v01, ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256,
 		ssh.CertAlgoED25519v01, ssh.CertAlgoECDSA256v01, ssh.CertAlgoECDSA384v01, ssh.CertAlgoECDSA521v01,
@@ -793,27 +795,27 @@ func TestOrderHostKeyAlgorithms(t *testing.T) {
 	}
 	tests := []struct {
 		name       string
-		algorithms []string // nil for defaultHostKeyAlgorithms
+		algorithms []string // nil for the default profile's
 		knownHosts []string
 		want       []string
 	}{
-		{"no lines", nil, nil, defaultHostKeyAlgorithms},
-		{"plain ed25519", nil, []string{knownHostsLine(host, ed)}, defaultHostKeyAlgorithms},
-		{"plain ed25519 and plain rsa", nil, []string{knownHostsLine(host, ed), knownHostsLine(host, rsaKey)}, defaultHostKeyAlgorithms},
+		{"no lines", nil, nil, defaultProfile.HostKeyAlgorithms},
+		{"plain ed25519", nil, []string{knownHostsLine(host, ed)}, defaultProfile.HostKeyAlgorithms},
+		{"plain ed25519 and plain rsa", nil, []string{knownHostsLine(host, ed), knownHostsLine(host, rsaKey)}, defaultProfile.HostKeyAlgorithms},
 		{"plain rsa", nil, []string{knownHostsLine(host, rsaKey)}, rsaFirst},
 		{"plain ecdsa nistp384", nil, []string{knownHostsLine(host, ecdsa384.PublicKey())}, []string{
 			ssh.CertAlgoECDSA384v01, ssh.KeyAlgoECDSA384,
 			ssh.CertAlgoED25519v01, ssh.CertAlgoECDSA256v01, ssh.CertAlgoECDSA521v01, ssh.CertAlgoRSASHA512v01, ssh.CertAlgoRSASHA256v01,
 			ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA521, ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256,
 		}},
-		{"@cert-authority line only", nil, []string{knownHostsLine("@cert-authority "+host, ca)}, defaultHostKeyAlgorithms},
+		{"@cert-authority line only", nil, []string{knownHostsLine("@cert-authority "+host, ca)}, defaultProfile.HostKeyAlgorithms},
 		{"@cert-authority line and plain rsa", nil, []string{knownHostsLine("@cert-authority "+host, ca), knownHostsLine(host, rsaKey)}, append(slices.Clone(certs),
 			ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521)},
 		{"plain ed25519 revoked, plain rsa", nil, []string{knownHostsLine(host, ed), knownHostsLine("@revoked *", ed), knownHostsLine(host, rsaKey)}, rsaFirst},
 		{"first plain ed25519 revoked, a later one not, plain rsa", nil, []string{
 			knownHostsLine(host, ed), knownHostsLine(host, edOther), knownHostsLine("@revoked *", ed), knownHostsLine(host, rsaKey),
 		}, rsaFirst},
-		{"plain line holding a certificate", nil, []string{knownHostsLine(host, cert)}, defaultHostKeyAlgorithms},
+		{"plain line holding a certificate", nil, []string{knownHostsLine(host, cert)}, defaultProfile.HostKeyAlgorithms},
 		{"set list, plain ed25519", []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoED25519}, []string{knownHostsLine(host, ed)},
 			[]string{ssh.KeyAlgoED25519, ssh.KeyAlgoRSASHA512}},
 		{"set list with ssh-rsa, plain rsa", []string{ssh.KeyAlgoED25519, ssh.KeyAlgoRSA, ssh.CertAlgoRSAv01}, []string{knownHostsLine(host, rsaKey)},
@@ -831,7 +833,7 @@ func TestOrderHostKeyAlgorithms(t *testing.T) {
 			}
 			algorithms := tt.algorithms
 			if algorithms == nil {
-				algorithms = defaultHostKeyAlgorithms
+				algorithms = defaultProfile.HostKeyAlgorithms
 			}
 			got := orderHostKeyAlgorithms(algorithms, knownHostsLines(cb, isCA, host+":22", remote), isCA, revoked)
 			if !slices.Equal(got, tt.want) {

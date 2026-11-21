@@ -12,6 +12,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
+
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/profile"
 )
 
 // DefaultModuleName is the module used when a config file defines none,
@@ -64,7 +66,7 @@ type rawConfigModule struct {
 
 	StripServerIdentificationComments bool `yaml:"strip_server_identification_comments,omitempty"`
 
-	profile profile
+	resolved profile.Profile
 }
 
 type rawConfig struct {
@@ -108,13 +110,9 @@ func loadRawConfig(path string, allowAllTargetsFlag bool) (*rawConfig, error) {
 	// An explicit top-level allowed_targets always wins over --allow-all-targets.
 	cfg.allowAllTargets = allowAllTargetsFlag && len(cfg.AllowedTargets) == 0
 
-	defaults, err := lookupProfile(DefaultProfileName)
-	if err != nil {
-		return nil, err
-	}
-	top, err := cfg.resolve(defaults)
+	top, err := cfg.resolve(profile.Default())
 	if err == nil {
-		err = top.validate()
+		err = validateProfile(top)
 	}
 	if err != nil {
 		return nil, err
@@ -157,9 +155,9 @@ func loadRawConfig(path string, allowAllTargetsFlag bool) (*rawConfig, error) {
 			return nil, fmt.Errorf("module %q: target_port %d is not in allowed_ports %v", name, mod.TargetPort, mod.AllowedPorts)
 		}
 
-		mod.profile, err = mod.resolve(top)
+		mod.resolved, err = mod.resolve(top)
 		if err == nil {
-			err = mod.profile.validate()
+			err = validateProfile(mod.resolved)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("module %q: %w", name, err)

@@ -17,8 +17,18 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/profile"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/sshtest"
 )
+
+// testProfile returns the default profile, changed by change unless nil.
+func testProfile(change func(*profile.Profile)) *profile.Profile {
+	p := profile.Default()
+	if change != nil {
+		change(&p)
+	}
+	return &p
+}
 
 func acceptKey(want ssh.PublicKey) ssh.HostKeyCallback {
 	return ssh.FixedHostKey(want)
@@ -125,7 +135,7 @@ func TestRunNegotiatesRequestedCipher(t *testing.T) {
 
 	result := Run(ctx, srv.Addr, Options{
 		HostKeyCallback: acceptKey(srv.HostKey),
-		Ciphers:         []string{cipher},
+		Profile:         testProfile(func(p *profile.Profile) { p.Ciphers = []string{cipher} }),
 	})
 
 	if !result.KeyExchangeSuccess {
@@ -144,10 +154,13 @@ func TestRunNoCommonAlgorithm(t *testing.T) {
 		probe  Options
 		want   string
 	}{
-		{"kex", sshtest.Options{KeyExchanges: []string{ssh.KeyExchangeCurve25519}}, Options{KeyExchanges: []string{ssh.KeyExchangeECDHP256}}, ErrReasonNoCommonKex},
-		{"host key", sshtest.Options{}, Options{HostKeyAlgorithms: []string{ssh.KeyAlgoRSASHA256}}, ErrReasonNoCommonHostKey},
-		{"cipher", sshtest.Options{Ciphers: []string{ssh.CipherAES128CTR}}, Options{Ciphers: []string{ssh.CipherAES256CTR}}, ErrReasonNoCommonCipher},
-		{"mac", sshtest.Options{Ciphers: []string{ssh.CipherAES128CTR}, MACs: []string{ssh.HMACSHA256}}, Options{Ciphers: []string{ssh.CipherAES128CTR}, MACs: []string{ssh.HMACSHA512}}, ErrReasonNoCommonMAC},
+		{"kex", sshtest.Options{KeyExchanges: []string{ssh.KeyExchangeCurve25519}}, Options{Profile: testProfile(func(p *profile.Profile) { p.KeyExchanges = []string{ssh.KeyExchangeECDHP256} })}, ErrReasonNoCommonKex},
+		{"host key", sshtest.Options{}, Options{Profile: testProfile(func(p *profile.Profile) { p.HostKeyAlgorithms = []string{ssh.KeyAlgoRSASHA256} })}, ErrReasonNoCommonHostKey},
+		{"cipher", sshtest.Options{Ciphers: []string{ssh.CipherAES128CTR}}, Options{Profile: testProfile(func(p *profile.Profile) { p.Ciphers = []string{ssh.CipherAES256CTR} })}, ErrReasonNoCommonCipher},
+		{"mac", sshtest.Options{Ciphers: []string{ssh.CipherAES128CTR}, MACs: []string{ssh.HMACSHA256}}, Options{Profile: testProfile(func(p *profile.Profile) {
+			p.Ciphers = []string{ssh.CipherAES128CTR}
+			p.MACs = []string{ssh.HMACSHA512}
+		})}, ErrReasonNoCommonMAC},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -177,11 +190,11 @@ func TestDefaultAlgorithmsSupported(t *testing.T) {
 		defaults  []string
 		supported []string
 	}{
-		{"kex", defaultKeyExchanges, supported.KeyExchanges},
-		{"host key", defaultHostKeyAlgorithms, supported.HostKeys},
-		{"cipher", defaultCiphers, supported.Ciphers},
-		{"MAC", defaultMACs, supported.MACs},
-		{"CA signature", defaultCASignatureAlgorithms, supported.PublicKeyAuths},
+		{"kex", defaultProfile.KeyExchanges, supported.KeyExchanges},
+		{"host key", defaultProfile.HostKeyAlgorithms, supported.HostKeys},
+		{"cipher", defaultProfile.Ciphers, supported.Ciphers},
+		{"MAC", defaultProfile.MACs, supported.MACs},
+		{"CA signature", defaultProfile.CASignatureAlgorithms, supported.PublicKeyAuths},
 	} {
 		for _, algo := range tt.defaults {
 			if !slices.Contains(tt.supported, algo) {
@@ -200,8 +213,8 @@ func TestRunHostKeyAlgorithmsRespected(t *testing.T) {
 
 	// The server only has an ed25519 host key; demanding RSA must fail KEX.
 	result := Run(ctx, srv.Addr, Options{
-		HostKeyCallback:   acceptKey(srv.HostKey),
-		HostKeyAlgorithms: []string{ssh.KeyAlgoRSASHA256},
+		HostKeyCallback: acceptKey(srv.HostKey),
+		Profile:         testProfile(func(p *profile.Profile) { p.HostKeyAlgorithms = []string{ssh.KeyAlgoRSASHA256} }),
 	})
 
 	if !result.TCPConnectSuccess {
@@ -225,7 +238,7 @@ func TestRunKeyExchangesRespected(t *testing.T) {
 	// The server offers only its defaults, which exclude this insecure kex.
 	result := Run(ctx, srv.Addr, Options{
 		HostKeyCallback: acceptKey(srv.HostKey),
-		KeyExchanges:    []string{ssh.InsecureKeyExchangeDH1SHA1},
+		Profile:         testProfile(func(p *profile.Profile) { p.KeyExchanges = []string{ssh.InsecureKeyExchangeDH1SHA1} }),
 	})
 
 	if !result.TCPConnectSuccess {
@@ -254,8 +267,10 @@ func TestRunMACsRespected(t *testing.T) {
 
 	result := Run(ctx, srv.Addr, Options{
 		HostKeyCallback: acceptKey(srv.HostKey),
-		Ciphers:         []string{ssh.CipherAES128CTR},
-		MACs:            []string{ssh.HMACSHA512},
+		Profile: testProfile(func(p *profile.Profile) {
+			p.Ciphers = []string{ssh.CipherAES128CTR}
+			p.MACs = []string{ssh.HMACSHA512}
+		}),
 	})
 
 	if !result.KeyExchangeSuccess {
@@ -275,7 +290,7 @@ func TestRunNonAEADCipherReportsMAC(t *testing.T) {
 
 	result := Run(ctx, srv.Addr, Options{
 		HostKeyCallback: acceptKey(srv.HostKey),
-		Ciphers:         []string{ssh.CipherAES128CTR},
+		Profile:         testProfile(func(p *profile.Profile) { p.Ciphers = []string{ssh.CipherAES128CTR} }),
 	})
 
 	if !result.KeyExchangeSuccess {
@@ -296,7 +311,7 @@ func TestRunAEADCipherReportsNoMAC(t *testing.T) {
 
 	result := Run(ctx, srv.Addr, Options{
 		HostKeyCallback: acceptKey(srv.HostKey),
-		Ciphers:         []string{ssh.CipherAES128GCM},
+		Profile:         testProfile(func(p *profile.Profile) { p.Ciphers = []string{ssh.CipherAES128GCM} }),
 	})
 
 	if !result.KeyExchangeSuccess {
@@ -493,7 +508,11 @@ func TestRunCASignatureAlgorithms(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, CASignatureAlgorithms: tt.algorithms})
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) {
+				if tt.algorithms != nil {
+					p.CASignatureAlgorithms = tt.algorithms
+				}
+			})})
 
 			if result.ErrorReason != tt.wantReason {
 				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, tt.wantReason)
@@ -502,18 +521,18 @@ func TestRunCASignatureAlgorithms(t *testing.T) {
 	}
 }
 
-// TestRunHostCertificateNoFallback checks that Run passes
-// HostCertificateNoFallback on to the host certificate check.
-func TestRunHostCertificateNoFallback(t *testing.T) {
+// TestRunPlainKeyFallback checks that Run passes PlainKeyFallback on to the
+// host certificate check.
+func TestRunPlainKeyFallback(t *testing.T) {
 	t.Parallel()
 	ca := newEd25519Signer(t)
 	tests := []struct {
 		name       string
-		noFallback bool
+		fallback   bool
 		wantReason string
 	}{
-		{"fallback", false, ""},
-		{"no fallback", true, ErrReasonServerHostCertificateCAUnknown},
+		{"fallback", true, ""},
+		{"no fallback", false, ErrReasonServerHostCertificateCAUnknown},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -533,7 +552,7 @@ func TestRunHostCertificateNoFallback(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, HostCertificateNoFallback: tt.noFallback})
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) { p.PlainKeyFallback = tt.fallback })})
 
 			if result.ErrorReason != tt.wantReason {
 				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, tt.wantReason)
@@ -542,18 +561,18 @@ func TestRunHostCertificateNoFallback(t *testing.T) {
 	}
 }
 
-// TestRunHostCertificateExactPrincipals checks that Run passes
-// HostCertificateExactPrincipals on to the host certificate check.
-func TestRunHostCertificateExactPrincipals(t *testing.T) {
+// TestRunWildcardPrincipals checks that Run passes WildcardPrincipals on to
+// the host certificate check.
+func TestRunWildcardPrincipals(t *testing.T) {
 	t.Parallel()
 	ca := newEd25519Signer(t)
 	tests := []struct {
 		name       string
-		exact      bool
+		wildcards  bool
 		wantReason string
 	}{
-		{"patterns", false, ""},
-		{"exact", true, ErrReasonServerHostCertificatePrincipalNotListed},
+		{"patterns", true, ""},
+		{"exact", false, ErrReasonServerHostCertificatePrincipalNotListed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -572,7 +591,7 @@ func TestRunHostCertificateExactPrincipals(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, HostCertificateExactPrincipals: tt.exact})
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) { p.WildcardPrincipals = tt.wildcards })})
 
 			if result.ErrorReason != tt.wantReason {
 				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, tt.wantReason)
@@ -581,18 +600,18 @@ func TestRunHostCertificateExactPrincipals(t *testing.T) {
 	}
 }
 
-// TestRunHostCertificatePrincipalsOptional checks that Run passes
-// HostCertificatePrincipalsOptional on to the host certificate check.
-func TestRunHostCertificatePrincipalsOptional(t *testing.T) {
+// TestRunRequirePrincipals checks that Run passes RequirePrincipals on to the
+// host certificate check.
+func TestRunRequirePrincipals(t *testing.T) {
 	t.Parallel()
 	ca := newEd25519Signer(t)
 	tests := []struct {
 		name       string
-		optional   bool
+		require    bool
 		wantReason string
 	}{
-		{"required", false, ErrReasonServerHostCertificatePrincipalNotListed},
-		{"optional", true, ""},
+		{"required", true, ErrReasonServerHostCertificatePrincipalNotListed},
+		{"optional", false, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -609,7 +628,7 @@ func TestRunHostCertificatePrincipalsOptional(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, HostCertificatePrincipalsOptional: tt.optional})
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) { p.RequirePrincipals = tt.require })})
 
 			if result.ErrorReason != tt.wantReason {
 				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, tt.wantReason)
@@ -618,9 +637,9 @@ func TestRunHostCertificatePrincipalsOptional(t *testing.T) {
 	}
 }
 
-// TestRunCertAuthorityLinesMatchPlainKeys checks that Run passes
-// CertAuthorityLinesMatchPlainKeys on to the host key check.
-func TestRunCertAuthorityLinesMatchPlainKeys(t *testing.T) {
+// TestRunCALinesMatchPlainKeys checks that Run passes CALinesMatchPlainKeys on
+// to the host key check.
+func TestRunCALinesMatchPlainKeys(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name       string
@@ -639,7 +658,7 @@ func TestRunCertAuthorityLinesMatchPlainKeys(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, CertAuthorityLinesMatchPlainKeys: tt.match})
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) { p.CALinesMatchPlainKeys = tt.match })})
 
 			if result.ErrorReason != tt.wantReason || result.ServerHostKeyKnownHostsLine != tt.wantLine {
 				t.Errorf("ErrorReason = %q, known_hosts line = %d, want %q, %d", result.ErrorReason, result.ServerHostKeyKnownHostsLine, tt.wantReason, tt.wantLine)
@@ -649,7 +668,7 @@ func TestRunCertAuthorityLinesMatchPlainKeys(t *testing.T) {
 }
 
 // TestRunOrdersHostKeyAlgorithms checks that Run asks for the host key type
-// known_hosts lists, unless HostKeyAlgorithmsFixedOrder is set.
+// known_hosts lists, if OrderByKnownHosts.
 func TestRunOrdersHostKeyAlgorithms(t *testing.T) {
 	t.Parallel()
 	ecdsaKey, err := ssh.NewSignerFromKey(mustECDSA(t, elliptic.P256()))
@@ -659,14 +678,14 @@ func TestRunOrdersHostKeyAlgorithms(t *testing.T) {
 	tests := []struct {
 		name              string
 		hostKeyAlgorithms []string
-		fixedOrder        bool
+		order             bool
 		wantAlgorithm     string
 		wantReason        string
 	}{
-		{"defaults", nil, false, ssh.KeyAlgoECDSA256, ""},
-		{"defaults, fixed order", nil, true, ssh.KeyAlgoED25519, ErrReasonServerHostKeyMismatch},
-		{"host_key_algorithms set", []string{ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256}, false, ssh.KeyAlgoECDSA256, ""},
-		{"host_key_algorithms set, fixed order", []string{ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256}, true, ssh.KeyAlgoED25519, ErrReasonServerHostKeyMismatch},
+		{"defaults", nil, true, ssh.KeyAlgoECDSA256, ""},
+		{"defaults, fixed order", nil, false, ssh.KeyAlgoED25519, ErrReasonServerHostKeyMismatch},
+		{"host_key_algorithms set", []string{ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256}, true, ssh.KeyAlgoECDSA256, ""},
+		{"host_key_algorithms set, fixed order", []string{ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256}, false, ssh.KeyAlgoED25519, ErrReasonServerHostKeyMismatch},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -678,7 +697,12 @@ func TestRunOrdersHostKeyAlgorithms(t *testing.T) {
 			defer cancel()
 			result := Run(ctx, srv.Addr, Options{
 				HostKeyCallback: callback, IsCertAuthority: isCA,
-				HostKeyAlgorithms: tt.hostKeyAlgorithms, HostKeyAlgorithmsFixedOrder: tt.fixedOrder,
+				Profile: testProfile(func(p *profile.Profile) {
+					if tt.hostKeyAlgorithms != nil {
+						p.HostKeyAlgorithms = tt.hostKeyAlgorithms
+					}
+					p.OrderByKnownHosts = tt.order
+				}),
 			})
 
 			if result.ServerHostKeyAlgorithm != tt.wantAlgorithm || result.ErrorReason != tt.wantReason {
@@ -711,7 +735,11 @@ func TestRunKnownHostsLine(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, HostKeyAlgorithms: tt.hostKeyAlgorithms})
+			result := Run(ctx, srv.Addr, Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) {
+				if tt.hostKeyAlgorithms != nil {
+					p.HostKeyAlgorithms = tt.hostKeyAlgorithms
+				}
+			})})
 
 			if result.Success != tt.wantSuccess || result.ServerHostKeyKnownHostsLine != 2 || filepath.Base(result.ServerHostKeyKnownHostsFile) != "known_hosts" {
 				t.Errorf("Success = %t, known_hosts line = %s:%d, want %t, known_hosts:2",
