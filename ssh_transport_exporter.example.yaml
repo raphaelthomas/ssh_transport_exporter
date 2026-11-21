@@ -8,7 +8,7 @@ known_hosts_file: /etc/ssh/ssh_known_hosts
 allowed_targets:
   - "*.example.com"
   - bastion.example.com
-  - 10.0.0.0/8
+  - 198.51.100.0/24
   - 2001:db8::/32
 # Default set of ports a module is permitted to probe. Defaults to target_port.
 # Must contain target_port.
