@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
+	xknownhosts "golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/profile"
 )
@@ -202,11 +202,11 @@ func TestClassifyHostKeyVerifyError(t *testing.T) {
 		err  error
 		want string
 	}{
-		{"unknown host (empty Want)", &knownhosts.KeyError{}, ErrReasonServerHostKeyUnknown},
-		{"mismatch (non-empty Want)", &knownhosts.KeyError{Want: []knownhosts.KnownKey{{}}}, ErrReasonServerHostKeyMismatch},
-		{"revoked", &knownhosts.RevokedError{}, ErrReasonServerHostKeyRevoked},
-		{"wrapped mismatch", fmt.Errorf("verify: %w", &knownhosts.KeyError{Want: []knownhosts.KnownKey{{}}}), ErrReasonServerHostKeyMismatch},
-		{"certificate CA unknown", fmt.Errorf("%w: %w", errHostCertificateCAUnknown, &knownhosts.KeyError{}), ErrReasonServerHostCertificateCAUnknown},
+		{"unknown host (empty Want)", &xknownhosts.KeyError{}, ErrReasonServerHostKeyUnknown},
+		{"mismatch (non-empty Want)", &xknownhosts.KeyError{Want: []xknownhosts.KnownKey{{}}}, ErrReasonServerHostKeyMismatch},
+		{"revoked", &xknownhosts.RevokedError{}, ErrReasonServerHostKeyRevoked},
+		{"wrapped mismatch", fmt.Errorf("verify: %w", &xknownhosts.KeyError{Want: []xknownhosts.KnownKey{{}}}), ErrReasonServerHostKeyMismatch},
+		{"certificate CA unknown", fmt.Errorf("%w: %w", errHostCertificateCAUnknown, &xknownhosts.KeyError{}), ErrReasonServerHostCertificateCAUnknown},
 		{"certificate not yet valid", fmt.Errorf("%w: %w", errHostCertificateNotYetValid, errors.New("ssh: cert is not yet valid")), ErrReasonServerHostCertificateNotYetValid},
 		{"certificate expired", fmt.Errorf("%w: %w", errHostCertificateExpired, errors.New("ssh: cert has expired")), ErrReasonServerHostCertificateExpired},
 		{"certificate principal not listed", fmt.Errorf("%w: %w", errHostCertificatePrincipalNotListed, errors.New("ssh: principal not in the set")), ErrReasonServerHostCertificatePrincipalNotListed},
@@ -417,12 +417,11 @@ func TestVerifyHostKey(t *testing.T) {
 		{"CA on a plain line, wildcard principal, plain key not listed", wildcard, []string{listedCA}, ErrReasonServerHostKeyMismatch, ""},
 		{"trusted CA, wildcard principal, user certificate, plain key not listed", wildcardUserCert, []string{trusted}, ErrReasonServerHostCertificateOther, ""},
 	}
-	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cb, isCA := loadKnownHosts(t, tt.knownHosts)
-			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			got, certErr, err := verifyHostKey(cb, isCA, lines, testProfile(nil), host+":22", remote, tt.key)
+			kh := loadKnownHosts(t, tt.knownHosts)
+			lines := kh.Lines(host + ":22")
+			got, certErr, err := verifyHostKey(kh, lines, testProfile(nil), host+":22", tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -468,12 +467,11 @@ func TestVerifyHostKeyCASignatureAlgorithms(t *testing.T) {
 		{"ssh-ed25519, not listed, plain key listed", []string{ssh.KeyAlgoRSASHA512}, edSigned, []string{authority(edCA.PublicKey()), listed},
 			VerifiedByPlainKey, ErrReasonServerHostCertificateSignatureAlgorithmDisallowed},
 	}
-	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cb, isCA := loadKnownHosts(t, tt.knownHosts)
-			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			got, certErr, err := verifyHostKey(cb, isCA, lines, testProfile(func(p *profile.Profile) { p.CASignatureAlgorithms = tt.algorithms }), host+":22", remote, tt.key)
+			kh := loadKnownHosts(t, tt.knownHosts)
+			lines := kh.Lines(host + ":22")
+			got, certErr, err := verifyHostKey(kh, lines, testProfile(func(p *profile.Profile) { p.CASignatureAlgorithms = tt.algorithms }), host+":22", tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -526,13 +524,12 @@ func TestVerifyHostKeyNoFallback(t *testing.T) {
 		{"no principals, bad CA signature, plain key listed", &noPrincipals, []string{trusted, listed}, ErrReasonServerHostCertificateSignatureInvalid},
 		{"plain key, listed", hostPub, []string{listed}, VerifiedByPlainKey},
 	}
-	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cb, isCA := loadKnownHosts(t, tt.knownHosts)
-			lines := knownHostsLines(cb, isCA, host+":22", remote)
+			kh := loadKnownHosts(t, tt.knownHosts)
+			lines := kh.Lines(host + ":22")
 			opts := testProfile(func(p *profile.Profile) { p.PlainKeyFallback = false })
-			got, certErr, err := verifyHostKey(cb, isCA, lines, opts, host+":22", remote, tt.key)
+			got, certErr, err := verifyHostKey(kh, lines, opts, host+":22", tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -571,13 +568,12 @@ func TestVerifyHostKeyExactPrincipals(t *testing.T) {
 		{"trusted CA, wildcard principal, plain key listed", wildcard, []string{trusted, listed}, VerifiedByPlainKey, ErrReasonServerHostCertificatePrincipalNotListed},
 		{"trusted CA, exact principal", exact, []string{trusted}, VerifiedByCAKey, ""},
 	}
-	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cb, isCA := loadKnownHosts(t, tt.knownHosts)
-			lines := knownHostsLines(cb, isCA, host+":22", remote)
+			kh := loadKnownHosts(t, tt.knownHosts)
+			lines := kh.Lines(host + ":22")
 			opts := testProfile(func(p *profile.Profile) { p.WildcardPrincipals = false })
-			got, certErr, err := verifyHostKey(cb, isCA, lines, opts, host+":22", remote, tt.key)
+			got, certErr, err := verifyHostKey(kh, lines, opts, host+":22", tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -645,13 +641,12 @@ func TestVerifyHostKeyPrincipalsOptional(t *testing.T) {
 		{"untrusted CA, plain key listed", untrustedCA, []string{listed}, VerifiedByPlainKey, ErrReasonServerHostCertificateCAUnknown},
 		{"trusted CA, key revoked", valid, []string{trusted, knownHostsLine("@revoked *", hostPub)}, ErrReasonServerHostKeyRevoked, ""},
 	}
-	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cb, isCA := loadKnownHosts(t, tt.knownHosts)
-			lines := knownHostsLines(cb, isCA, host+":22", remote)
+			kh := loadKnownHosts(t, tt.knownHosts)
+			lines := kh.Lines(host + ":22")
 			opts := testProfile(func(p *profile.Profile) { p.RequirePrincipals = false })
-			got, certErr, err := verifyHostKey(cb, isCA, lines, opts, host+":22", remote, tt.key)
+			got, certErr, err := verifyHostKey(kh, lines, opts, host+":22", tt.key)
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
 			}
@@ -705,26 +700,17 @@ func TestDecidingLine(t *testing.T) {
 		{"unknown CA, plain key not listed", valid, nil, 0},
 		{"bad CA signature", &badSignature, []string{trusted, listed}, 0},
 	}
-	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cb, isCA := loadKnownHosts(t, tt.knownHosts)
-			lines := knownHostsLines(cb, isCA, host+":22", remote)
-			verifiedBy, _, err := verifyHostKey(cb, isCA, lines, testProfile(nil), host+":22", remote, tt.key)
-			line, ok := decidingLine(lines, isCA, false, tt.key, verifiedBy, err)
+			kh := loadKnownHosts(t, tt.knownHosts)
+			lines := kh.Lines(host + ":22")
+			verifiedBy, _, err := verifyHostKey(kh, lines, testProfile(nil), host+":22", tt.key)
+			line, ok := decidingLine(lines, false, tt.key, verifiedBy, err)
 			if line.Line != tt.want || ok != (tt.want != 0) {
 				t.Errorf("decidingLine() = %d, %t, want %d (verifyHostKey: %q, %v)", line.Line, ok, tt.want, verifiedBy, err)
 			}
 		})
 	}
-
-	t.Run("without IsCertAuthority", func(t *testing.T) {
-		cb, isCA := loadKnownHosts(t, []string{listed})
-		lines := knownHostsLines(cb, isCA, host+":22", remote)
-		if line, ok := decidingLine(lines, nil, false, hostPub, VerifiedByPlainKey, nil); ok {
-			t.Errorf("decidingLine() = %d, want none", line.Line)
-		}
-	})
 }
 
 func TestVerifyHostKeyCALinesMatchPlainKeys(t *testing.T) {
@@ -752,13 +738,12 @@ func TestVerifyHostKeyCALinesMatchPlainKeys(t *testing.T) {
 		{"certificate, trusted CA", cert, []string{trusted}, VerifiedByCAKey, 1},
 		{"certificate, CA on a plain line, plain key not listed", cert, []string{knownHostsLine(host, caPub)}, ErrReasonServerHostKeyMismatch, 1},
 	}
-	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cb, isCA := loadKnownHosts(t, tt.knownHosts)
-			lines := knownHostsLines(cb, isCA, host+":22", remote)
+			kh := loadKnownHosts(t, tt.knownHosts)
+			lines := kh.Lines(host + ":22")
 			opts := testProfile(func(p *profile.Profile) { p.CALinesMatchPlainKeys = true })
-			verifiedBy, certErr, err := verifyHostKey(cb, isCA, lines, opts, host+":22", remote, tt.key)
+			verifiedBy, certErr, err := verifyHostKey(kh, lines, opts, host+":22", tt.key)
 			got := verifiedBy
 			if err != nil {
 				got = classifyHostKeyVerifyError(err)
@@ -766,7 +751,7 @@ func TestVerifyHostKeyCALinesMatchPlainKeys(t *testing.T) {
 			if got != tt.want || certErr != nil {
 				t.Errorf("verifyHostKey() = %q, %v, %v, want %q, <nil>", got, certErr, err, tt.want)
 			}
-			line, ok := decidingLine(lines, isCA, true, tt.key, verifiedBy, err)
+			line, ok := decidingLine(lines, true, tt.key, verifiedBy, err)
 			if line.Line != tt.wantLine || ok != (tt.wantLine != 0) {
 				t.Errorf("decidingLine() = %d, %t, want %d", line.Line, ok, tt.wantLine)
 			}
@@ -823,19 +808,14 @@ func TestOrderHostKeyAlgorithms(t *testing.T) {
 		{"set list with an ML-DSA certificate, @cert-authority line", []string{ssh.KeyAlgoED25519, ssh.CertAlgoMLDSA65v01Go}, []string{knownHostsLine("@cert-authority "+host, ca)},
 			[]string{ssh.CertAlgoMLDSA65v01Go, ssh.KeyAlgoED25519}},
 	}
-	remote := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 22}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cb, isCA := loadKnownHosts(t, tt.knownHosts)
-			revoked := func(k ssh.PublicKey) bool {
-				_, ok := errors.AsType[*knownhosts.RevokedError](cb(host+":22", remote, k))
-				return ok
-			}
+			kh := loadKnownHosts(t, tt.knownHosts)
 			algorithms := tt.algorithms
 			if algorithms == nil {
 				algorithms = defaultProfile.HostKeyAlgorithms
 			}
-			got := orderHostKeyAlgorithms(algorithms, knownHostsLines(cb, isCA, host+":22", remote), isCA, revoked)
+			got := orderHostKeyAlgorithms(algorithms, kh.Lines(host+":22"))
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("orderHostKeyAlgorithms() = %q, want %q", got, tt.want)
 			}

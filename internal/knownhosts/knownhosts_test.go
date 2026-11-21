@@ -4,7 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
-	"maps"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -24,7 +24,13 @@ var implementations = []struct {
 	name string
 	load func(files ...string) (ssh.HostKeyCallback, error)
 }{
-	{"ours", New},
+	{"ours", func(files ...string) (ssh.HostKeyCallback, error) {
+		db, err := Load(files...)
+		if err != nil {
+			return nil, err
+		}
+		return func(addr string, _ net.Addr, key ssh.PublicKey) error { return db.Check(addr, key) }, nil
+	}},
 	{"x/crypto", knownhosts.New},
 }
 
@@ -242,51 +248,62 @@ func TestInvalidLines(t *testing.T) {
 			}
 		})
 	}
-	if _, err := New(os.DevNull); err != nil {
-		t.Errorf("New(%s): %v", os.DevNull, err)
+	if _, err := Load(os.DevNull); err != nil {
+		t.Errorf("Load(%s): %v", os.DevNull, err)
 	}
 }
 
-// TestCertAuthorities checks that CertAuthorities labels the lines both
-// implementations list in a KeyError, and that a line whose key changed after
-// the read is no CA line.
-func TestCertAuthorities(t *testing.T) {
+// TestLines checks that Lines lists, in file order, the lines both
+// implementations list in a KeyError, and marks the @cert-authority and the
+// revoked ones.
+func TestLines(t *testing.T) {
 	ca, host, unlisted := newSigner(t).PublicKey(), newSigner(t).PublicKey(), newSigner(t).PublicKey()
-	lines := []string{"# comment", "", knownHostsLine("@cert-authority h", ca), knownHostsLine("h", host)}
-	path := writeKnownHosts(t, lines)
-	isCA, err := CertAuthorities(path)
+	path := writeKnownHosts(t, []string{
+		"# comment", "",
+		knownHostsLine("@cert-authority h", ca),
+		knownHostsLine("h", host),
+		knownHostsLine("@revoked h", host),
+		knownHostsLine("other", newSigner(t).PublicKey()),
+	})
+	db, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	labels := func(t *testing.T, load func(...string) (ssh.HostKeyCallback, error)) map[int]bool {
-		t.Helper()
-		cb, err := load(path)
+	var got []string
+	for _, l := range db.Lines("h:22") {
+		got = append(got, fmt.Sprintf("%d ca=%t revoked=%t", l.Line, l.CertAuthority, l.Revoked))
+	}
+	if want := []string{"3 ca=true revoked=false", "4 ca=false revoked=true"}; !slices.Equal(got, want) {
+		t.Errorf("Lines = %v, want %v", got, want)
+	}
+
+	for _, impl := range implementations {
+		cb, err := impl.load(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		keyErr, ok := errors.AsType[*knownhosts.KeyError](cb("h:22", remote, unlisted))
 		if !ok {
-			t.Fatalf("callback didn't return a KeyError")
+			t.Fatalf("%s: callback didn't return a KeyError", impl.name)
 		}
-		got := make(map[int]bool)
+		var listed []int
 		for _, w := range keyErr.Want {
-			got[w.Line] = isCA(w)
+			listed = append(listed, w.Line)
 		}
-		return got
+		slices.Sort(listed)
+		if want := []int{3, 4}; !slices.Equal(listed, want) {
+			t.Errorf("%s: KeyError lists lines %v, want %v", impl.name, listed, want)
+		}
 	}
+}
 
-	for _, impl := range implementations {
-		if got, want := labels(t, impl.load), map[int]bool{3: true, 4: false}; !maps.Equal(got, want) {
-			t.Errorf("%s: CA lines = %v, want %v", impl.name, got, want)
-		}
+// A nil DB lists no line and fails every key, so verification fails.
+func TestNilDB(t *testing.T) {
+	var db *DB
+	if lines := db.Lines("h:22"); lines != nil {
+		t.Errorf("Lines = %v, want none", lines)
 	}
-	lines[2] = knownHostsLine("@cert-authority h", newSigner(t).PublicKey())
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	for _, impl := range implementations {
-		if got, want := labels(t, impl.load), map[int]bool{3: false, 4: false}; !maps.Equal(got, want) {
-			t.Errorf("%s, changed line: CA lines = %v, want %v", impl.name, got, want)
-		}
+	if err := db.Check("h:22", newSigner(t).PublicKey()); err == nil {
+		t.Error("Check = nil, want an error")
 	}
 }

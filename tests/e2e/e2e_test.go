@@ -5,6 +5,7 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	xknownhosts "golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/knownhosts"
 	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
@@ -60,26 +62,33 @@ func lookup(t *testing.T, name string) server {
 	return servers[i]
 }
 
-// trustOnFirstUse retries until a probe with opts succeeds, which also waits
-// for the container to come up, and returns the host key it presented.
+// firstKey records the host key the server presented, a certificate if any,
+// and rejects every key, so verification fails.
+type firstKey struct{ key *ssh.PublicKey }
+
+func (firstKey) Lines(string) []knownhosts.Line { return nil }
+
+func (f firstKey) Check(_ string, key ssh.PublicKey) error {
+	if _, cert := key.(*ssh.Certificate); cert || *f.key == nil {
+		*f.key = key
+	}
+	return errors.New("first use")
+}
+
+// trustOnFirstUse retries until a probe with opts completes the key exchange,
+// which also waits for the container to come up, and returns the host key the
+// server presented.
 func trustOnFirstUse(t *testing.T, addr string, opts probe.Options) ssh.PublicKey {
 	t.Helper()
 	var hostKey ssh.PublicKey
-	// The probe also checks a certificate's CA and plain key; the first call has
-	// the key the server presented.
-	opts.HostKeyCallback = func(_ string, _ net.Addr, key ssh.PublicKey) error {
-		if hostKey == nil {
-			hostKey = key
-		}
-		return nil
-	}
+	opts.KnownHosts = firstKey{&hostKey}
 	deadline := time.Now().Add(readyTimeout)
 	for {
 		hostKey = nil
 		ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 		result := probe.Run(ctx, addr, opts)
 		cancel()
-		if result.Success {
+		if result.KeyExchangeSuccess {
 			t.Logf("first use: %q", result.ServerIdentification.String)
 			return hostKey
 		}
@@ -88,6 +97,20 @@ func trustOnFirstUse(t *testing.T, addr string, opts probe.Options) ssh.PublicKe
 		}
 		time.Sleep(time.Second)
 	}
+}
+
+// loadKnownHosts writes content to a known_hosts file and loads it.
+func loadKnownHosts(t *testing.T, content string) *knownhosts.DB {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(path, []byte(content+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := knownhosts.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db
 }
 
 // testProfile returns the default profile, changed by change.
@@ -99,7 +122,12 @@ func testProfile(change func(*profile.Profile)) *profile.Profile {
 
 func probeVerified(t *testing.T, addr string, opts probe.Options) probe.Result {
 	t.Helper()
-	opts.HostKeyCallback = ssh.FixedHostKey(trustOnFirstUse(t, addr, opts))
+	key := trustOnFirstUse(t, addr, opts)
+	// Without its CA listed, a certificate verifies through the host key inside it.
+	if cert, ok := key.(*ssh.Certificate); ok {
+		key = cert.Key
+	}
+	opts.KnownHosts = loadKnownHosts(t, xknownhosts.Line([]string{addr}, key))
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 	result := probe.Run(ctx, addr, opts)
@@ -160,19 +188,7 @@ func TestHostCertificate(t *testing.T) {
 	}
 	// One pattern per server, so the line also suits x/crypto's knownhosts, which
 	// reads a pattern without a port as port 22.
-	path := filepath.Join(t.TempDir(), "known_hosts")
-	line := "@cert-authority " + strings.Join(hosts, ",") + " " + string(ca)
-	if err = os.WriteFile(path, []byte(line), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	callback, err := knownhosts.New(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	isCA, err := knownhosts.CertAuthorities(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	kh := loadKnownHosts(t, "@cert-authority "+strings.Join(hosts, ",")+" "+string(ca))
 
 	for _, s := range certServers {
 		t.Run(s.name, func(t *testing.T) {
@@ -181,7 +197,7 @@ func TestHostCertificate(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 			defer cancel()
-			result := probe.Run(ctx, s.addr, probe.Options{HostKeyCallback: callback, IsCertAuthority: isCA})
+			result := probe.Run(ctx, s.addr, probe.Options{KnownHosts: kh})
 			if !result.Success {
 				t.Fatalf("probe failed: %s/%s", result.ErrorPhase, result.ErrorReason)
 			}
@@ -210,18 +226,7 @@ func TestHostCertificateWithoutPrincipals(t *testing.T) {
 		t.Fatalf("reading the CA from make e2e: %v", err)
 	}
 	_, port, _ := net.SplitHostPort(s.addr)
-	path := filepath.Join(t.TempDir(), "known_hosts")
-	if err = os.WriteFile(path, []byte("@cert-authority [127.0.0.1]:"+port+" "+string(ca)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	callback, err := knownhosts.New(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	isCA, err := knownhosts.CertAuthorities(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	kh := loadKnownHosts(t, "@cert-authority [127.0.0.1]:"+port+" "+string(ca))
 	trustOnFirstUse(t, s.addr, probe.Options{})
 
 	tests := []struct {
@@ -236,7 +241,7 @@ func TestHostCertificateWithoutPrincipals(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 			defer cancel()
-			result := probe.Run(ctx, s.addr, probe.Options{HostKeyCallback: callback, IsCertAuthority: isCA, Profile: testProfile(func(p *profile.Profile) { p.RequirePrincipals = tt.require })})
+			result := probe.Run(ctx, s.addr, probe.Options{KnownHosts: kh, Profile: testProfile(func(p *profile.Profile) { p.RequirePrincipals = tt.require })})
 			if result.ErrorReason != tt.wantReason {
 				t.Errorf("ErrorReason = %q, want %q", result.ErrorReason, tt.wantReason)
 			}
@@ -256,22 +261,11 @@ func TestKnownHostsKeyType(t *testing.T) {
 	s := lookup(t, "openssh-alpine")
 	rsaKey := trustOnFirstUse(t, s.addr, probe.Options{Profile: testProfile(func(p *profile.Profile) { p.HostKeyAlgorithms = []string{ssh.KeyAlgoRSASHA512} })})
 	_, port, _ := net.SplitHostPort(s.addr)
-	path := filepath.Join(t.TempDir(), "known_hosts")
-	if err := os.WriteFile(path, []byte("[127.0.0.1]:"+port+" "+string(ssh.MarshalAuthorizedKey(rsaKey))), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	callback, err := knownhosts.New(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	isCA, err := knownhosts.CertAuthorities(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	kh := loadKnownHosts(t, "[127.0.0.1]:"+port+" "+string(ssh.MarshalAuthorizedKey(rsaKey)))
 
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
-	result := probe.Run(ctx, s.addr, probe.Options{HostKeyCallback: callback, IsCertAuthority: isCA})
+	result := probe.Run(ctx, s.addr, probe.Options{KnownHosts: kh})
 	if !result.Success {
 		t.Fatalf("probe failed: %s/%s", result.ErrorPhase, result.ErrorReason)
 	}
@@ -301,7 +295,6 @@ func TestNoCommonHostKeyAlgorithm(t *testing.T) {
 	defer cancel()
 	// A stock sshd has no HostCertificate, so it offers no certificate algorithms.
 	result := probe.Run(ctx, addr, probe.Options{
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Profile: testProfile(func(p *profile.Profile) {
 			p.HostKeyAlgorithms = []string{
 				ssh.CertAlgoED25519v01,

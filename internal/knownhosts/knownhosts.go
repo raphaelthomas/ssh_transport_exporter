@@ -1,6 +1,6 @@
-// Package knownhosts checks host keys against known_hosts files like OpenSSH.
-// It returns x/crypto's knownhosts errors and, like x/crypto, accepts a CA key
-// as a plain host key if its @cert-authority line matches.
+// Package knownhosts looks up known_hosts lines and checks host keys against
+// them like OpenSSH. It returns x/crypto's knownhosts errors and, like x/crypto,
+// accepts a CA key as a plain host key if its @cert-authority line matches.
 package knownhosts
 
 import (
@@ -14,6 +14,7 @@ import (
 	"iter"
 	"net"
 	"os"
+	"slices"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
@@ -36,47 +37,55 @@ type line struct {
 	known      knownhosts.KnownKey
 }
 
-type hostKeyDB []line
-
-// New reads known_hosts files and returns a host key callback that matches
-// host patterns like OpenSSH.
-func New(files ...string) (ssh.HostKeyCallback, error) {
-	var db hostKeyDB
-	for _, file := range files {
-		lines, err := read(file)
-		if err != nil {
-			return nil, err
-		}
-		db = append(db, lines...)
-	}
-	return db.check, nil
+// DB is a parsed set of known_hosts files.
+type DB struct {
+	lines []line
 }
 
-// CertAuthorities reads the @cert-authority lines of files and returns whether
-// a KnownKey from the knownhosts callback is one of them.
-func CertAuthorities(files ...string) (func(knownhosts.KnownKey) bool, error) {
-	type position struct {
-		file string
-		line int
-	}
-	cas := make(map[position]ssh.PublicKey)
+// Line is a known_hosts line. CertAuthority marks a @cert-authority line,
+// Revoked one whose key a @revoked line for the same host revokes.
+type Line struct {
+	knownhosts.KnownKey
+	CertAuthority bool
+	Revoked       bool
+}
+
+// Load reads known_hosts files.
+func Load(files ...string) (*DB, error) {
+	db := &DB{}
 	for _, file := range files {
 		lines, err := read(file)
 		if err != nil {
 			return nil, err
 		}
-		for _, l := range lines {
-			if l.marker == markerCert {
-				cas[position{file, l.known.Line}] = l.known.Key
-			}
+		db.lines = append(db.lines, lines...)
+	}
+	return db, nil
+}
+
+// Lines returns the lines that match addr, host:port, @revoked ones aside, in
+// file order.
+func (db *DB) Lines(addr string) []Line {
+	matching := slices.Collect(db.matching(lookupName(addr)))
+	revoked := make(map[string]bool)
+	for _, l := range matching {
+		if l.marker == markerRevoked {
+			revoked[plainKeyBlob(l.known.Key)] = true
 		}
 	}
-	// Comparing the key too keeps a line changed since the callback read it
-	// from passing as a CA line.
-	return func(k knownhosts.KnownKey) bool {
-		key, ok := cas[position{k.Filename, k.Line}]
-		return ok && keyEq(key, k.Key)
-	}, nil
+	var lines []Line
+	for _, l := range matching {
+		if l.marker != markerRevoked {
+			lines = append(lines, Line{KnownKey: l.known, CertAuthority: l.marker == markerCert, Revoked: revoked[plainKeyBlob(l.known.Key)]})
+		}
+	}
+	return lines
+}
+
+// lookupName is OpenSSH's name for addr, host:port: host on port 22, else
+// [host]:port.
+func lookupName(addr string) string {
+	return strings.ToLower(knownhosts.Normalize(addr))
 }
 
 // read parses file, skipping invalid lines like OpenSSH. Like x/crypto, it
@@ -168,11 +177,11 @@ func (l *line) matches(name string) bool {
 	return matched
 }
 
-// check verifies key for hostname like x/crypto's knownhosts callback, but
-// only lines that match hostname apply, @revoked ones included. CertChecker's
-// IsRevoked gets no host name, so check builds a CertChecker per call.
-func (db hostKeyDB) check(hostname string, remote net.Addr, key ssh.PublicKey) error {
-	name := strings.ToLower(knownhosts.Normalize(hostname))
+// Check verifies key for addr, host:port, like x/crypto's knownhosts callback,
+// but only lines that match addr apply, @revoked ones included. CertChecker's
+// IsRevoked gets no host name, so Check builds a CertChecker per call.
+func (db *DB) Check(addr string, key ssh.PublicKey) error {
+	name := lookupName(addr)
 	checker := ssh.CertChecker{
 		IsHostAuthority: func(auth ssh.PublicKey, _ string) bool {
 			for l := range db.matching(name) {
@@ -189,12 +198,12 @@ func (db hostKeyDB) check(hostname string, remote net.Addr, key ssh.PublicKey) e
 			return db.checkPlain(name, plain)
 		},
 	}
-	return checker.CheckHostKey(hostname, remote, key)
+	return checker.CheckHostKey(addr, nil, key)
 }
 
 // checkPlain checks a plain host key like x/crypto: every matching line except
 // @revoked ones, @cert-authority included, lists an accepted key.
-func (db hostKeyDB) checkPlain(name string, key ssh.PublicKey) error {
+func (db *DB) checkPlain(name string, key ssh.PublicKey) error {
 	if l := db.revoked(name, key); l != nil {
 		return &knownhosts.RevokedError{Revoked: l.known}
 	}
@@ -213,7 +222,7 @@ func (db hostKeyDB) checkPlain(name string, key ssh.PublicKey) error {
 
 // revoked returns the @revoked line for name that revokes key, or nil. Like
 // x/crypto, a certificate stands for the key it certifies.
-func (db hostKeyDB) revoked(name string, key ssh.PublicKey) *line {
+func (db *DB) revoked(name string, key ssh.PublicKey) *line {
 	blob := plainKeyBlob(key)
 	for l := range db.matching(name) {
 		if l.marker == markerRevoked && plainKeyBlob(l.known.Key) == blob {
@@ -223,11 +232,14 @@ func (db hostKeyDB) revoked(name string, key ssh.PublicKey) *line {
 	return nil
 }
 
-// matching yields the lines that apply to name.
-func (db hostKeyDB) matching(name string) iter.Seq[*line] {
+// matching yields the lines that apply to name; a nil DB has none.
+func (db *DB) matching(name string) iter.Seq[*line] {
 	return func(yield func(*line) bool) {
-		for i := range db {
-			if db[i].matches(name) && !yield(&db[i]) {
+		if db == nil {
+			return
+		}
+		for i := range db.lines {
+			if db.lines[i].matches(name) && !yield(&db.lines[i]) {
 				return
 			}
 		}

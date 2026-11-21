@@ -4,13 +4,14 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/raphaelthomas/ssh_transport_exporter/internal/probe"
 )
 
 func newHostKey(t *testing.T) ssh.PublicKey {
@@ -35,9 +36,8 @@ func writeKnownHosts(t *testing.T, content string) string {
 	return path
 }
 
-func exercise(cb ssh.HostKeyCallback, key ssh.PublicKey) error {
-	remote := &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 22}
-	return cb("example.com:22", remote, key)
+func exercise(kh probe.KnownHosts, key ssh.PublicKey) error {
+	return kh.Check("example.com:22", key)
 }
 
 func TestLoadStripServerIdentificationComments(t *testing.T) {
@@ -108,8 +108,8 @@ modules:
 	if !ok {
 		t.Fatalf("default module missing; got %v", modules)
 	}
-	if mod.Options.HostKeyCallback == nil {
-		t.Fatal("HostKeyCallback is nil")
+	if mod.Options.KnownHosts == nil {
+		t.Fatal("KnownHosts is nil")
 	}
 	if mod.TargetPort != 22 {
 		t.Errorf("TargetPort = %d, want 22", mod.TargetPort)
@@ -127,11 +127,11 @@ modules:
 		t.Error("AllowedTargets[0] does not match example.com")
 	}
 
-	if err := exercise(mod.Options.HostKeyCallback, pub); err != nil {
-		t.Errorf("callback rejected the correct host key: %v", err)
+	if err := exercise(mod.Options.KnownHosts, pub); err != nil {
+		t.Errorf("KnownHosts rejected the correct host key: %v", err)
 	}
-	if err := exercise(mod.Options.HostKeyCallback, newHostKey(t)); err == nil {
-		t.Error("callback accepted a wrong host key, want error")
+	if err := exercise(mod.Options.KnownHosts, newHostKey(t)); err == nil {
+		t.Error("KnownHosts accepted a wrong host key, want error")
 	}
 }
 
