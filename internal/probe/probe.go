@@ -137,8 +137,7 @@ type KnownHosts interface {
 	// Lines returns the lines that match addr, host:port, @revoked ones aside,
 	// with CertAuthority and Revoked set.
 	Lines(addr string) []knownhosts.Line
-	// Check verifies key for addr at now like x/crypto's knownhosts callback: a
-	// host certificate passes only through a matching @cert-authority line.
+	// Check verifies key for addr at now like x/crypto's knownhosts callback.
 	Check(addr string, key ssh.PublicKey, now time.Time) error
 }
 
@@ -553,6 +552,10 @@ func verifyHostKey(kh KnownHosts, lines []knownhosts.Line, p *profile.Profile, h
 		}
 	}
 	// Validate the certificate like OpenSSH, including its CA signature algorithm.
+	// Only a @cert-authority line makes the CA trusted, whatever kh's Check says.
+	if certErr == nil && !caTrusted {
+		certErr = errors.New("CA not listed on a @cert-authority line")
+	}
 	if certErr == nil {
 		if slices.Contains(p.CASignatureAlgorithms, cert.Signature.Format) {
 			return VerifiedByCAKey, nil, nil
