@@ -952,3 +952,35 @@ func TestXCryptoCheckCertValidBeforePastMaxInt64(t *testing.T) {
 		}
 	}
 }
+
+// certsPass passes every host certificate, unlike a known_hosts lookup, which
+// passes one only through a matching @cert-authority line.
+type certsPass struct{ KnownHosts }
+
+func (c certsPass) Check(addr string, key ssh.PublicKey, now time.Time) error {
+	if _, ok := key.(*ssh.Certificate); ok {
+		return nil
+	}
+	return c.KnownHosts.Check(addr, key, now)
+}
+
+// A CA listed only on a plain line never verifies a host certificate, even if
+// Check passes it: verifyHostKey requires a @cert-authority line itself.
+func TestVerifyHostKeyRequiresCertAuthorityLine(t *testing.T) {
+	const host = "host.example.com"
+	ca := newEd25519Signer(t)
+	cert := &ssh.Certificate{Key: newEd25519Signer(t).PublicKey(), CertType: ssh.HostCert, ValidPrincipals: []string{host}, ValidBefore: ssh.CertTimeInfinity}
+	if err := cert.SignCert(rand.Reader, ca); err != nil {
+		t.Fatal(err)
+	}
+	db := loadKnownHosts(t, []string{knownHostsLine(host, ca.PublicKey())})
+	for _, kh := range []KnownHosts{db, certsPass{db}} {
+		got, _, err := verifyHostKey(kh, db.Lines(host+":22"), testProfile(nil), host+":22", cert, time.Now())
+		if err != nil {
+			got = classifyHostKeyVerifyError(err)
+		}
+		if got != ErrReasonServerHostKeyMismatch {
+			t.Errorf("%T: verifyHostKey() = %q, want %q", kh, got, ErrReasonServerHostKeyMismatch)
+		}
+	}
+}
