@@ -204,7 +204,7 @@ var (
 	keyExchangeSuccessDesc = typedDesc{
 		prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subSystemKeyExchange, "success"),
-			"Whether the key exchange (RFC 4253 section 7) completed.",
+			"Whether the key exchange (RFC 4253 sections 7 and 8) succeeded.",
 			nil,
 			nil,
 		),
