@@ -75,9 +75,9 @@ func (f firstKey) Check(_ string, key ssh.PublicKey, _ time.Time) error {
 	return errors.New("first use")
 }
 
-// trustOnFirstUse retries until a probe with opts completes the key exchange,
-// which also waits for the container to come up, and returns the host key the
-// server presented.
+// trustOnFirstUse retries until a probe with opts gets through the key
+// exchange, which fails as no host key verifies, and returns the host key the
+// server presented. That also waits for the container to come up.
 func trustOnFirstUse(t *testing.T, addr string, opts probe.Options) ssh.PublicKey {
 	t.Helper()
 	var hostKey ssh.PublicKey
@@ -88,7 +88,7 @@ func trustOnFirstUse(t *testing.T, addr string, opts probe.Options) ssh.PublicKe
 		ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 		result := probe.Run(ctx, addr, opts)
 		cancel()
-		if result.KeyExchangeSuccess {
+		if result.KEXAlgorithm != "" {
 			t.Logf("first use: %q", result.ServerIdentification.String)
 			return hostKey
 		}

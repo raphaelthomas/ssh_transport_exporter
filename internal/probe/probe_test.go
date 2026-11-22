@@ -354,7 +354,8 @@ func TestRunHostKeyVerificationFailure(t *testing.T) {
 	t.Parallel()
 	srv := sshtest.NewServer(t, sshtest.Options{})
 
-	// known_hosts lists a different key: KEX still completes, verification fails.
+	// known_hosts lists a different key: verification fails, and with it the key
+	// exchange, which still runs to its end.
 	otherSrv := sshtest.NewServer(t, sshtest.Options{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -365,8 +366,8 @@ func TestRunHostKeyVerificationFailure(t *testing.T) {
 	if !result.TCPConnectSuccess {
 		t.Fatal("TCPConnectSuccess = false, want true")
 	}
-	if !result.KeyExchangeSuccess {
-		t.Error("KeyExchangeSuccess = false, want true (KEX completes before verification)")
+	if result.KeyExchangeSuccess {
+		t.Error("KeyExchangeSuccess = true, want false when the host key was rejected")
 	}
 	if result.Success {
 		t.Error("Success = true, want false when the host key was rejected")

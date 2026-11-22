@@ -327,7 +327,8 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 			default:
 			}
 			// Continue even if verification failed, so TransportReadyCallback can record the
-			// negotiated algorithms; it aborts before authentication either way.
+			// negotiated algorithms; it aborts before authentication either way. Like an SSH
+			// client, Run still reports the key exchange as failed.
 			return nil
 		},
 		TransportReadyCallback: func(tc *ssh.ClientTransportReadyContext) error {
@@ -395,6 +396,7 @@ func Run(ctx context.Context, target string, opts Options) (result Result) {
 			result.ServerHostCertificateValidBefore = hk.cert.ValidBefore
 		}
 		if !hk.verified {
+			result.KeyExchangeSuccess = false
 			result.ErrorPhase = ErrPhaseKeyExchange
 			result.ErrorReason = hk.errorReason
 		}

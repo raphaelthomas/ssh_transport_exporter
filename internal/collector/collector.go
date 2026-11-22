@@ -364,7 +364,7 @@ func (c *SSHCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- versionExchangeDurationDesc.mustNewConstMetric(result.VersionExchangeDuration.Seconds())
 	}
 
-	if result.KeyExchangeSuccess && result.KEXAlgorithm != "" {
+	if result.KEXAlgorithm != "" {
 		ch <- kexAlgorithmInfoDesc.mustNewConstMetric(1, result.KEXAlgorithm)
 	}
 

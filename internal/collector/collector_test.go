@@ -514,3 +514,23 @@ func algorithmOf(m *dto.Metric) string {
 	}
 	return ""
 }
+
+// A rejected host key fails the key exchange, but the negotiated algorithms
+// are still reported.
+func TestCollectAlgorithmsDespiteRejectedHostKey(t *testing.T) {
+	mfs := collectMetrics(t, probe.Result{
+		TCPConnectSuccess:      true,
+		VersionExchangeSuccess: true,
+		KEXAlgorithm:           "curve25519-sha256",
+		ServerHostKeyAlgorithm: "ssh-ed25519",
+		KeyExchangeDuration:    time.Second,
+		ErrorPhase:             probe.ErrPhaseKeyExchange,
+		ErrorReason:            probe.ErrReasonServerHostKeyMismatch,
+	})
+	if got := labelValue(t, mfs, "ssh_transport_kex_algorithm_info", "algorithm"); got != "curve25519-sha256" {
+		t.Errorf("kex_algorithm_info algorithm = %q, want curve25519-sha256", got)
+	}
+	if _, ok := mfs["ssh_transport_key_exchange_duration_seconds"]; ok {
+		t.Error("key_exchange_duration_seconds present for a failed key exchange, want absent")
+	}
+}
