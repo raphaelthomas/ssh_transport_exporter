@@ -13,8 +13,9 @@ key verification observable. This can, for example, help to identify path
 MTU or TCP MSS issues, which are difficult to detect with the `blackbox_exporter`,
 without requiring any SSH credentials.
 
-The probe behaves like an OpenSSH 10.3 - 10.6 client with default settings,
-limited to the algorithms `golang.org/x/crypto` implements.
+By default, the probe behaves like an OpenSSH 10.3 to 10.6 client, limited to
+the algorithms `golang.org/x/crypto` implements. [Client
+profiles](#client-profiles) make it behave like another client.
 
 Support for the SSH Authentication Protocol ([RFC
 4252](https://datatracker.ietf.org/doc/html/rfc4252)) is intentionally omitted
@@ -28,8 +29,9 @@ alternative that provides these capabilities is the
 
 > [!NOTE]
 > This exporter depends on a fork of `golang.org/x/crypto` (see [The
-> `golang.org/x/crypto` fork](#the-golangorgxcrypto-fork)). It is
-> credential-less by design and never holds keys or secrets.
+> `golang.org/x/crypto` fork](#the-golangorgxcrypto-fork)). The fork adds one
+> callback and changes no cryptographic code; the exporter holds no SSH
+> credentials: no private keys, passwords or agent access.
 
 ## Quick Start
 
@@ -130,6 +132,331 @@ gh attestation verify ssh_transport_exporter-<version>-linux-amd64.tar.gz \
 gh attestation verify oci://ghcr.io/raphaelthomas/ssh_transport_exporter:<version> \
   --repo raphaelthomas/ssh_transport_exporter
 ```
+
+## Exported Metrics
+
+A probe first resolves a hostname target. IP literal targets skip it:
+
+```mermaid
+sequenceDiagram
+    participant P as Probe
+    participant D as DNS
+
+    rect rgba(128, 128, 128, 0.1)
+        Note over P,D: DNS Lookup
+        P->>D: resolve the target (A/AAAA)
+        D-->>P: addresses
+        Note over P,D: ssh_transport_dns_lookup_success<br/>ssh_transport_dns_lookup_duration_seconds
+    end
+```
+
+Then it goes through the SSH transport layer step by step and sets the
+metrics of each step it reaches:
+
+```mermaid
+%%{init: {"sequence": {"actorMargin": 150}}}%%
+sequenceDiagram
+    autonumber
+    participant P as Probe
+    participant S as SSH server
+
+    rect rgba(128, 128, 128, 0.1)
+        Note over P,S: TCP Connection
+        P->>S: TCP SYN (MSS option)
+        S-->>P: TCP SYN-ACK (MSS option)
+        P->>S: TCP ACK
+        Note over P,S: ssh_transport_tcp_connect_success<br/>ssh_transport_tcp_connect_duration_seconds<br/>ssh_transport_tcp_mss_bytes
+    end
+
+    rect rgba(128, 128, 128, 0.1)
+        Note over P,S: Protocol Version Exchange (RFC 4253 §4.2)
+        P->>S: identification string SSH-2.0-…
+        S-->>P: identification string SSH-2.0-…
+        Note over P,S: ssh_transport_version_exchange_success<br/>ssh_transport_version_exchange_duration_seconds<br/>ssh_transport_server_identification_info<br/>ssh_transport_server_identification_rfc_conformant
+    end
+
+    rect rgba(128, 128, 128, 0.1)
+        Note over P,S: Key Exchange (RFC 4253 §7)
+        P->>S: SSH_MSG_KEXINIT
+        S-->>P: SSH_MSG_KEXINIT
+        P->>S: key exchange init
+        S-->>P: key exchange reply: host key or certificate, signature
+        P->>P: verify server host key (RFC 4253 §8)
+        Note over P,S: ssh_transport_server_host_key_verify_success<br/>ssh_transport_server_host_key_verify_info<br/>ssh_transport_server_host_key_verify_known_hosts_line<br/>ssh_transport_server_host_certificate_valid_after_timestamp_seconds<br/>ssh_transport_server_host_certificate_valid_before_timestamp_seconds
+        P->>S: SSH_MSG_NEWKEYS
+        S-->>P: SSH_MSG_NEWKEYS
+        Note over P,S: ssh_transport_key_exchange_success<br/>ssh_transport_key_exchange_duration_seconds<br/>ssh_transport_kex_algorithm_info<br/>ssh_transport_server_host_key_algorithm_info<br/>ssh_transport_encryption_algorithm_info<br/>ssh_transport_mac_algorithm_info
+    end
+
+    P--xS: TCP FIN or RST, before user authentication
+    Note over P,S: ssh_transport_success<br/>ssh_transport_duration_seconds<br/>ssh_transport_error_info{phase,reason}
+```
+
+- Each phase's `*_duration_seconds` covers its grey box. For a hostname with
+  several addresses, `ssh_transport_tcp_connect_duration_seconds` also covers
+  the failed attempts before the one that connected.
+- With a rejected host key, the probe still reports the negotiated
+  algorithms: it lets the key exchange run to its end before stopping.
+
+The following probe result metrics are exported by the
+`ssh_transport_exporter`'s `/probe` endpoint for a successful probe:
+
+```
+# HELP ssh_transport_dns_lookup_duration_seconds Time taken to resolve the target hostname. Absent for IP literal targets and when the lookup fails.
+# TYPE ssh_transport_dns_lookup_duration_seconds gauge
+ssh_transport_dns_lookup_duration_seconds 0.004120583
+
+# HELP ssh_transport_dns_lookup_success Whether the target hostname was resolved. Absent for IP literal targets.
+# TYPE ssh_transport_dns_lookup_success gauge
+ssh_transport_dns_lookup_success 1
+
+# HELP ssh_transport_duration_seconds Time taken for the whole probe, whether it succeeded or not.
+# TYPE ssh_transport_duration_seconds gauge
+ssh_transport_duration_seconds 0.121203458
+
+# HELP ssh_transport_encryption_algorithm_info Negotiated encryption algorithm per direction (RFC 4253 section 7.1). Absent unless key exchange completed.
+# TYPE ssh_transport_encryption_algorithm_info gauge
+ssh_transport_encryption_algorithm_info{algorithm="chacha20-poly1305@openssh.com",direction="client_to_server"} 1
+ssh_transport_encryption_algorithm_info{algorithm="chacha20-poly1305@openssh.com",direction="server_to_client"} 1
+
+# HELP ssh_transport_kex_algorithm_info Negotiated key exchange algorithm (RFC 4253 section 7.1). Absent unless key exchange completed.
+# TYPE ssh_transport_kex_algorithm_info gauge
+ssh_transport_kex_algorithm_info{algorithm="curve25519-sha256"} 1
+
+# HELP ssh_transport_key_exchange_duration_seconds Time taken for the key exchange (RFC 4253 section 7). Absent on failure.
+# TYPE ssh_transport_key_exchange_duration_seconds gauge
+ssh_transport_key_exchange_duration_seconds 0.077645125
+
+# HELP ssh_transport_key_exchange_success Whether the key exchange (RFC 4253 sections 7 and 8) succeeded.
+# TYPE ssh_transport_key_exchange_success gauge
+ssh_transport_key_exchange_success 1
+
+# HELP ssh_transport_server_host_certificate_valid_after_timestamp_seconds Start of the validity period of the server's host certificate, verified or not. Absent unless the server presented one and key exchange completed.
+# TYPE ssh_transport_server_host_certificate_valid_after_timestamp_seconds gauge
+ssh_transport_server_host_certificate_valid_after_timestamp_seconds{algorithm="ssh-ed25519-cert-v01@openssh.com"} 1.76256e+09
+
+# HELP ssh_transport_server_host_certificate_valid_before_timestamp_seconds End of the validity period of the server's host certificate, verified or not; +Inf if it never expires. Absent unless the server presented one and key exchange completed.
+# TYPE ssh_transport_server_host_certificate_valid_before_timestamp_seconds gauge
+ssh_transport_server_host_certificate_valid_before_timestamp_seconds{algorithm="ssh-ed25519-cert-v01@openssh.com"} 1.794096e+09
+
+# HELP ssh_transport_server_host_key_algorithm_info Negotiated server host key algorithm (RFC 4253 section 7.1). Absent unless key exchange completed.
+# TYPE ssh_transport_server_host_key_algorithm_info gauge
+ssh_transport_server_host_key_algorithm_info{algorithm="ssh-ed25519-cert-v01@openssh.com"} 1
+
+# HELP ssh_transport_server_host_key_verify_info How the server host key was verified. Absent unless verification and key exchange succeeded.
+# TYPE ssh_transport_server_host_key_verify_info gauge
+ssh_transport_server_host_key_verify_info{algorithm="ssh-ed25519-cert-v01@openssh.com",certificate_error_reason="",host_key="certificate",verified_by="ca_key"} 1
+
+# HELP ssh_transport_server_host_key_verify_known_hosts_line Number of the known_hosts line that decided the server host key verification, like OpenSSH's "Found key in" and "Offending key in". Absent unless one did.
+# TYPE ssh_transport_server_host_key_verify_known_hosts_line gauge
+ssh_transport_server_host_key_verify_known_hosts_line{file="/etc/ssh/ssh_known_hosts"} 12
+
+# HELP ssh_transport_server_host_key_verify_success Whether the server host key was verified (RFC 4253 section 8).
+# TYPE ssh_transport_server_host_key_verify_success gauge
+ssh_transport_server_host_key_verify_success 1
+
+# HELP ssh_transport_server_identification_info Identification string sent by the server (RFC 4253 section 4.2). Absent unless the version exchange succeeded, or if it could not be parsed.
+# TYPE ssh_transport_server_identification_info gauge
+ssh_transport_server_identification_info{comments="Debian-2+deb12u10",identification_string="SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10",protoversion="2.0",softwareversion="OpenSSH_9.2p1"} 1
+
+# HELP ssh_transport_server_identification_rfc_conformant Whether the server's identification string conforms to RFC 4253 section 4.2. Absent unless the version exchange succeeded.
+# TYPE ssh_transport_server_identification_rfc_conformant gauge
+ssh_transport_server_identification_rfc_conformant 1
+
+# HELP ssh_transport_success Whether the probe succeeded: every phase completed and the server host key was verified.
+# TYPE ssh_transport_success gauge
+ssh_transport_success 1
+
+# HELP ssh_transport_tcp_connect_duration_seconds Time taken to establish the TCP connection, excluding name resolution. Absent on failure.
+# TYPE ssh_transport_tcp_connect_duration_seconds gauge
+ssh_transport_tcp_connect_duration_seconds 0.026296792
+
+# HELP ssh_transport_tcp_connect_success Whether a TCP connection to the target could be established.
+# TYPE ssh_transport_tcp_connect_success gauge
+ssh_transport_tcp_connect_success 1
+
+# HELP ssh_transport_tcp_mss_bytes TCP maximum segment size negotiated at connect time. Absent if unavailable.
+# TYPE ssh_transport_tcp_mss_bytes gauge
+ssh_transport_tcp_mss_bytes 1448
+
+# HELP ssh_transport_version_exchange_duration_seconds Time taken for the version exchange (RFC 4253 section 4.2). Absent on failure.
+# TYPE ssh_transport_version_exchange_duration_seconds gauge
+ssh_transport_version_exchange_duration_seconds 0.012437291
+
+# HELP ssh_transport_version_exchange_success Whether the server's identification string was received (RFC 4253 section 4.2).
+# TYPE ssh_transport_version_exchange_success gauge
+ssh_transport_version_exchange_success 1
+```
+
+One further metric is absent above because the sample negotiated an AEAD cipher
+(`aes128-gcm@openssh.com`, `aes256-gcm@openssh.com` or
+`chacha20-poly1305@openssh.com`), which authenticates without a separate MAC. It
+appears whenever a non-AEAD cipher is agreed, which is what makes a module
+restricted to CBC or RC4 ciphers able to audit MAC choice:
+
+```
+# HELP ssh_transport_mac_algorithm_info Negotiated MAC algorithm per direction (RFC 4253 section 7.1). Absent for AEAD ciphers, which need no separate MAC.
+# TYPE ssh_transport_mac_algorithm_info gauge
+ssh_transport_mac_algorithm_info{algorithm="hmac-sha2-256-etm@openssh.com",direction="client_to_server"} 1
+ssh_transport_mac_algorithm_info{algorithm="hmac-sha2-256-etm@openssh.com",direction="server_to_client"} 1
+```
+
+An unsuccessful probe adds an `ssh_transport_error_info` metric, reports `0` for
+the `*_success` gauge of the phase that failed and of every later phase, and
+omits their `*_duration_seconds` metrics. See [Error
+Phases and Reasons](#error-phases-and-reasons) for the label values. For a probe
+whose target failed DNS resolution:
+
+```
+# HELP ssh_transport_error_info Phase and reason this probe failed. Absent if the probe succeeded.
+# TYPE ssh_transport_error_info gauge
+ssh_transport_error_info{phase="dns_lookup",reason="dns_failure"} 1
+```
+
+### Exporter Metrics
+
+The exporter's own metrics are served from `/metrics`, under the
+`ssh_transport_exporter` namespace, alongside the standard Go runtime and
+process collectors:
+
+```
+# HELP ssh_transport_exporter_build_info A metric with a constant '1' value labeled by version, revision, branch, goversion from which ssh_transport_exporter was built, and the goos and goarch for the build.
+# TYPE ssh_transport_exporter_build_info gauge
+ssh_transport_exporter_build_info{branch="HEAD",goarch="arm64",goos="darwin",goversion="go1.27.4",revision="ef06da765d59345b2f8600196342bc9e7a2dabe2",tags="unknown",version="0.27.1"} 1
+
+# HELP ssh_transport_exporter_probe_requests_total Total probe requests served by module and HTTP status code. Module is empty when the request named no configured module.
+# TYPE ssh_transport_exporter_probe_requests_total counter
+ssh_transport_exporter_probe_requests_total{code="200",module="default"} 1
+ssh_transport_exporter_probe_requests_total{code="400",module=""} 1
+ssh_transport_exporter_probe_requests_total{code="403",module="default"} 1
+
+# HELP ssh_transport_exporter_probes_in_flight Probes currently running.
+# TYPE ssh_transport_exporter_probes_in_flight gauge
+ssh_transport_exporter_probes_in_flight 0
+
+# HELP ssh_transport_exporter_config_last_reload_successful Whether the most recent configuration load succeeded. 0 means the exporter is still serving the previously loaded configuration.
+# TYPE ssh_transport_exporter_config_last_reload_successful gauge
+ssh_transport_exporter_config_last_reload_successful 1
+
+# HELP ssh_transport_exporter_config_last_reload_success_timestamp_seconds Unix timestamp of the most recent successful configuration load.
+# TYPE ssh_transport_exporter_config_last_reload_success_timestamp_seconds gauge
+ssh_transport_exporter_config_last_reload_success_timestamp_seconds 1.7712e+09
+```
+
+`probe_requests_total` counts every request to `/probe` by module and response
+code: `400` for a missing or malformed target and for an unknown module, `403`
+for a target or port the module does not allow, and `503` once
+`--probe.max-concurrent` is reached. The module label is empty when the request
+named no configured module, which keeps an unknown module name from creating
+series.
+
+`probes_in_flight` tracks probes currently running and is what to compare
+against `--probe.max-concurrent` when sizing it.
+
+## Error Phases and Reasons
+
+When a probe does not fully succeed, the exporter emits a single
+`ssh_transport_error_info` metric (constant `1`) carrying two labels `phase`
+and `reason`, and omits the `*_duration_seconds` metrics of the phase that
+failed and of every later phase. The `phase` label identifies *how far* the
+probe got before failing; the `reason` label explains *why* it failed in that
+phase.
+
+### Phases
+
+The phase is the last one the probe reached. Probing proceeds strictly in this
+order: *DNS lookup*, *TCP connect*, *version exchange*, *key exchange*. The
+server's host key is verified within the key exchange, before it completes.
+
+| Phase | Description |
+| --- | --- |
+| `dns_lookup` | Failure while resolving the target hostname, before any connection attempt. IP literal targets skip this phase. |
+| `tcp_connect` | Failure while establishing the underlying TCP connection to the target (before anything SSH). |
+| `version_exchange` | Failure before the server sent its identification string (RFC 4253 section 4.2), e.g. a service on the port that is not SSH or an sshd that drops the connection. |
+| `key_exchange` | Failure during the SSH transport-layer key exchange (RFC 4253 section 7), after the version exchange. This includes verifying the server host key against `known_hosts`, which takes precedence over a key exchange that fails after the check. |
+
+### Reasons
+
+The reason narrows down the cause within a phase.
+
+| Reason | Typical Phase(s) | Description |
+| --- | --- | --- |
+| `connection_refused` | `tcp_connect` | The target actively refused the connection (`ECONNREFUSED`), commonly because nothing is listening on the port or a firewall sent a reset. |
+| `no_route_to_host` | `tcp_connect` | The destination *network* is reachable, but the specific *host* is not (`EHOSTUNREACH`), often a down host or an ICMP host-unreachable from a router. |
+| `network_unreachable` | `tcp_connect` | There is no route to the destination *network* at all (`ENETUNREACH`), typically a missing route, an absent default gateway, or a down interface on the prober side. |
+| `dns_failure` | `dns_lookup` | The target hostname could not be resolved (DNS lookup error). |
+| `connection_reset` | `tcp_connect`, `version_exchange`, `key_exchange` | The peer hung up unexpectedly, e.g. sshd dropping the client on `MaxStartups` or a TCP wrapper, or a firewall or load balancer in the path. Covers both a clean close (`EOF`) and a reset (`ECONNRESET`, `EPIPE`), since which one the probe sees depends on timing. |
+| `timeout` | `dns_lookup`, `tcp_connect`, `version_exchange`, `key_exchange` | The operation exceeded its deadline (the effective probe timeout, or a network-level timeout). |
+| `canceled` | `dns_lookup`, `tcp_connect`, `version_exchange`, `key_exchange` | The caller went away before the probe finished, typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
+| `server_host_key_unknown` | `key_exchange` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
+| `server_host_key_mismatch` | `key_exchange` | The server's host key does **not** match the keys listed for the target. This points to a man-in-the-middle or an un-rotated key. |
+| `server_host_key_revoked` | `key_exchange` | The host key, or a certificate's key or CA, is marked `@revoked` in `known_hosts`. |
+| `server_host_certificate_ca_unknown` | `key_exchange` | No `@cert-authority` line trusts the CA of the server's host certificate for the target. |
+| `server_host_certificate_not_yet_valid` | `key_exchange` | The server's host certificate isn't valid yet. |
+| `server_host_certificate_expired` | `key_exchange` | The server's host certificate has expired. |
+| `server_host_certificate_principal_not_listed` | `key_exchange` | No principal of the server's host certificate matches the target. |
+| `server_host_certificate_signature_algorithm_disallowed` | `key_exchange` | The CA signed the server's host certificate with an algorithm the probe isn't configured to accept, e.g. `ssh-rsa` (SHA-1). |
+| `server_host_certificate_other` | `key_exchange` | The server's host certificate is invalid for another reason, e.g. it is a user certificate. |
+| `server_host_certificate_signature_invalid` | `key_exchange` | The CA signature of the server's host certificate doesn't verify. |
+| `server_host_key_rejected` | `key_exchange` | The server host key was rejected for any other reason. |
+| `no_common_kex_algorithm` | `key_exchange` | The server supports none of the key exchange algorithms the probe offers (`kex_algorithms` in the module). |
+| `no_common_host_key_algorithm` | `key_exchange` | The server has no host key of a type the probe accepts (`host_key_algorithms` in the module), e.g. an ed25519-only server probed with RSA only. |
+| `no_common_cipher` | `key_exchange` | The server supports none of the ciphers the probe offers (`ciphers` in the module). |
+| `no_common_mac` | `key_exchange` | A non-AEAD cipher was negotiated, but the server supports none of the MACs the probe offers (`macs` in the module). |
+| `no_common_algorithm` | `key_exchange` | Algorithm negotiation failed for a list not covered above. All five `no_common_*` reasons are certain: the probe itself found no common algorithm in the server's offer, so `error_reason=~"no_common_.*"` matches every negotiation failure. |
+| `user_auth_reached` | `key_exchange` | The probe went on to user authentication (RFC 4252) instead of aborting once the transport layer was established. This is a bug in the exporter or its `golang.org/x/crypto` fork, not a problem with the target; please open an issue. |
+| `other` | any | The failure did not match any of the classified cases above. If you see this frequently, please open an issue with the target and (debug-level) logs so the classification can be improved. |
+
+`ssh_transport_server_host_key_verify_info` reports in
+`certificate_error_reason` why a host certificate didn't verify when its plain
+key did, using the `server_host_certificate_*` reasons above.
+
+## Alerts
+
+Rules for the jobs in the [Quick Start](#quick-start):
+
+```yaml
+groups:
+  - name: ssh_transport
+    rules:
+      - alert: SSHTransportProbeFailed
+        expr: ssh_transport_success == 0 or up{job="ssh_transport"} == 0
+        for: 5m
+        annotations:
+          summary: "SSH transport probe of {{ $labels.instance }} fails"
+      - alert: SSHHostCertificateExpiresSoon
+        expr: ssh_transport_server_host_certificate_valid_before_timestamp_seconds - time() < 7 * 86400
+        annotations:
+          summary: "Host certificate of {{ $labels.instance }} expires within 7 days"
+      - alert: SSHHostCertificateNotTrusted
+        expr: ssh_transport_server_host_key_verify_info{host_key="certificate",verified_by="plain_key"}
+        annotations:
+          summary: "{{ $labels.instance }} verified through its plain key, not its certificate: {{ $labels.certificate_error_reason }}"
+      - alert: SSHTransportExporterDown
+        expr: up{job="ssh_transport_exporter"} == 0
+        for: 5m
+        annotations:
+          summary: "SSH transport exporter {{ $labels.instance }} is down"
+      - alert: SSHTransportExporterReloadFailed
+        expr: ssh_transport_exporter_config_last_reload_successful{job="ssh_transport_exporter"} == 0
+        annotations:
+          summary: "{{ $labels.instance }} serves its previous configuration"
+```
+
+- `SSHTransportProbeFailed` fires when a probe fails for 5 minutes. The `up`
+  half catches a probe that never ran: `/probe` answering 400, 403 or 503
+  yields no `ssh_transport_success`.
+- `SSHHostCertificateExpiresSoon` fires 7 days before a host certificate
+  expires. A certificate that never expires is `+Inf` and doesn't fire.
+- `SSHHostCertificateNotTrusted` fires when a host presents a certificate but
+  verifies only through the host key inside it, e.g. while its CA is missing
+  from `known_hosts` during a rollout. The annotation says why the certificate
+  failed.
+- `SSHTransportExporterDown` fires when the exporter itself can't be scraped.
+  `SSHTransportProbeFailed` then fires for every target too; this one names
+  the cause.
+- `SSHTransportExporterReloadFailed` fires when a `SIGHUP` reload fails; the
+  exporter keeps serving the previously loaded configuration.
 
 ## Configuration
 
@@ -280,15 +607,17 @@ The new configuration is validated before it is swapped in. If it is rejected,
 the error is logged, `/-/reload` answers `500`, and the previous configuration
 stays active, so a bad edit cannot take the exporter down.
 
-## Health Checks
+## Operations
+
+### Health Checks
 
 `/-/healthy` and `/-/ready` answer `200 OK` while the exporter runs. They are
 identical: the exporter only listens once its configuration has loaded, and a
 failed reload keeps the previous configuration.
 
-## Tuning
+### Tuning
 
-### Probe timeout
+#### Probe timeout
 
 `--probe.timeout` (default `5s`) is a hard upper bound on a single probe,
 applied even when a request carries no `X-Prometheus-Scrape-Timeout-Seconds`
@@ -301,7 +630,7 @@ offline or filtered target (no connection refused) holds a probe open for the
 full timeout on every scrape, so a large value multiplies resource use across a
 big fleet.
 
-### Probe concurrency
+#### Probe concurrency
 
 `--probe.max-concurrent` (default `500`) sheds requests above the limit with
 `503` rather than queueing them.
@@ -317,7 +646,7 @@ Each in-flight probe holds roughly two file descriptors, so the default of 500
 targets needs approximately 1000 file descriptors. If the hard file descriptor
 limit is pinned low, the exporter emits a warning.
 
-## Security Considerations
+### Security Considerations
 
 `/probe` is unauthenticated unless `--web.config.file` enables basic auth (see
 [TLS and basic auth](#tls-and-basic-auth)). Anyone able to reach it can have the
@@ -333,7 +662,7 @@ into a port scanner for the allowed hosts, because `ssh_transport_error_info`
 distinguishes `connection_refused` from `timeout` and so reveals whether a port
 is open.
 
-The exporter holds no credentials and never authenticates, so a probed host
+The exporter holds no SSH credentials and never authenticates, so a probed host
 cannot obtain anything from it. Data coming back from a target is treated as
 untrusted and never reaches a Prometheus label unvalidated.
 
@@ -364,9 +693,10 @@ TransportReadyCallback func(*ClientTransportReadyContext) error
 The context carries the connection's `Metadata` and the negotiated
 `Algorithms`, following the shape of `ClientAuthCallback`.
 
-Called after the RFC 4253 key exchange, before RFC 4252 user authentication. Returning
-an error aborts the connection, which is how this credential-less exporter reads
-the negotiated algorithms and then stops. No cryptographic code changed.
+Called after the RFC 4253 key exchange, before RFC 4252 user authentication.
+Returning an error aborts the connection, which is how this credential-less
+exporter reads the negotiated algorithms and then stops. No cryptographic code
+changed.
 
 Verify the whole delta against upstream:
 
@@ -375,222 +705,3 @@ Verify the whole delta against upstream:
 Rebased onto upstream releases and pinned by commit in `go.mod`. Goes away once
 the hook is upstreamed, which is proposed in
 [golang/go#82664](https://github.com/golang/go/issues/82664).
-
-## Exported Metrics
-
-The following probe result metrics are exported by the
-`ssh_transport_exporter`'s `/probe` endpoint for a successful probe:
-
-```
-# HELP ssh_transport_dns_lookup_duration_seconds Time taken to resolve the target hostname. Absent for IP literal targets and when the lookup fails.
-# TYPE ssh_transport_dns_lookup_duration_seconds gauge
-ssh_transport_dns_lookup_duration_seconds 0.004120583
-
-# HELP ssh_transport_dns_lookup_success Whether the target hostname was resolved. Absent for IP literal targets.
-# TYPE ssh_transport_dns_lookup_success gauge
-ssh_transport_dns_lookup_success 1
-
-# HELP ssh_transport_duration_seconds Time taken for the whole probe, whether it succeeded or not.
-# TYPE ssh_transport_duration_seconds gauge
-ssh_transport_duration_seconds 0.121203458
-
-# HELP ssh_transport_encryption_algorithm_info Negotiated encryption algorithm per direction (RFC 4253 section 7.1). Absent unless key exchange completed.
-# TYPE ssh_transport_encryption_algorithm_info gauge
-ssh_transport_encryption_algorithm_info{algorithm="chacha20-poly1305@openssh.com",direction="client_to_server"} 1
-ssh_transport_encryption_algorithm_info{algorithm="chacha20-poly1305@openssh.com",direction="server_to_client"} 1
-
-# HELP ssh_transport_kex_algorithm_info Negotiated key exchange algorithm (RFC 4253 section 7.1). Absent unless key exchange completed.
-# TYPE ssh_transport_kex_algorithm_info gauge
-ssh_transport_kex_algorithm_info{algorithm="curve25519-sha256"} 1
-
-# HELP ssh_transport_key_exchange_duration_seconds Time taken for the key exchange (RFC 4253 section 7). Absent on failure.
-# TYPE ssh_transport_key_exchange_duration_seconds gauge
-ssh_transport_key_exchange_duration_seconds 0.077645125
-
-# HELP ssh_transport_key_exchange_success Whether the key exchange (RFC 4253 section 7) completed.
-# TYPE ssh_transport_key_exchange_success gauge
-ssh_transport_key_exchange_success 1
-
-# HELP ssh_transport_server_host_certificate_valid_after_timestamp_seconds Start of the validity period of the server's host certificate, verified or not. Absent unless the server presented one and key exchange completed.
-# TYPE ssh_transport_server_host_certificate_valid_after_timestamp_seconds gauge
-ssh_transport_server_host_certificate_valid_after_timestamp_seconds{algorithm="ssh-ed25519-cert-v01@openssh.com"} 1.76256e+09
-
-# HELP ssh_transport_server_host_certificate_valid_before_timestamp_seconds End of the validity period of the server's host certificate, verified or not; +Inf if it never expires. Absent unless the server presented one and key exchange completed.
-# TYPE ssh_transport_server_host_certificate_valid_before_timestamp_seconds gauge
-ssh_transport_server_host_certificate_valid_before_timestamp_seconds{algorithm="ssh-ed25519-cert-v01@openssh.com"} 1.794096e+09
-
-# HELP ssh_transport_server_host_key_algorithm_info Negotiated server host key algorithm (RFC 4253 section 7.1). Absent unless key exchange completed.
-# TYPE ssh_transport_server_host_key_algorithm_info gauge
-ssh_transport_server_host_key_algorithm_info{algorithm="ssh-ed25519-cert-v01@openssh.com"} 1
-
-# HELP ssh_transport_server_host_key_verify_info How the server host key was verified. Absent unless verification and key exchange succeeded.
-# TYPE ssh_transport_server_host_key_verify_info gauge
-ssh_transport_server_host_key_verify_info{algorithm="ssh-ed25519-cert-v01@openssh.com",certificate_error_reason="",host_key="certificate",verified_by="ca_key"} 1
-
-# HELP ssh_transport_server_host_key_verify_known_hosts_line Number of the known_hosts line that decided the server host key verification, like OpenSSH's "Found key in" and "Offending key in". Absent unless one did.
-# TYPE ssh_transport_server_host_key_verify_known_hosts_line gauge
-ssh_transport_server_host_key_verify_known_hosts_line{file="/etc/ssh/ssh_known_hosts"} 12
-
-# HELP ssh_transport_server_host_key_verify_success Whether the server host key was verified (RFC 4253 section 8).
-# TYPE ssh_transport_server_host_key_verify_success gauge
-ssh_transport_server_host_key_verify_success 1
-
-# HELP ssh_transport_server_identification_info Identification string sent by the server (RFC 4253 section 4.2). Absent unless the version exchange succeeded, or if it could not be parsed.
-# TYPE ssh_transport_server_identification_info gauge
-ssh_transport_server_identification_info{comments="Debian-2+deb12u10",identification_string="SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u10",protoversion="2.0",softwareversion="OpenSSH_9.2p1"} 1
-
-# HELP ssh_transport_server_identification_rfc_conformant Whether the server's identification string conforms to RFC 4253 section 4.2. Absent unless the version exchange succeeded.
-# TYPE ssh_transport_server_identification_rfc_conformant gauge
-ssh_transport_server_identification_rfc_conformant 1
-
-# HELP ssh_transport_success Whether the probe succeeded: every phase completed and the server host key was verified.
-# TYPE ssh_transport_success gauge
-ssh_transport_success 1
-
-# HELP ssh_transport_tcp_connect_duration_seconds Time taken to establish the TCP connection, excluding name resolution. Absent on failure.
-# TYPE ssh_transport_tcp_connect_duration_seconds gauge
-ssh_transport_tcp_connect_duration_seconds 0.026296792
-
-# HELP ssh_transport_tcp_connect_success Whether a TCP connection to the target could be established.
-# TYPE ssh_transport_tcp_connect_success gauge
-ssh_transport_tcp_connect_success 1
-
-# HELP ssh_transport_tcp_mss_bytes TCP maximum segment size negotiated at connect time. Absent if unavailable.
-# TYPE ssh_transport_tcp_mss_bytes gauge
-ssh_transport_tcp_mss_bytes 1448
-
-# HELP ssh_transport_version_exchange_duration_seconds Time taken for the version exchange (RFC 4253 section 4.2). Absent on failure.
-# TYPE ssh_transport_version_exchange_duration_seconds gauge
-ssh_transport_version_exchange_duration_seconds 0.012437291
-
-# HELP ssh_transport_version_exchange_success Whether the server's identification string was received (RFC 4253 section 4.2).
-# TYPE ssh_transport_version_exchange_success gauge
-ssh_transport_version_exchange_success 1
-```
-
-One further metric is absent above because the sample negotiated an AEAD cipher
-(`aes128-gcm@openssh.com`, `aes256-gcm@openssh.com` or
-`chacha20-poly1305@openssh.com`), which authenticates without a separate MAC. It
-appears whenever a non-AEAD cipher is agreed, which is what makes a module
-restricted to CBC or RC4 ciphers able to audit MAC choice:
-
-```
-# HELP ssh_transport_mac_algorithm_info Negotiated MAC algorithm per direction (RFC 4253 section 7.1). Absent for AEAD ciphers, which need no separate MAC.
-# TYPE ssh_transport_mac_algorithm_info gauge
-ssh_transport_mac_algorithm_info{algorithm="hmac-sha2-256-etm@openssh.com",direction="client_to_server"} 1
-ssh_transport_mac_algorithm_info{algorithm="hmac-sha2-256-etm@openssh.com",direction="server_to_client"} 1
-```
-
-An unsuccessful probe adds an `ssh_transport_error_info` metric, reports `0` for
-the `*_success` gauge of the phase that failed and of every later phase, and
-omits their `*_duration_seconds` metrics. See [Error
-Phases and Reasons](#error-phases-and-reasons) for the label values. For a probe
-whose target failed DNS resolution:
-
-```
-# HELP ssh_transport_error_info Phase and reason this probe failed. Absent if the probe succeeded.
-# TYPE ssh_transport_error_info gauge
-ssh_transport_error_info{phase="dns_lookup",reason="dns_failure"} 1
-```
-
-### Exporter Metrics
-
-The exporter's own metrics are served from `/metrics`, under the
-`ssh_transport_exporter` namespace, alongside the standard Go runtime and
-process collectors:
-
-```
-# HELP ssh_transport_exporter_build_info A metric with a constant '1' value labeled by version, revision, branch, goversion from which ssh_transport_exporter was built, and the goos and goarch for the build.
-# TYPE ssh_transport_exporter_build_info gauge
-ssh_transport_exporter_build_info{branch="HEAD",goarch="arm64",goos="darwin",goversion="go1.26.5",revision="ef06da765d59345b2f8600196342bc9e7a2dabe2",tags="unknown",version="0.15.0"} 1
-
-# HELP ssh_transport_exporter_probe_requests_total Total probe requests served by module and HTTP status code. Module is empty when the request named no configured module.
-# TYPE ssh_transport_exporter_probe_requests_total counter
-ssh_transport_exporter_probe_requests_total{code="200",module="default"} 1
-ssh_transport_exporter_probe_requests_total{code="400",module=""} 1
-ssh_transport_exporter_probe_requests_total{code="403",module="default"} 1
-
-# HELP ssh_transport_exporter_probes_in_flight Probes currently running.
-# TYPE ssh_transport_exporter_probes_in_flight gauge
-ssh_transport_exporter_probes_in_flight 0
-
-# HELP ssh_transport_exporter_config_last_reload_successful Whether the most recent configuration load succeeded. 0 means the exporter is still serving the previously loaded configuration.
-# TYPE ssh_transport_exporter_config_last_reload_successful gauge
-ssh_transport_exporter_config_last_reload_successful 1
-
-# HELP ssh_transport_exporter_config_last_reload_success_timestamp_seconds Unix timestamp of the most recent successful configuration load.
-# TYPE ssh_transport_exporter_config_last_reload_success_timestamp_seconds gauge
-ssh_transport_exporter_config_last_reload_success_timestamp_seconds 1.7712e+09
-```
-
-`config_last_reload_successful` goes to `0` when a `SIGHUP` reload fails, while
-the exporter keeps serving the previously loaded configuration, so it is worth
-alerting on.
-
-`probe_requests_total` counts every request to `/probe` by module and response
-code: `400` for a missing or malformed target and for an unknown module, `403`
-for a target or port the module does not allow, and `503` once
-`--probe.max-concurrent` is reached. The module label is empty when the request
-named no configured module, which keeps an unknown module name from creating
-series.
-
-`probes_in_flight` tracks probes currently running and is what to compare
-against `--probe.max-concurrent` when sizing it.
-
-## Error Phases and Reasons
-
-When a probe does not fully succeed, the exporter emits a single
-`ssh_transport_error_info` metric (constant `1`) carrying two labels `phase`
-and `reason`, and omits the `*_duration_seconds` metrics of the phase that
-failed and of every later phase. The `phase` label identifies *how far* the
-probe got before failing; the `reason` label explains *why* it failed in that
-phase.
-
-### Phases
-
-The phase is the last one the probe reached. Probing proceeds strictly in this
-order: *DNS lookup*, *TCP connect*, *version exchange*, *key exchange*. The
-server's host key is verified within the key exchange, before it completes.
-
-| Phase | Description |
-| --- | --- |
-| `dns_lookup` | Failure while resolving the target hostname, before any connection attempt. IP literal targets skip this phase. |
-| `tcp_connect` | Failure while establishing the underlying TCP connection to the target (before anything SSH). |
-| `version_exchange` | Failure before the server sent its identification string (RFC 4253 section 4.2), e.g. a service on the port that is not SSH or an sshd that drops the connection. |
-| `key_exchange` | Failure during the SSH transport-layer key exchange (RFC 4253 section 7), after the version exchange. This includes verifying the server host key against `known_hosts`, which takes precedence over a key exchange that fails after the check. |
-
-### Reasons
-
-The reason narrows down the cause within a phase.
-
-| Reason | Typical Phase(s) | Description |
-| --- | --- | --- |
-| `connection_refused` | `tcp_connect` | The target actively refused the connection (`ECONNREFUSED`), commonly because nothing is listening on the port or a firewall sent a reset. |
-| `no_route_to_host` | `tcp_connect` | The destination *network* is reachable, but the specific *host* is not (`EHOSTUNREACH`), often a down host or an ICMP host-unreachable from a router. |
-| `network_unreachable` | `tcp_connect` | There is no route to the destination *network* at all (`ENETUNREACH`), typically a missing route, an absent default gateway, or a down interface on the prober side. |
-| `dns_failure` | `dns_lookup` | The target hostname could not be resolved (DNS lookup error). |
-| `connection_reset` | `tcp_connect`, `version_exchange`, `key_exchange` | The peer hung up unexpectedly, e.g. sshd dropping the client on `MaxStartups` or a TCP wrapper, or a firewall or load balancer in the path. Covers both a clean close (`EOF`) and a reset (`ECONNRESET`, `EPIPE`), since which one the probe sees depends on timing. |
-| `timeout` | `dns_lookup`, `tcp_connect`, `version_exchange`, `key_exchange` | The operation exceeded its deadline (the effective probe timeout, or a network-level timeout). |
-| `canceled` | `dns_lookup`, `tcp_connect`, `version_exchange`, `key_exchange` | The caller went away before the probe finished, typically Prometheus abandoning the scrape. The response is discarded in that case, so this mostly shows up in debug logs. |
-| `server_host_key_unknown` | `key_exchange` | The server presented a host key, but the target host has no matching entry in `known_hosts`. |
-| `server_host_key_mismatch` | `key_exchange` | The server's host key does **not** match the keys listed for the target. This points to a man-in-the-middle or an un-rotated key. |
-| `server_host_key_revoked` | `key_exchange` | The host key, or a certificate's key or CA, is marked `@revoked` in `known_hosts`. |
-| `server_host_certificate_ca_unknown` | `key_exchange` | No `@cert-authority` line trusts the CA of the server's host certificate for the target. |
-| `server_host_certificate_not_yet_valid` | `key_exchange` | The server's host certificate isn't valid yet. |
-| `server_host_certificate_expired` | `key_exchange` | The server's host certificate has expired. |
-| `server_host_certificate_principal_not_listed` | `key_exchange` | No principal of the server's host certificate matches the target. |
-| `server_host_certificate_signature_algorithm_disallowed` | `key_exchange` | The CA signed the server's host certificate with an algorithm the probe isn't configured to accept, e.g. `ssh-rsa` (SHA-1). |
-| `server_host_certificate_other` | `key_exchange` | The server's host certificate is invalid for another reason, e.g. it is a user certificate. |
-| `server_host_certificate_signature_invalid` | `key_exchange` | The CA signature of the server's host certificate doesn't verify. |
-| `server_host_key_rejected` | `key_exchange` | The server host key was rejected for any other reason. |
-| `no_common_kex_algorithm` | `key_exchange` | The server supports none of the key exchange algorithms the probe offers (`kex_algorithms` in the module). |
-| `no_common_host_key_algorithm` | `key_exchange` | The server has no host key of a type the probe accepts (`host_key_algorithms` in the module), e.g. an ed25519-only server probed with RSA only. |
-| `no_common_cipher` | `key_exchange` | The server supports none of the ciphers the probe offers (`ciphers` in the module). |
-| `no_common_mac` | `key_exchange` | A non-AEAD cipher was negotiated, but the server supports none of the MACs the probe offers (`macs` in the module). |
-| `no_common_algorithm` | `key_exchange` | Algorithm negotiation failed for a list not covered above. All five `no_common_*` reasons are certain: the probe itself found no common algorithm in the server's offer, so `error_reason=~"no_common_.*"` matches every negotiation failure. |
-| `user_auth_reached` | `key_exchange` | The probe went on to user authentication (RFC 4252) instead of aborting once the transport layer was established. This is a bug in the exporter or its `golang.org/x/crypto` fork, not a problem with the target; please open an issue. |
-| `other` | any | The failure did not match any of the classified cases above. If you see this frequently, please open an issue with the target and (debug-level) logs so the classification can be improved. |
-
-`ssh_transport_server_host_key_verify_info` reports in
-`certificate_error_reason` why a host certificate didn't verify when its plain
-key did, using the `server_host_certificate_*` reasons above.

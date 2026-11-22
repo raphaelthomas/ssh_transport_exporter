@@ -32,6 +32,9 @@ Prometheus exporter for the SSH transport layer (RFC 4253).
   sentences, observable behaviour only.
 - Document every outcome that differs from OpenSSH under "Differences from
   OpenSSH".
+- The README's metrics sample copies the collector's HELP lines: change both
+  together. Metric names in the README's diagrams and alerts must exist, and
+  its `#anchors`, also those from `SECURITY.md`, must resolve.
 - Checks: `make test vet lint vuln e2e`.
 
 ## New OpenSSH release
